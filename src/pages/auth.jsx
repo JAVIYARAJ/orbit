@@ -1,4 +1,4 @@
-// auth.jsx — Login & Sign-up screens
+// auth.jsx — Login, Sign-up, Forgot password, Email confirmation
 
 import { useState } from 'react';
 import { Icon } from '../components/shell.jsx';
@@ -13,12 +13,23 @@ const HEATMAP = [
 ];
 
 const PROJECTS_PREVIEW = [
-  { id: 'KMBL',  name: 'Kombi — Loyalty App',       pct: 64, status: 'progress', color: '#0099ff' },
-  { id: 'PULS',  name: 'Pulse — Habit Tracker',     pct: 78, status: 'progress', color: '#0099ff' },
-  { id: 'NORTH', name: 'Northwind Field Service',   pct: 91, status: 'review',   color: '#ff9500' },
+  { id: 'KMBL',  name: 'Kombi — Loyalty App',     pct: 64, color: '#0099ff' },
+  { id: 'PULS',  name: 'Pulse — Habit Tracker',   pct: 78, color: '#0099ff' },
+  { id: 'NORTH', name: 'Northwind Field Service',  pct: 91, color: '#ff9500' },
 ];
 
-// Google "G" monogram SVG — inline to avoid external dependency
+// Friendly messages for common Supabase auth error codes
+const friendlyError = (msg = '') => {
+  if (msg.includes('Invalid login credentials'))   return 'Incorrect email or password.';
+  if (msg.includes('Email not confirmed'))          return 'Please confirm your email before signing in.';
+  if (msg.includes('User already registered'))      return 'An account with this email already exists. Sign in instead.';
+  if (msg.includes('Password should be at least'))  return 'Password must be at least 6 characters.';
+  if (msg.includes('Unable to validate email'))     return 'Enter a valid email address.';
+  if (msg.includes('For security purposes'))        return 'Too many attempts. Please wait a moment and try again.';
+  if (msg.includes('signup is disabled'))           return 'New sign-ups are currently disabled.';
+  return msg;
+};
+
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" style={{ display: 'block', flexShrink: 0 }}>
     <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908C16.658 14.253 17.64 11.945 17.64 9.2z" fill="#4285F4"/>
@@ -33,23 +44,24 @@ const Spinner = ({ light }) => (
 );
 
 export const AuthPage = ({ onAuth }) => {
-  const [mode,          setMode]         = useState('login');   // 'login' | 'signup' | 'forgot'
-  const [name,          setName]         = useState('');
-  const [email,         setEmail]        = useState('');
-  const [password,      setPassword]     = useState('');
-  const [showPw,        setShowPw]       = useState(false);
-  const [remember,      setRemember]     = useState(true);
-  const [loading,       setLoading]      = useState(false);
-  const [googleLoading, setGoogleLoading]= useState(false);
-  const [error,         setError]        = useState('');
-  const [forgotSent,    setForgotSent]   = useState(false);
+  const [mode,          setMode]          = useState('login');   // login | signup | forgot
+  const [name,          setName]          = useState('');
+  const [email,         setEmail]         = useState('');
+  const [password,      setPassword]      = useState('');
+  const [showPw,        setShowPw]        = useState(false);
+  const [loading,       setLoading]       = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [error,         setError]         = useState('');
+  const [emailSent,     setEmailSent]     = useState(false); // covers both forgot + signup confirm
+  const [emailSentType, setEmailSentType] = useState('');   // 'confirm' | 'reset'
 
-  const reset = (m) => { setMode(m); setError(''); setForgotSent(false); };
+  const reset = (m) => { setMode(m); setError(''); setEmailSent(false); };
+  const busy  = loading || googleLoading;
 
   const validate = () => {
-    if (mode === 'signup' && !name.trim())       return 'Full name is required.';
-    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) return 'Enter a valid email address.';
-    if (mode !== 'forgot' && password.length < 6)   return 'Password must be at least 6 characters.';
+    if (mode === 'signup' && !name.trim())             return 'Full name is required.';
+    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/))   return 'Enter a valid email address.';
+    if (mode !== 'forgot' && password.length < 6)      return 'Password must be at least 6 characters.';
     return null;
   };
 
@@ -57,15 +69,20 @@ export const AuthPage = ({ onAuth }) => {
     e.preventDefault();
     setError('');
 
+    // ── Forgot password ──────────────────────────────────────────
     if (mode === 'forgot') {
-      if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) { setError('Enter a valid email address.'); return; }
+      if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+        setError('Enter a valid email address.');
+        return;
+      }
       setLoading(true);
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: window.location.origin,
       });
       setLoading(false);
-      if (error) { setError(error.message); return; }
-      setForgotSent(true);
+      if (error) { setError(friendlyError(error.message)); return; }
+      setEmailSentType('reset');
+      setEmailSent(true);
       return;
     }
 
@@ -73,27 +90,36 @@ export const AuthPage = ({ onAuth }) => {
     if (err) { setError(err); return; }
     setLoading(true);
 
+    // ── Sign up ──────────────────────────────────────────────────
     if (mode === 'signup') {
+      const displayName = name.trim() || email.split('@')[0];
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name: name || email.split('@')[0] } },
+        options: {
+          data:           { name: displayName },
+          emailRedirectTo: window.location.origin,
+        },
       });
       setLoading(false);
-      if (error) { setError(error.message); return; }
-      if (data.user) {
-        const displayName = name || email.split('@')[0];
-        onAuth({ id: data.user.id, name: displayName, email, avatar: displayName[0].toUpperCase(), method: 'email' });
+      if (error) { setError(friendlyError(error.message)); return; }
+
+      if (data.session) {
+        // Email confirmation disabled — user is immediately active
+        onAuth(buildUser(data.user));
+      } else {
+        // Supabase sent a confirmation email — show check-inbox screen
+        setEmailSentType('confirm');
+        setEmailSent(true);
       }
-    } else {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      setLoading(false);
-      if (error) { setError(error.message); return; }
-      if (data.user) {
-        const displayName = data.user.user_metadata?.name || email.split('@')[0];
-        onAuth({ id: data.user.id, name: displayName, email, avatar: displayName[0].toUpperCase(), method: 'email' });
-      }
+      return;
     }
+
+    // ── Sign in ──────────────────────────────────────────────────
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (error) { setError(friendlyError(error.message)); return; }
+    if (data.user) onAuth(buildUser(data.user));
   };
 
   const handleGoogle = async () => {
@@ -101,34 +127,34 @@ export const AuthPage = ({ onAuth }) => {
     setGoogleLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options:  { redirectTo: window.location.origin },
     });
     if (error) {
       setGoogleLoading(false);
-      setError(error.message);
+      setError(friendlyError(error.message));
     }
-    // On success: Supabase redirects to Google — loading stays true until redirect
+    // Success → Supabase redirects to Google; onAuthStateChange in App picks up the session
   };
 
-  const busy = loading || googleLoading;
+  const buildUser = (u) => {
+    const n = u.user_metadata?.name || u.email.split('@')[0];
+    return { id: u.id, name: n, email: u.email, avatar: n[0].toUpperCase() };
+  };
 
   return (
     <div className="auth-wrap">
 
-      {/* ── Left brand panel ──────────────────────────────────────── */}
+      {/* ── Left brand panel ──────────────────────────────────── */}
       <aside className="auth-panel">
-        {/* Ambient glows */}
         <div className="auth-glow auth-glow-1" />
         <div className="auth-glow auth-glow-2" />
 
-        {/* Logo */}
         <div className="auth-logo">
           <span className="auth-logo-dot" />
           <span>DevOS</span>
           <span className="auth-logo-ver">v1.0</span>
         </div>
 
-        {/* Hero headline */}
         <div className="auth-hero">
           <div className="auth-hero-eyebrow">Developer Dashboard</div>
           <h1 className="auth-hero-title">
@@ -141,10 +167,7 @@ export const AuthPage = ({ onAuth }) => {
           </p>
         </div>
 
-        {/* Mini dashboard preview card */}
         <div className="auth-preview">
-
-          {/* Header */}
           <div className="auth-preview-hd">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff3d3d' }} />
@@ -159,7 +182,6 @@ export const AuthPage = ({ onAuth }) => {
             </div>
           </div>
 
-          {/* Stat row */}
           <div className="auth-preview-stats">
             {[
               { v: '78',   l: 'SCORE',    c: 'var(--accent-hi)' },
@@ -174,7 +196,6 @@ export const AuthPage = ({ onAuth }) => {
             ))}
           </div>
 
-          {/* Project bars */}
           <div className="auth-preview-projects">
             {PROJECTS_PREVIEW.map(p => (
               <div key={p.id} className="auth-preview-proj">
@@ -190,7 +211,6 @@ export const AuthPage = ({ onAuth }) => {
             ))}
           </div>
 
-          {/* Mini heatmap */}
           <div className="auth-preview-heatmap">
             {HEATMAP.map((l, i) => (
               <div key={i} className={`auth-preview-cell ${l > 0 ? `l${l}` : ''}`} />
@@ -198,27 +218,22 @@ export const AuthPage = ({ onAuth }) => {
           </div>
         </div>
 
-        {/* Feature pills */}
         <div className="auth-pills">
-          {PILLS.map(p => (
-            <span key={p} className="auth-pill">{p}</span>
-          ))}
+          {PILLS.map(p => <span key={p} className="auth-pill">{p}</span>)}
         </div>
 
-        <div className="auth-panel-foot">
-          Secure · Local-first · Open source
-        </div>
+        <div className="auth-panel-foot">Secure · Local-first · Open source</div>
       </aside>
 
-      {/* ── Right form panel ──────────────────────────────────────── */}
+      {/* ── Right form panel ──────────────────────────────────── */}
       <main className="auth-form-wrap">
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
 
           {/* Heading */}
           <div className="auth-form-head">
             <h2>
-              {mode === 'login'  ? 'Welcome back'    :
-               mode === 'signup' ? 'Create account'  :
+              {mode === 'login'  ? 'Welcome back'   :
+               mode === 'signup' ? 'Create account' :
                                    'Reset password'}
             </h2>
             <p>
@@ -228,14 +243,45 @@ export const AuthPage = ({ onAuth }) => {
             </p>
           </div>
 
-          {/* ── Forgot-sent confirmation ── */}
-          {forgotSent ? (
-            <div className="auth-success">
-              <Icon name="check-circle" size={16} />
-              Reset link sent to <strong>{email}</strong>. Check your inbox.
-              <button type="button" className="auth-link" onClick={() => reset('login')}
-                style={{ marginTop: 16 }}>
+          {/* ── Email sent confirmation (signup confirm OR reset) ── */}
+          {emailSent ? (
+            <div className="auth-email-sent">
+              <div className="auth-email-sent-icon">
+                <Icon name="mail" size={22} />
+              </div>
+              <h3>Check your inbox</h3>
+              {emailSentType === 'confirm' ? (
+                <p>
+                  We sent a confirmation link to <strong>{email}</strong>.<br />
+                  Click the link to activate your account, then come back here to sign in.
+                </p>
+              ) : (
+                <p>
+                  We sent a password reset link to <strong>{email}</strong>.<br />
+                  Check your inbox and follow the instructions.
+                </p>
+              )}
+              <button
+                type="button"
+                className="auth-submit"
+                style={{ marginTop: 8 }}
+                onClick={() => reset('login')}
+              >
                 Back to sign in
+              </button>
+              <button type="button" className="auth-link" style={{ marginTop: 12 }}
+                onClick={async () => {
+                  setLoading(true);
+                  if (emailSentType === 'confirm') {
+                    await supabase.auth.resend({ type: 'signup', email });
+                  } else {
+                    await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+                  }
+                  setLoading(false);
+                }}
+                disabled={loading}
+              >
+                {loading ? 'Sending…' : 'Resend email'}
               </button>
             </div>
           ) : (
@@ -269,10 +315,9 @@ export const AuthPage = ({ onAuth }) => {
                 <div className="auth-field">
                   <label htmlFor="auth-name">Full name</label>
                   <input
-                    id="auth-name" type="text" placeholder="Raunak Raj"
+                    id="auth-name" type="text" placeholder="Your name"
                     value={name} onChange={e => setName(e.target.value)}
-                    autoComplete="name" disabled={busy}
-                    autoFocus
+                    autoComplete="name" disabled={busy} autoFocus
                   />
                 </div>
               )}
@@ -295,12 +340,8 @@ export const AuthPage = ({ onAuth }) => {
                   <label htmlFor="auth-pw">
                     Password
                     {mode === 'login' && (
-                      <button
-                        type="button"
-                        className="auth-link auth-forgot-link"
-                        onClick={() => reset('forgot')}
-                        tabIndex={-1}
-                      >
+                      <button type="button" className="auth-link auth-forgot-link"
+                        onClick={() => reset('forgot')} tabIndex={-1}>
                         Forgot password?
                       </button>
                     )}
@@ -315,40 +356,26 @@ export const AuthPage = ({ onAuth }) => {
                       autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                       disabled={busy}
                     />
-                    <button
-                      type="button"
-                      className="auth-pw-toggle"
-                      onClick={() => setShowPw(s => !s)}
-                      tabIndex={-1}
-                      aria-label={showPw ? 'Hide password' : 'Show password'}
-                    >
+                    <button type="button" className="auth-pw-toggle"
+                      onClick={() => setShowPw(s => !s)} tabIndex={-1}
+                      aria-label={showPw ? 'Hide password' : 'Show password'}>
                       <Icon name={showPw ? 'eye-off' : 'eye'} size={14} />
                     </button>
                   </div>
+                  {/* Password strength bar — signup only */}
+                  {mode === 'signup' && password.length > 0 && (
+                    <PasswordStrength password={password} />
+                  )}
                 </div>
               )}
 
-              {/* Remember me — login only */}
-              {mode === 'login' && (
-                <label className="auth-remember">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={e => setRemember(e.target.checked)}
-                  />
-                  <span>Stay signed in for 30 days</span>
-                </label>
-              )}
-
               {/* Submit */}
-              <button
-                type="submit"
-                className="auth-submit"
-                disabled={busy}
-              >
+              <button type="submit" className="auth-submit" disabled={busy}>
                 {loading && <Spinner light />}
                 {loading
-                  ? (mode === 'forgot' ? 'Sending…' : 'Signing in…')
+                  ? mode === 'signup' ? 'Creating account…'
+                  : mode === 'forgot' ? 'Sending…'
+                  :                    'Signing in…'
                   : mode === 'login'  ? 'Sign in'
                   : mode === 'signup' ? 'Create account'
                   :                    'Send reset link'}
@@ -380,4 +407,31 @@ export const AuthPage = ({ onAuth }) => {
       </main>
     </div>
   );
+};
+
+// ── Password strength indicator ────────────────────────────────────
+const PasswordStrength = ({ password }) => {
+  const score = getStrength(password);
+  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
+  const colors = ['#ef4444', '#ef4444', '#f97316', '#eab308', '#22c55e'];
+  return (
+    <div className="auth-pw-strength">
+      <div className="auth-pw-bars">
+        {[0,1,2,3].map(i => (
+          <div key={i} className="auth-pw-bar"
+            style={{ background: i < score ? colors[score] : 'var(--border-2)' }} />
+        ))}
+      </div>
+      <span style={{ color: colors[score], fontSize: 10 }}>{labels[score]}</span>
+    </div>
+  );
+};
+
+const getStrength = (pw) => {
+  if (pw.length < 6) return 0;
+  let s = 1;
+  if (pw.length >= 8)                      s++;
+  if (/[A-Z]/.test(pw) && /[0-9]/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw))             s++;
+  return Math.min(s, 4);
 };

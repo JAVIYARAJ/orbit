@@ -1,15 +1,44 @@
 // tools.jsx — Project Management, Notes, Time Tracker, Email Hub, Dev Toolkit
 
-import React, { useMemo } from 'react';
-import { useState as useStateB, useEffect as useEffectB } from 'react';
+import React from 'react';
+import { useState as useStateB, useEffect as useEffectB, useRef as useRefB } from 'react';
 import { Icon, SlidePanel } from '../components/shell.jsx';
+import {
+  createNote as dbCreateNote, updateNote as dbUpdateNote,
+  createEmailTemplate,
+} from '../lib/db.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //  6. PROJECT MANAGEMENT — Gantt + Health
 // ═══════════════════════════════════════════════════════════════════
-export const ProjectMgmtPage = ({ projects, ganttTasks }) => {
-  const proj = projects.find(p => p.id === 'KMBL') || projects[0];
-  const WEEKS = ['W10','W11','W12','W13','W14','W15','W16','W17','W18','W19','W20','W21'];
+export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
+  const [selId, setSelId] = useStateB(projects[0]?.id || '');
+  const proj = projects.find(p => p.id === selId) || projects[0] || null;
+  const WEEKS = ['W1','W2','W3','W4','W5','W6','W7','W8','W9','W10','W11','W12'];
+
+  if (!proj) {
+    return (
+      <div className="page page-wide">
+        <div className="page-head">
+          <div>
+            <div className="crumb">WORKSPACE / PROJECT MGMT</div>
+            <h1>Project management</h1>
+          </div>
+        </div>
+        <div className="empty-state">
+          <Icon name="chart" size={32} />
+          <div className="empty-title">No projects yet</div>
+          <div className="empty-sub">Create a project first to view its timeline and health.</div>
+          <button className="btn primary" onClick={() => onNav('projects')}>
+            <Icon name="plus" size={12} /> New project
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const remaining = Math.max(0, proj.hoursEst - proj.hoursLogged);
+  const burnPct   = proj.hoursEst > 0 ? Math.round((proj.hoursLogged / proj.hoursEst) * 100) : 0;
 
   return (
     <div className="page page-wide">
@@ -20,12 +49,15 @@ export const ProjectMgmtPage = ({ projects, ganttTasks }) => {
             {proj.name}
             <span className="num" style={{ fontSize: 14, color: 'var(--text-3)' }}>{proj.id}</span>
           </h1>
-          <div className="sub">{proj.client} · {proj.type} · {proj.start} → {proj.end}</div>
+          <div className="sub">{proj.client} · {proj.type} · {proj.start || '—'} → {proj.end || '—'}</div>
         </div>
         <div className="actions">
-          <button className="btn"><Icon name="git" size={12}/> Repo</button>
+          {projects.length > 1 && (
+            <select value={selId} onChange={e => setSelId(e.target.value)} style={{ fontFamily: 'var(--f-mono)', fontSize: 11, background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text)', padding: '6px 10px' }}>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
+            </select>
+          )}
           <button className="btn"><Icon name="download" size={12}/> Export PDF</button>
-          <button className="btn primary"><Icon name="plus" size={12}/> Add milestone</button>
         </div>
       </div>
 
@@ -33,29 +65,23 @@ export const ProjectMgmtPage = ({ projects, ganttTasks }) => {
         <div>
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="card-h">
-              <div className="t">Timeline · 12 weeks</div>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <span className="lbl">SHOW</span>
-                <div className="view-toggle">
-                  <button className="active">WEEKS</button>
-                  <button>DAYS</button>
-                  <button>MONTHS</button>
-                </div>
-                <span className="lbl" style={{ display:'flex', gap: 8 }}>
-                  <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'var(--accent)'}}></span>ACTIVE</span>
-                  <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'rgba(22,163,74,0.6)'}}></span>DONE</span>
-                  <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'rgba(217,119,6,0.6)'}}></span>REVIEW</span>
-                </span>
-              </div>
+              <div className="t">Timeline · {WEEKS.length} weeks</div>
+              <span className="lbl" style={{ display:'flex', gap: 8 }}>
+                <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'var(--accent)'}}></span>ACTIVE</span>
+                <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'rgba(22,163,74,0.6)'}}></span>DONE</span>
+                <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'rgba(217,119,6,0.6)'}}></span>REVIEW</span>
+              </span>
             </div>
             <div className="gantt">
               <div className="gantt-h">
                 <div className="cell">TASK</div>
-                {WEEKS.map((w, i) => (
-                  <div key={w} className="cell" style={i === 8 ? { color: 'var(--accent-hi)', background: 'rgba(1,117,194,0.05)' } : {}}>{w}</div>
-                ))}
+                {WEEKS.map(w => <div key={w} className="cell">{w}</div>)}
               </div>
-              {ganttTasks.map((t, idx) => {
+              {ganttTasks.length === 0 ? (
+                <div style={{ padding: '24px 16px', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)' }}>
+                  No timeline tasks yet.
+                </div>
+              ) : ganttTasks.map((t, idx) => {
                 const startPct = ((t.start - 1) / 12) * 100;
                 const widthPct = ((t.end - t.start) / 12) * 100;
                 if (t.status === 'milestone') {
@@ -89,103 +115,70 @@ export const ProjectMgmtPage = ({ projects, ganttTasks }) => {
                   </div>
                 );
               })}
-              <div style={{ position: 'absolute', top: 0, left: 'calc(200px + 8.6 * (100% - 200px) / 12)', height: '100%', borderLeft: '1px dashed var(--accent-hi)', pointerEvents: 'none' }}>
-                <div style={{ position: 'absolute', top: 4, left: 4, fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--accent-hi)', background: 'var(--bg-1)', padding: '0 4px' }}>TODAY</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-2">
-            <div className="card">
-              <div className="card-h"><div className="t">Recent activity</div><span className="lbl">LAST 48H</span></div>
-              <div style={{ padding: '6px 0' }}>
-                {[
-                  { who: 'Me', what: 'pushed feat/punch-card-confetti', when: '12m ago' },
-                  { who: 'Me', what: 'moved KMBL-15 to Review', when: '2h ago' },
-                  { who: 'Owen K.', what: 'commented on KMBL-12', when: 'Yesterday' },
-                  { who: 'Me', what: 'logged 1.5h on KMBL-17', when: 'Yesterday' },
-                  { who: 'CI', what: 'green build on main · #4421', when: 'Yesterday' },
-                ].map((a, i) => (
-                  <div key={i} style={{ padding: '8px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: 12 }}><b>{a.who}</b> <span style={{ color: 'var(--text-2)' }}>{a.what}</span></div>
-                    <span className="label-mono" style={{ fontSize: 9 }}>{a.when}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="card">
-              <div className="card-h"><div className="t">Dependencies & blockers</div><span className="lbl">2 OPEN</span></div>
-              <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {[
-                  { icon: 'x', color: '#f87171', text: 'Stripe webhook IP allow-list — waiting on client IT', sub: 'BLOCKS KMBL-19 · 4 DAYS OVERDUE' },
-                  { icon: 'rev', color: '#fbbf24', text: 'Design approval — punch-card visual variants', sub: 'BLOCKS KMBL-17 · DUE TOMORROW' },
-                  { icon: 'check', color: '#4ade80', text: 'Apple Developer renewal — auto-renewed', sub: 'UNBLOCKED · 2026-04-29' },
-                ].map((item, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <span style={{ color: item.color }}><Icon name={item.icon} size={12}/></span>
-                    <div>
-                      <div style={{ fontSize: 12 }}>{item.text}</div>
-                      <div className="label-mono" style={{ marginTop: 2 }}>{item.sub}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
         </div>
 
         <div className="pm-side">
           <div className="card">
-            <div className="card-h"><div className="t">Health</div><span className="pill progress"><span className="d"></span>ON TRACK</span></div>
+            <div className="card-h">
+              <div className="t">Health</div>
+              <span className={'pill ' + proj.status}><span className="d"></span>{proj.status.toUpperCase()}</span>
+            </div>
             <div className="health-grid">
-              <div className="cell"><div className="l">On-track %</div><div className="v ok">82%</div></div>
-              <div className="cell"><div className="l">Overdue</div><div className="v warn">2</div></div>
+              <div className="cell"><div className="l">Progress</div><div className="v ok">{proj.progress}%</div></div>
+              <div className="cell"><div className="l">Open tasks</div><div className="v">{proj.openTasks}</div></div>
               <div className="cell"><div className="l">Burned</div><div className="v">{proj.hoursLogged}h</div></div>
-              <div className="cell"><div className="l">Remaining</div><div className="v">{proj.hoursEst - proj.hoursLogged}h</div></div>
+              <div className="cell"><div className="l">Remaining</div><div className="v">{remaining}h</div></div>
             </div>
             <div style={{ padding: '14px 16px' }}>
-              <div className="label-mono" style={{ marginBottom: 6 }}>BUDGET — {proj.budget}</div>
-              <div className="prog" style={{ height: 8 }}><div className="fill" style={{ width: '54%' }}></div></div>
+              <div className="label-mono" style={{ marginBottom: 6 }}>HOURS — {proj.hoursLogged}/{proj.hoursEst}h</div>
+              <div className="prog" style={{ height: 8 }}><div className="fill" style={{ width: burnPct + '%' }}></div></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-2)' }}>
-                <span>€6,720 burned</span><span>54%</span>
+                <span>{proj.hoursLogged}h burned</span><span>{burnPct}%</span>
               </div>
             </div>
           </div>
 
           <div className="card">
-            <div className="card-h"><div className="t">Client</div></div>
-            <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #6b4423, #d97706)', display: 'grid', placeItems: 'center', fontFamily: 'var(--f-mono)', fontSize: 14, color: 'white' }}>R</div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>Roastery Co.</div>
-                  <div className="label-mono">B2C · Bay Area</div>
+            <div className="card-h"><div className="t">Details</div></div>
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
+              {[
+                ['Client',  proj.client || '—'],
+                ['Type',    proj.type   || '—'],
+                ['Start',   proj.start  || '—'],
+                ['End',     proj.end    || '—'],
+                ['Budget',  proj.budget || '—'],
+              ].map(([l, v]) => (
+                <div key={l} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ color: 'var(--text-3)', flexShrink: 0 }}>{l}</span>
+                  <span className="num" style={{ textAlign: 'right' }}>{v}</span>
                 </div>
-              </div>
-              <div style={{ paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11 }}>
-                {[['Primary','Owen Kim'],['Email','owen@roastery.co'],['Slack','#kombi-build'],['TZ','UTC-8 / PST']].map(([l, v]) => (
-                  <div key={l} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{color:'var(--text-3)'}}>{l}</span>
-                    <span className="num" style={{color: l === 'Email' ? 'var(--accent-hi)' : 'inherit'}}>{v}</span>
-                  </div>
-                ))}
-              </div>
+              ))}
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-h"><div className="t">Tech</div></div>
-            <div style={{ padding: '12px 16px' }}>
-              <div className="label-mono" style={{ marginBottom: 6 }}>STACK</div>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-                {proj.stack.map(s => <span key={s} className="tag">{s}</span>)}
+          {(proj.stack?.length > 0 || proj.repo) && (
+            <div className="card">
+              <div className="card-h"><div className="t">Tech</div></div>
+              <div style={{ padding: '12px 16px' }}>
+                {proj.stack?.length > 0 && (
+                  <>
+                    <div className="label-mono" style={{ marginBottom: 6 }}>STACK</div>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                      {proj.stack.map(s => <span key={s} className="tag">{s}</span>)}
+                    </div>
+                  </>
+                )}
+                {proj.repo && proj.repo !== '—' && (
+                  <>
+                    <div className="label-mono" style={{ marginBottom: 6 }}>REPO</div>
+                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', wordBreak: 'break-all' }}>↗ {proj.repo}</div>
+                  </>
+                )}
               </div>
-              <div className="label-mono" style={{ marginBottom: 6 }}>REPO</div>
-              <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', wordBreak: 'break-all' }}>↗ {proj.repo}</div>
-              <div className="label-mono" style={{ marginBottom: 6, marginTop: 10 }}>LAST DEPLOY</div>
-              <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--text-2)' }}>1.3.0-rc.4 · 2026-05-09 14:22</div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -242,11 +235,16 @@ const renderMd = (src) => {
 
 const FOLDERS = ['Clients', 'Pulse', 'Ideas', 'Daily'];
 
-export const NotesPage = ({ notes, setNotes }) => {
+export const NotesPage = ({ notes, setNotes, workstationId }) => {
   const [activeId, setActiveId] = useStateB(notes[0]?.id);
   const [tab, setTab] = useStateB('edit');
   const [q, setQ] = useStateB('');
   const [quickText, setQuickText] = useStateB('');
+  const [autoScrolling, setAutoScrolling] = useStateB(false);
+  const previewRef = useRefB(null);
+  const splitPreviewRef = useRefB(null);
+  const scrollFrameRef = useRefB(null);
+  const scrollDelayRef = useRefB(null);
 
   const note = notes.find(n => n.id === activeId) || notes[0];
   const [body, setBody] = useStateB(note?.body || '');
@@ -262,26 +260,96 @@ export const NotesPage = ({ notes, setNotes }) => {
 
   const handleBodyChange = (val) => { setBody(val); setSaved(false); };
   const handleTitleChange = (val) => { setTitle(val); setSaved(false); };
+  const wordCount = body.split(/\s+/).filter(Boolean).length;
+  const readMs = Math.min(90000, Math.max(8000, Math.round((wordCount / 220) * 60000)));
+  const readLabel = readMs >= 60000 ? `${Math.round(readMs / 60000)}m` : `${Math.round(readMs / 1000)}s`;
 
-  const saveNote = () => {
+  const stopAutoScroll = () => {
+    if (scrollDelayRef.current) window.clearTimeout(scrollDelayRef.current);
+    if (scrollFrameRef.current) window.cancelAnimationFrame(scrollFrameRef.current);
+    scrollDelayRef.current = null;
+    scrollFrameRef.current = null;
+    setAutoScrolling(false);
+  };
+
+  const startAutoScroll = () => {
+    const target = tab === 'split' ? splitPreviewRef.current : previewRef.current;
+    if (!target) return;
+
+    stopAutoScroll();
+    setAutoScrolling(true);
+
+    scrollDelayRef.current = window.setTimeout(() => {
+      const start = target.scrollTop;
+      const end = Math.max(0, target.scrollHeight - target.clientHeight);
+      const distance = end - start;
+      const startedAt = performance.now();
+
+      if (distance <= 0) {
+        setAutoScrolling(false);
+        return;
+      }
+
+      const tick = (now) => {
+        const progress = Math.min(1, (now - startedAt) / readMs);
+        target.scrollTop = start + distance * progress;
+        if (progress < 1) {
+          scrollFrameRef.current = window.requestAnimationFrame(tick);
+        } else {
+          setAutoScrolling(false);
+          scrollFrameRef.current = null;
+        }
+      };
+
+      scrollFrameRef.current = window.requestAnimationFrame(tick);
+    }, 700);
+  };
+
+  useEffectB(() => stopAutoScroll, [activeId, tab, body]);
+
+  const saveNote = async () => {
+    // Optimistic update for instant feedback
     setNotes(prev => prev.map(n => n.id === activeId ? { ...n, title, body, edited: 'Just now' } : n));
     setSaved(true);
+    try {
+      const saved = await dbUpdateNote({
+        id: activeId, title, body,
+        folder: note.folder, tags: note.tags, pinned: note.pinned,
+      });
+      setNotes(prev => prev.map(n => n.id === activeId ? saved : n));
+    } catch (err) {
+      console.error('Failed to save note:', err);
+      setSaved(false);
+    }
   };
 
-  const createNote = () => {
-    const id = Date.now();
-    const newNote = { id, title: 'Untitled note', folder: 'Ideas', tags: [], pinned: false, edited: 'Just now', body: '' };
-    setNotes(prev => [newNote, ...prev]);
-    setActiveId(id);
+  const createNote = async () => {
+    try {
+      const saved = await dbCreateNote(
+        { title: 'Untitled note', folder: 'Ideas', tags: [], pinned: false, body: '' },
+        workstationId,
+      );
+      setNotes(prev => [saved, ...prev]);
+      setActiveId(saved.id);
+    } catch (err) {
+      console.error('Failed to create note:', err);
+    }
   };
 
-  const saveQuick = (e) => {
+  const saveQuick = async (e) => {
     if (e.key === 'Enter' && quickText.trim()) {
-      const id = Date.now();
-      const newNote = { id, title: quickText.trim(), folder: 'Daily', tags: ['#quick'], pinned: false, edited: 'Just now', body: quickText.trim() };
-      setNotes(prev => [newNote, ...prev]);
+      const text = quickText.trim();
       setQuickText('');
-      setActiveId(id);
+      try {
+        const saved = await dbCreateNote(
+          { title: text, folder: 'Daily', tags: ['#quick'], pinned: false, body: text },
+          workstationId,
+        );
+        setNotes(prev => [saved, ...prev]);
+        setActiveId(saved.id);
+      } catch (err) {
+        console.error('Failed to quick-save note:', err);
+      }
     }
   };
 
@@ -364,16 +432,27 @@ export const NotesPage = ({ notes, setNotes }) => {
                     <Icon name="check" size={10}/> Save
                   </button>
                 )}
-                <div className="note-tabs">
-                  <button className={tab==='edit' ? 'active' : ''} onClick={() => setTab('edit')}>EDIT</button>
-                  <button className={tab==='preview' ? 'active' : ''} onClick={() => setTab('preview')}>PREVIEW</button>
-                  <button className={tab==='split' ? 'active' : ''} onClick={() => setTab('split')}>SPLIT</button>
+                <div className="note-reader-actions">
+                  {(tab === 'preview' || tab === 'split') && (
+                    <button
+                      className={'btn sm' + (autoScrolling ? ' primary' : '')}
+                      onClick={autoScrolling ? stopAutoScroll : startAutoScroll}
+                      title={`Auto-scroll over about ${readLabel}`}>
+                      <Icon name={autoScrolling ? 'pause' : 'arrow'} size={10}/>
+                      {autoScrolling ? 'Stop' : `Auto scroll · ${readLabel}`}
+                    </button>
+                  )}
+                  <div className="note-tabs">
+                    <button className={tab==='edit' ? 'active' : ''} onClick={() => setTab('edit')}>EDIT</button>
+                    <button className={tab==='preview' ? 'active' : ''} onClick={() => setTab('preview')}>PREVIEW</button>
+                    <button className={tab==='split' ? 'active' : ''} onClick={() => setTab('split')}>SPLIT</button>
+                  </div>
                 </div>
               </div>
             </div>
             <div className="note-meta">
-              <span>{note.folder.toUpperCase()}</span><span>·</span>
-              <span>EDITED {note.edited.toUpperCase()}</span><span>·</span>
+              <span>{(note.folder || 'General').toUpperCase()}</span><span>·</span>
+              <span>EDITED {(note.edited || '').toUpperCase()}</span><span>·</span>
               <span>{body.length} chars · {body.split(/\s+/).filter(Boolean).length} words</span>
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                 {note.tags.map(t => <span key={t} className="tag" style={{ color: 'var(--accent-hi)', borderColor: 'var(--accent-tint-2)' }}>{t}</span>)}
@@ -385,14 +464,14 @@ export const NotesPage = ({ notes, setNotes }) => {
                 <div className="note-body" style={{ borderRight: '1px solid var(--border)' }}>
                   <textarea value={body} onChange={e => handleBodyChange(e.target.value)} />
                 </div>
-                <div className="note-body note-preview" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
+                <div ref={splitPreviewRef} className="note-body note-preview" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
               </div>
             ) : tab === 'edit' ? (
               <div className="note-body">
                 <textarea value={body} onChange={e => handleBodyChange(e.target.value)} />
               </div>
             ) : (
-              <div className="note-body note-preview" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
+              <div ref={previewRef} className="note-body note-preview" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
             )}
           </div>
         )}
@@ -405,23 +484,10 @@ export const NotesPage = ({ notes, setNotes }) => {
 //  8. TIME TRACKER
 // ═══════════════════════════════════════════════════════════════════
 export const TimerPage = ({ timer, onToggle, projects, tasks, sessions }) => {
-  const [selProj, setSelProj] = useStateB('KMBL');
-  const [selTask, setSelTask] = useStateB('KMBL-17');
+  const [selProj, setSelProj] = useStateB(projects[0]?.id || '');
+  const [selTask, setSelTask] = useStateB('');
 
-  const todayTotal = 6.0;
-  const breakdown = [
-    { name: 'Kombi — Loyalty App', hrs: 3.4, pct: 56 },
-    { name: 'Northwind Field Service', hrs: 1.6, pct: 27 },
-    { name: 'Pulse — Habit Tracker', hrs: 1.0, pct: 17 },
-  ];
-  const week = [6.4, 7.8, 5.2, 8.1, 6.9, 2.1, 0];
-  const maxH = 9;
-
-  // Stable heatmap (won't regenerate on re-render)
-  const heatmap = useMemo(() => {
-    const seed = [0,0,1,2,1,3,0,2,3,4,1,2,0,3,2,1,4,3,2,1,0,2,3,1,2,1,0,3,4,2];
-    return seed;
-  }, []);
+  const projTasks = tasks.filter(t => t.proj === selProj);
 
   return (
     <div className="page page-wide">
@@ -429,7 +495,7 @@ export const TimerPage = ({ timer, onToggle, projects, tasks, sessions }) => {
         <div>
           <div className="crumb">TOOLS / TIME TRACKER</div>
           <h1>Time tracker</h1>
-          <div className="sub">{todayTotal.toFixed(1)}h today · 36.5h this week · streak 47</div>
+          <div className="sub">{sessions.length} sessions logged</div>
         </div>
         <div className="actions">
           <button className="btn"><Icon name="download" size={12}/> Export CSV</button>
@@ -443,62 +509,42 @@ export const TimerPage = ({ timer, onToggle, projects, tasks, sessions }) => {
             <div className="label-mono" style={{ letterSpacing: '0.12em' }}>{timer.running ? 'RUNNING' : 'IDLE'}</div>
             <div className="lnk">
               <span>PROJECT</span>
-              <select value={selProj} onChange={e => setSelProj(e.target.value)}>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
+              <select
+                value={selProj}
+                onChange={e => { setSelProj(e.target.value); setSelTask(''); }}
+                disabled={projects.length === 0}
+              >
+                {projects.length === 0
+                  ? <option value="">— No projects —</option>
+                  : projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
               </select>
               <span>TASK</span>
-              <select value={selTask} onChange={e => setSelTask(e.target.value)}>
-                {tasks.filter(t => t.proj === selProj).map(t => (
-                  <option key={t.id} value={t.id}>{t.id} — {t.title.slice(0, 30)}</option>
-                ))}
+              <select value={selTask} onChange={e => setSelTask(e.target.value)} disabled={projTasks.length === 0}>
+                {projTasks.length === 0
+                  ? <option value="">— No tasks —</option>
+                  : projTasks.map(t => <option key={t.id} value={t.id}>{t.id} — {t.title.slice(0, 30)}</option>)}
               </select>
             </div>
           </div>
           <div className="display">{timer.display}</div>
-          <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--text-3)', letterSpacing: '0.1em' }}>
-            STARTED 14:20 · {timer.running ? 'LIVE' : 'PAUSED'}
-          </div>
           <div className="ctrls">
             <button className="btn" onClick={onToggle}>
               <Icon name={timer.running ? 'pause' : 'play'} size={11}/>
               {timer.running ? 'PAUSE' : 'RESUME'}
             </button>
-            <button className="btn primary"><Icon name="stop" size={11}/> STOP & LOG</button>
+            <button className="btn primary" disabled={!selTask}><Icon name="stop" size={11}/> STOP & LOG</button>
             <button className="btn"><Icon name="x" size={11}/> DISCARD</button>
           </div>
         </div>
 
         <div className="card">
-          <div className="card-h">
-            <div className="t">Today · breakdown by project</div>
-            <span className="num" style={{ color: 'var(--accent-hi)' }}>{todayTotal.toFixed(1)}h</span>
-          </div>
-          <div className="hbar-chart">
-            {breakdown.map(b => (
-              <div key={b.name} className="hbar">
-                <div className="name">{b.name}</div>
-                <div className="bar"><div className="fill" style={{ width: b.pct + '%' }}></div></div>
-                <div className="v">{b.hrs.toFixed(1)}h</div>
-              </div>
-            ))}
-          </div>
-          <div className="card-h" style={{ borderTop: '1px solid var(--border)', borderBottom: 0 }}>
-            <div className="t">EOD summary</div>
-            <span className="label-mono">vs DAILY TARGET 7H</span>
-          </div>
-          <div style={{ padding: '12px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1, background: 'var(--border)' }}>
-            <div style={{ background: 'var(--bg-2)', padding: 10 }}><div className="label-mono">BILLABLE</div><div className="num" style={{ fontSize: 18, marginTop: 4, color: '#4ade80' }}>5.0h</div></div>
-            <div style={{ background: 'var(--bg-2)', padding: 10 }}><div className="label-mono">INTERNAL</div><div className="num" style={{ fontSize: 18, marginTop: 4 }}>1.0h</div></div>
-            <div style={{ background: 'var(--bg-2)', padding: 10 }}><div className="label-mono">DEEP WORK</div><div className="num" style={{ fontSize: 18, marginTop: 4, color: 'var(--accent-hi)' }}>4.2h</div></div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-2" style={{ marginTop: 16 }}>
-        <div className="card">
-          <div className="card-h"><div className="t">Today · sessions</div><span className="lbl">{sessions.length}</span></div>
+          <div className="card-h"><div className="t">Sessions</div><span className="lbl">{sessions.length} TOTAL</span></div>
           <div className="session-log">
-            {sessions.map((s, i) => (
+            {sessions.length === 0 ? (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)' }}>
+                No sessions yet. Start the timer to log time.
+              </div>
+            ) : sessions.map((s, i) => (
               <div key={i} className="session-row">
                 <div className="name">
                   {s.task}
@@ -512,39 +558,6 @@ export const TimerPage = ({ timer, onToggle, projects, tasks, sessions }) => {
                 </span>
               </div>
             ))}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-h"><div className="t">This week</div><span className="num" style={{ color: 'var(--accent-hi)' }}>36.5h</span></div>
-          <div className="week-chart" style={{ height: 180 }}>
-            {['M','T','W','T','F','S','S'].map((d, i) => (
-              <div key={i} className="day">
-                <div className="v">{week[i] ? week[i].toFixed(1) : '·'}</div>
-                <div className={'bar ' + (i === 1 ? 'today' : (week[i] === 0 ? 'dim' : ''))} style={{ height: `${(week[i] / maxH) * 100}%` }}></div>
-                <div className="lbl">{d}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-h"><div className="t">Last 30 days · activity heatmap</div><span className="label-mono">147H · 24 ACTIVE DAYS</span></div>
-        <div className="heatmap">
-          <div className="heatmap-grid">
-            {heatmap.map((lvl, i) => (
-              <div key={i} className={'heatmap-cell ' + (lvl ? `l${lvl}` : '')} title={`Day -${29-i}: ${lvl ? lvl * 2 + 'h' : 'no activity'}`}></div>
-            ))}
-          </div>
-          <div className="heatmap-legend">
-            <span>LESS</span>
-            <div className="heatmap-cell cell"></div>
-            <div className="heatmap-cell l1 cell"></div>
-            <div className="heatmap-cell l2 cell"></div>
-            <div className="heatmap-cell l3 cell"></div>
-            <div className="heatmap-cell l4 cell"></div>
-            <span>MORE</span>
           </div>
         </div>
       </div>
@@ -568,17 +581,25 @@ const AddTemplatePanel = ({ open, onClose, onAdd }) => {
   const empty = { name: '', cat: 'Proposals', body: '' };
   const [form, setForm] = useStateB(empty);
   const [err, setErr] = useStateB('');
+  const [saving, setSaving] = useStateB(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.name.trim()) { setErr('Template name is required.'); return; }
     if (!form.body.trim()) { setErr('Template body is required.'); return; }
     const id = form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24) + '-' + Date.now().toString().slice(-4);
-    onAdd({ id, cat: form.cat, name: form.name.trim(), body: form.body.trim() });
-    setForm(empty);
-    setErr('');
-    onClose();
+    setSaving(true);
+    try {
+      await onAdd({ id, cat: form.cat, name: form.name.trim(), body: form.body.trim() });
+      setForm(empty);
+      setErr('');
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to create template.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -609,28 +630,20 @@ const AddTemplatePanel = ({ open, onClose, onAdd }) => {
         </div>
       </div>
       <div className="sp-footer">
-        <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={handleSubmit}>
-          <Icon name="plus" size={12} /> Create template
+        <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="btn primary" onClick={handleSubmit} disabled={saving || !form.name.trim() || !form.body.trim()}>
+          <Icon name="plus" size={12} /> {saving ? 'Creating…' : 'Create template'}
         </button>
       </div>
     </SlidePanel>
   );
 };
 
-export const EmailPage = ({ emailTemplates, setEmailTemplates }) => {
+export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId }) => {
   const [activeId, setActiveId] = useStateB(emailTemplates[0]?.id);
   const [mode, setMode] = useStateB('fill');
   const [showAdd, setShowAdd] = useStateB(false);
-  const [vals, setVals] = useStateB({
-    client_name: 'Owen',
-    project_name: 'Kombi loyalty platform',
-    scope_summary: 'Customer-facing mobile app + admin web dashboard, plus Stripe payments integration.',
-    duration: '12',
-    start_date: 'May 27',
-    rate: '€12,400 fixed',
-    payment_terms: '40% upfront, 30% mid, 30% on delivery',
-  });
+  const [vals, setVals] = useStateB({});
 
   const tpl = emailTemplates.find(t => t.id === activeId) || emailTemplates[0];
   const placeholders = tpl ? extractPlaceholders(tpl.body) : [];
@@ -660,9 +673,10 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates }) => {
     navigator.clipboard?.writeText(b);
   };
 
-  const handleAdd = (tpl) => {
-    setEmailTemplates(prev => [...prev, tpl]);
-    setActiveId(tpl.id);
+  const handleAdd = async (tpl) => {
+    const saved = await createEmailTemplate(tpl, workstationId);
+    setEmailTemplates(prev => [...prev, saved]);
+    setActiveId(saved.id);
   };
 
   return (
@@ -671,7 +685,7 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates }) => {
         <div>
           <div className="crumb">TOOLS / EMAIL HUB</div>
           <h1>Email templates</h1>
-          <div className="sub">{emailTemplates.length} templates · 6 categories · last used 3h ago</div>
+          <div className="sub">{emailTemplates.length} template{emailTemplates.length !== 1 ? 's' : ''}</div>
         </div>
         <div className="actions">
           <button className="btn"><Icon name="copy" size={12}/> Variables</button>
@@ -683,7 +697,16 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates }) => {
 
       <div className="email-layout">
         <div className="email-list">
-          {EMAIL_CATS.map(cat => {
+          {emailTemplates.length === 0 ? (
+            <div className="empty-state" style={{ padding: '48px 16px' }}>
+              <Icon name="mail" size={28} />
+              <div className="empty-title">No templates yet</div>
+              <div className="empty-sub">Create reusable email templates with fill-in placeholders.</div>
+              <button className="btn primary" onClick={() => setShowAdd(true)}>
+                <Icon name="plus" size={12} /> New template
+              </button>
+            </div>
+          ) : EMAIL_CATS.map(cat => {
             const items = emailTemplates.filter(t => t.cat === cat);
             if (items.length === 0) return null;
             return (

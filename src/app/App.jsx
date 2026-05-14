@@ -4,10 +4,6 @@ import {
   TweaksPanel, TweakSection, TweakColor, TweakRadio,
   TweakToggle, TweakSelect, TweakButton, useTweaks,
 } from '../components/tweaks-panel.jsx';
-import {
-  PROJECTS, TASKS, LEARNING, VAULT, NOTES,
-  EMAIL_TEMPLATES, SESSIONS, GANTT_TASKS,
-} from '../data/dashboard-data.jsx';
 import { supabase } from '../lib/supabase.js';
 import { loadUserData, loadUserWorkstations, setActiveWorkstation as persistActiveWs } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
@@ -160,15 +156,15 @@ export default function App() {
   const [timerSec, setTimerSec] = useStateApp(() => parseInt(localStorage.getItem('devos:timerSec') || '5760', 10));
   const [running,  setRunning]  = useStateApp(() => localStorage.getItem('devos:timerRunning') !== 'false');
 
-  // Application data (falls back to mock until workstation is loaded)
-  const [projects,       setProjects]       = useStateApp(PROJECTS);
-  const [tasks,          setTasks]          = useStateApp(TASKS);
-  const [notes,          setNotes]          = useStateApp(NOTES);
-  const [vault,          setVault]          = useStateApp(VAULT);
-  const [learning,       setLearning]       = useStateApp(LEARNING);
-  const [sessions,       setSessions]       = useStateApp(SESSIONS);
-  const [emailTemplates, setEmailTemplates] = useStateApp(EMAIL_TEMPLATES);
-  const [ganttTasks,     setGanttTasks]     = useStateApp(GANTT_TASKS);
+  // Application data
+  const [projects,       setProjects]       = useStateApp([]);
+  const [tasks,          setTasks]          = useStateApp([]);
+  const [notes,          setNotes]          = useStateApp([]);
+  const [vault,          setVault]          = useStateApp([]);
+  const [learning,       setLearning]       = useStateApp({ toLearn: [], inProgress: [], completed: [] });
+  const [sessions,       setSessions]       = useStateApp([]);
+  const [emailTemplates, setEmailTemplates] = useStateApp([]);
+  const [ganttTasks,     setGanttTasks]     = useStateApp([]);
 
   // Persist nav + timer
   useEffectApp(() => { localStorage.setItem('devos:nav', current); }, [current]);
@@ -234,7 +230,7 @@ export default function App() {
   }, [t.accent, t.monoFont, t.headingFont, t.surface, t.texture, t.scanlines]);
 
   // ── Gates ───────────────────────────────────────────────────────
-  if (authLoading || wsLoading) return <Loading />;
+  if (authLoading || wsLoading || dataLoading) return <Loading />;
   if (!authUser)                return <AuthPage onAuth={handleAuth} />;
 
   if (showWsSetup) return (

@@ -2,6 +2,9 @@
 
 import { useState as useStateA } from 'react';
 import { Icon, SlidePanel } from '../components/shell.jsx';
+import {
+  createProject, createTask, createVaultItem, createLearningItem,
+} from '../lib/db.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 export const StatusPill = ({ status }) => {
@@ -243,10 +246,11 @@ const AddProjectPanel = ({ open, onClose, onAdd }) => {
   const empty = { name: '', client: '', type: 'Client / Freelance', status: 'planning', stack: '', start: '', end: '', budget: '', repo: '', hoursEst: '80' };
   const [form, setForm] = useStateA(empty);
   const [err, setErr] = useStateA('');
+  const [saving, setSaving] = useStateA(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.name.trim()) { setErr('Project name is required.'); return; }
     const newProject = {
       id: genId(form.name),
@@ -265,10 +269,17 @@ const AddProjectPanel = ({ open, onClose, onAdd }) => {
       repo: form.repo.trim() || '—',
       budget: form.budget.trim() || '—',
     };
-    onAdd(newProject);
-    setForm(empty);
-    setErr('');
-    onClose();
+    setSaving(true);
+    try {
+      await onAdd(newProject);
+      setForm(empty);
+      setErr('');
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to create project.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -332,23 +343,26 @@ const AddProjectPanel = ({ open, onClose, onAdd }) => {
         </div>
       </div>
       <div className="sp-footer">
-        <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={handleSubmit}>
-          <Icon name="plus" size={12} /> Create project
+        <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="btn primary" onClick={handleSubmit} disabled={saving || !form.name.trim()}>
+          <Icon name="plus" size={12} /> {saving ? 'Creating…' : 'Create project'}
         </button>
       </div>
     </SlidePanel>
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId }) => {
   const [view, setView] = useStateA('card');
   const [filter, setFilter] = useStateA('all');
   const [showAdd, setShowAdd] = useStateA(false);
 
   const filtered = projects.filter(p => filter === 'all' || p.status === filter);
 
-  const handleAdd = (project) => setProjects(prev => [project, ...prev]);
+  const handleAdd = async (project) => {
+    const saved = await createProject(project, workstationId);
+    setProjects(prev => [saved, ...prev]);
+  };
 
   return (
     <div className="page page-wide">
@@ -379,31 +393,50 @@ export const ProjectsPage = ({ projects, setProjects }) => {
         <span style={{ marginLeft: 'auto', fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)' }}>SORT BY: UPDATED ↓</span>
       </div>
 
-      {view === 'card' ? (
-        <div className="proj-grid">
-          {filtered.map(p => (
-            <div key={p.id} className="proj-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                <div>
-                  <div className="client">{p.id} · {p.type}</div>
-                  <div className="name" style={{ marginTop: 4 }}>{p.name}</div>
-                </div>
-                <StatusPill status={p.status} />
-              </div>
-              <div style={{ color: 'var(--text-2)', fontSize: 12 }}>{p.client}</div>
-              <div className="stack">{p.stack.map(s => <span key={s} className="tag">{s}</span>)}</div>
-              <div className="dates">
-                <span>START {p.start}</span>
-                <span>END {p.end}</span>
-              </div>
-              <div className="prog"><div className="fill" style={{ width: p.progress + '%' }}></div></div>
-              <div className="row-end">
-                <span className="pct">{p.progress}% · {p.tasks} tasks ({p.openTasks} open)</span>
-                <span className="pct">{p.hoursLogged}/{p.hoursEst}h</span>
-              </div>
-            </div>
-          ))}
+      {projects.length === 0 ? (
+        <div className="empty-state">
+          <Icon name="folder" size={32} />
+          <div className="empty-title">No projects yet</div>
+          <div className="empty-sub">Create your first project to start tracking work, hours, and progress.</div>
+          <button className="btn primary" onClick={() => setShowAdd(true)}>
+            <Icon name="plus" size={12} /> New project
+          </button>
         </div>
+      ) : view === 'card' ? (
+        <>
+          {filtered.length === 0 ? (
+            <div className="empty-state">
+              <Icon name="folder" size={28} />
+              <div className="empty-title">No projects match this filter</div>
+              <div className="empty-sub">Try selecting a different status.</div>
+            </div>
+          ) : (
+            <div className="proj-grid">
+              {filtered.map(p => (
+                <div key={p.id} className="proj-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div>
+                      <div className="client">{p.id} · {p.type}</div>
+                      <div className="name" style={{ marginTop: 4 }}>{p.name}</div>
+                    </div>
+                    <StatusPill status={p.status} />
+                  </div>
+                  <div style={{ color: 'var(--text-2)', fontSize: 12 }}>{p.client}</div>
+                  <div className="stack">{(p.stack || []).map(s => <span key={s} className="tag">{s}</span>)}</div>
+                  <div className="dates">
+                    <span>START {p.start || '—'}</span>
+                    <span>END {p.end || '—'}</span>
+                  </div>
+                  <div className="prog"><div className="fill" style={{ width: p.progress + '%' }}></div></div>
+                  <div className="row-end">
+                    <span className="pct">{p.progress}% · {p.tasks} tasks ({p.openTasks} open)</span>
+                    <span className="pct">{p.hoursLogged}/{p.hoursEst}h</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       ) : (
         <div className="card">
           <table className="tbl">
@@ -412,15 +445,17 @@ export const ProjectsPage = ({ projects, setProjects }) => {
               <th>Progress</th><th>Tasks</th><th>Hours</th><th>End</th>
             </tr></thead>
             <tbody>
-              {filtered.map(p => (
+              {filtered.length === 0 ? (
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 32 }}>No projects match this filter.</td></tr>
+              ) : filtered.map(p => (
                 <tr key={p.id}>
                   <td><span className="num" style={{color:'var(--text-3)'}}>{p.id}</span> <b style={{marginLeft:6}}>{p.name}</b></td>
                   <td>{p.client}</td>
                   <td><StatusPill status={p.status} /></td>
                   <td>
                     <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
-                      {p.stack.slice(0,2).map(s=><span key={s} className="tag">{s}</span>)}
-                      {p.stack.length>2 && <span className="tag">+{p.stack.length-2}</span>}
+                      {(p.stack || []).slice(0,2).map(s=><span key={s} className="tag">{s}</span>)}
+                      {(p.stack || []).length>2 && <span className="tag">+{p.stack.length-2}</span>}
                     </div>
                   </td>
                   <td>
@@ -431,7 +466,7 @@ export const ProjectsPage = ({ projects, setProjects }) => {
                   </td>
                   <td className="mono">{p.openTasks}/{p.tasks}</td>
                   <td className="mono">{p.hoursLogged}/{p.hoursEst}h</td>
-                  <td className="mono">{p.end}</td>
+                  <td className="mono">{p.end || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -483,10 +518,11 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = 'backlog' }
   const empty = { title: '', proj: projects[0]?.id || '', p: '2', col: defaultCol, tags: '', est: '2', due: '' };
   const [form, setForm] = useStateA(empty);
   const [err, setErr] = useStateA('');
+  const [saving, setSaving] = useStateA(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.title.trim()) { setErr('Task title is required.'); return; }
     const newTask = {
       id: `${form.proj}-${Date.now().toString().slice(-4)}`,
@@ -499,25 +535,37 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = 'backlog' }
       actual: 0,
       tags: form.tags.split(',').map(s => s.trim()).filter(Boolean),
     };
-    onAdd(newTask);
-    setForm(empty);
-    setErr('');
-    onClose();
+    setSaving(true);
+    try {
+      await onAdd(newTask);
+      setForm(empty);
+      setErr('');
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to create task.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <SlidePanel open={open} onClose={onClose} title="New Task" subtitle="WORKSPACE / TASKS / ADD">
       <div className="sp-body">
         {err && <div className="sp-error">{err}</div>}
+        {projects.length === 0 && (
+          <div className="sp-error">You need at least one project before creating tasks.</div>
+        )}
         <div className="fld">
           <label>Task title *</label>
-          <input value={form.title} onChange={e => set('title', e.target.value)} placeholder="What needs to be done?" />
+          <input value={form.title} onChange={e => set('title', e.target.value)} placeholder="What needs to be done?" disabled={projects.length === 0} />
         </div>
         <div className="fld-row">
           <div className="fld">
             <label>Project</label>
-            <select value={form.proj} onChange={e => set('proj', e.target.value)}>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
+            <select value={form.proj} onChange={e => set('proj', e.target.value)} disabled={projects.length === 0}>
+              {projects.length === 0
+                ? <option value="">— No projects —</option>
+                : projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
             </select>
           </div>
           <div className="fld">
@@ -553,16 +601,16 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = 'backlog' }
         </div>
       </div>
       <div className="sp-footer">
-        <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={handleSubmit}>
-          <Icon name="plus" size={12} /> Create task
+        <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="btn primary" onClick={handleSubmit} disabled={saving || !form.title.trim() || projects.length === 0}>
+          <Icon name="plus" size={12} /> {saving ? 'Creating…' : 'Create task'}
         </button>
       </div>
     </SlidePanel>
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId }) => {
   const [view, setView] = useStateA('board');
   const [projFilter, setProjFilter] = useStateA('all');
   const [prioFilter, setPrioFilter] = useStateA('all');
@@ -575,7 +623,10 @@ export const TasksPage = ({ tasks, setTasks, projects }) => {
   );
   const byCol = (col) => filtered.filter(t => t.col === col);
 
-  const handleAdd = (task) => setTasks(prev => [...prev, task]);
+  const handleAdd = async (task) => {
+    const saved = await createTask(task, workstationId);
+    setTasks(prev => [...prev, saved]);
+  };
 
   const openAdd = (col = 'backlog') => { setAddCol(col); setShowAdd(true); };
 
@@ -612,7 +663,16 @@ export const TasksPage = ({ tasks, setTasks, projects }) => {
         ))}
       </div>
 
-      {view === 'board' ? (
+      {tasks.length === 0 ? (
+        <div className="empty-state">
+          <Icon name="list" size={32} />
+          <div className="empty-title">No tasks yet</div>
+          <div className="empty-sub">Add your first task to start tracking work across your projects.</div>
+          <button className="btn primary" onClick={() => openAdd()}>
+            <Icon name="plus" size={12} /> New task
+          </button>
+        </div>
+      ) : view === 'board' ? (
         <div className="kanban">
           {COL_DEFS.map(col => {
             const items = byCol(col.id);
@@ -643,14 +703,16 @@ export const TasksPage = ({ tasks, setTasks, projects }) => {
               <th>Tags</th><th>Est</th><th>Actual</th><th>Due</th>
             </tr></thead>
             <tbody>
-              {filtered.map(t => (
+              {filtered.length === 0 ? (
+                <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 32 }}>No tasks match this filter.</td></tr>
+              ) : filtered.map(t => (
                 <tr key={t.id}>
                   <td className="mono">{t.id}</td>
                   <td><span className={'dot-p p'+t.p}></span></td>
                   <td>{t.title}</td>
                   <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
                   <td><span className="pill muted" style={{textTransform:'uppercase'}}>{t.col}</span></td>
-                  <td>{t.tags && t.tags.map(tg=><span key={tg} className="tag" style={{marginRight:4}}>{tg}</span>)}</td>
+                  <td>{(t.tags || []).map(tg=><span key={tg} className="tag" style={{marginRight:4}}>{tg}</span>)}</td>
                   <td className="mono">{t.est}h</td>
                   <td className="mono" style={{ color: t.actual ? 'var(--accent-hi)' : 'var(--text-3)' }}>{t.actual || '—'}{t.actual ? 'h' : ''}</td>
                   <td className="mono">{t.due}</td>
@@ -695,10 +757,11 @@ const AddTopicPanel = ({ open, onClose, onAdd }) => {
   const empty = { topic: '', cat: 'Flutter', column: 'toLearn', est: '4', link: '', note: '' };
   const [form, setForm] = useStateA(empty);
   const [err, setErr] = useStateA('');
+  const [saving, setSaving] = useStateA(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.topic.trim()) { setErr('Topic name is required.'); return; }
     const newItem = {
       topic: form.topic.trim(),
@@ -716,10 +779,17 @@ const AddTopicPanel = ({ open, onClose, onAdd }) => {
       newItem.actual = 0;
       newItem.lastReviewed = new Date().toISOString().slice(0, 10);
     }
-    onAdd(form.column, newItem);
-    setForm(empty);
-    setErr('');
-    onClose();
+    setSaving(true);
+    try {
+      await onAdd(form.column, newItem);
+      setForm(empty);
+      setErr('');
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to add topic.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -762,16 +832,16 @@ const AddTopicPanel = ({ open, onClose, onAdd }) => {
         </div>
       </div>
       <div className="sp-footer">
-        <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={handleSubmit}>
-          <Icon name="plus" size={12} /> Add topic
+        <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="btn primary" onClick={handleSubmit} disabled={saving || !form.topic.trim()}>
+          <Icon name="plus" size={12} /> {saving ? 'Adding…' : 'Add topic'}
         </button>
       </div>
     </SlidePanel>
   );
 };
 
-export const LearningPage = ({ learning, setLearning }) => {
+export const LearningPage = ({ learning, setLearning, workstationId }) => {
   const [showAdd, setShowAdd] = useStateA(false);
 
   const total = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
@@ -789,8 +859,9 @@ export const LearningPage = ({ learning, setLearning }) => {
   const C = 2 * Math.PI * R;
   const off = C - (pct / 100) * C;
 
-  const handleAdd = (column, item) => {
-    setLearning(prev => ({ ...prev, [column]: [...prev[column], item] }));
+  const handleAdd = async (column, item) => {
+    const { item: saved } = await createLearningItem(item, column, workstationId);
+    setLearning(prev => ({ ...prev, [column]: [...prev[column], saved] }));
   };
 
   return (
@@ -888,23 +959,25 @@ const AddSecretPanel = ({ open, onClose, onAdd }) => {
   const [form, setForm] = useStateA(empty);
   const [err, setErr] = useStateA('');
   const [show, setShow] = useStateA(false);
+  const [saving, setSaving] = useStateA(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!form.name.trim()) { setErr('Secret name is required.'); return; }
     if (!form.value.trim()) { setErr('Secret value is required.'); return; }
-    onAdd({
-      id: Date.now(),
-      cat: form.cat,
-      name: form.name.trim(),
-      value: form.value.trim(),
-      updated: new Date().toISOString().slice(0, 10),
-    });
-    setForm(empty);
-    setErr('');
-    setShow(false);
-    onClose();
+    setSaving(true);
+    try {
+      await onAdd({ cat: form.cat, name: form.name.trim(), value: form.value.trim() });
+      setForm(empty);
+      setErr('');
+      setShow(false);
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to save secret.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -949,16 +1022,16 @@ const AddSecretPanel = ({ open, onClose, onAdd }) => {
         </div>
       </div>
       <div className="sp-footer">
-        <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={handleSubmit}>
-          <Icon name="lock" size={12} /> Save secret
+        <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+        <button className="btn primary" onClick={handleSubmit} disabled={saving || !form.name.trim() || !form.value.trim()}>
+          <Icon name="lock" size={12} /> {saving ? 'Saving…' : 'Save secret'}
         </button>
       </div>
     </SlidePanel>
   );
 };
 
-export const VaultPage = ({ vault, setVault }) => {
+export const VaultPage = ({ vault, setVault, workstationId }) => {
   const [cat, setCat] = useStateA('all');
   const [revealed, setRevealed] = useStateA({});
   const [q, setQ] = useStateA('');
@@ -969,7 +1042,10 @@ export const VaultPage = ({ vault, setVault }) => {
     (!q || v.name.toLowerCase().includes(q.toLowerCase()))
   );
 
-  const handleAdd = (item) => setVault(prev => [...prev, item]);
+  const handleAdd = async (item) => {
+    const saved = await createVaultItem(item, workstationId);
+    setVault(prev => [...prev, saved]);
+  };
 
   return (
     <div className="page page-wide">

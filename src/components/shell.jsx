@@ -1,6 +1,6 @@
 // shell.jsx — Sidebar, Topbar, Command Palette, SlidePanel
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // ─── Icons (inline SVG, 16px viewbox) ─────────────────────────────
 export const Icon = ({ name, size = 16 }) => {
@@ -95,52 +95,58 @@ export const NAV = [
 // Flat list (for cmd palette + lookup)
 export const NAV_FLAT = NAV.flatMap(g => g.items.map(it => ({ ...it, section: g.section })));
 
-// ─── WorkstationSwitcher ───────────────────────────────────────────
-const WorkstationSwitcher = ({ workstations = [], active, onSwitch, onNew, collapsed }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
+// ─── WorkstationPanel ──────────────────────────────────────────────
+const WorkstationPanel = ({ open, onClose, workstations = [], active, onSwitch, onNew }) => {
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
-  const dot = active?.color || '#0099ff';
+  if (!open) return null;
 
   return (
-    <div className="ws-switcher-wrap" ref={ref}>
-      <button
-        className={'ws-switcher' + (open ? ' open' : '')}
-        onClick={() => setOpen(o => !o)}
-        title={collapsed ? (active?.name || 'Workspace') : undefined}
-      >
-        <span className="ws-switcher-dot" style={{ background: dot }} />
-        <span className="ws-switcher-name">{active?.name || 'Workspace'}</span>
-        <span className="ws-switcher-chev"><Icon name="chevD" size={10} /></span>
-      </button>
-
-      {open && (
-        <div className="ws-dropdown">
+    <div className="ws-panel-back" onClick={onClose}>
+      <div className="ws-panel" onClick={e => e.stopPropagation()}>
+        <div className="ws-panel-hd">
+          <div>
+            <div className="ws-panel-title">Workspaces</div>
+            <div className="ws-panel-sub">Navigate between your environments</div>
+          </div>
+          <button className="ws-panel-close" onClick={onClose}><Icon name="x" size={16} /></button>
+        </div>
+        
+        <div className="ws-panel-list">
           {workstations.map(ws => (
-            <button
-              key={ws.id}
-              className={'ws-dropdown-item' + (ws.id === active?.id ? ' active' : '')}
-              onClick={() => { onSwitch(ws); setOpen(false); }}
+            <div 
+              key={ws.id} 
+              className={'ws-item' + (ws.id === active?.id ? ' active' : '')}
+              onClick={() => { onSwitch(ws); onClose(); }}
             >
-              <span className="ws-dropdown-dot" style={{ background: ws.color }} />
-              <span className="ws-dropdown-name">{ws.name}</span>
-              {ws.id === active?.id && <Icon name="check" size={12} />}
-            </button>
+              <div className="ws-item-glow" style={{ background: ws.color }} />
+              <div className="ws-item-dot" style={{ background: ws.color }} />
+              <div className="ws-item-content">
+                <div className="ws-item-name">{ws.name}</div>
+                <div className="ws-item-meta">{ws.id} · {active?.id === ws.id ? 'Current' : 'Select'}</div>
+              </div>
+              {ws.id === active?.id && (
+                <div className="ws-item-check"><Icon name="check" size={14} /></div>
+              )}
+            </div>
           ))}
-          <div className="ws-dropdown-sep" />
-          <button className="ws-dropdown-item ws-dropdown-new" onClick={() => { onNew(); setOpen(false); }}>
-            <Icon name="plus" size={12} />
-            <span>New workspace</span>
+          
+          <button className="ws-panel-add" onClick={() => { onNew(); onClose(); }}>
+            <div className="ic"><Icon name="plus" size={14} /></div>
+            <span>Create new workspace</span>
           </button>
         </div>
-      )}
+
+        <div className="ws-panel-foot">
+          <div className="label">QUICK SWITCH</div>
+          <div className="kbd">⌘ + 1-9</div>
+        </div>
+      </div>
     </div>
   );
 };
@@ -150,63 +156,80 @@ export const Sidebar = ({
   current, onNav, collapsed, onToggleCollapsed,
   user, onLogout,
   workstations, activeWorkstation, onWsSwitch, onNewWs,
-}) => (
-  <aside className="sb">
-    <div className="sb-brand">
-      <span className="dot"></span>
-      <span className="label">DevOS</span>
-      <span className="v">v1.0</span>
-    </div>
-    <WorkstationSwitcher
-      workstations={workstations}
-      active={activeWorkstation}
-      onSwitch={onWsSwitch}
-      onNew={onNewWs}
-      collapsed={collapsed}
-    />
-    <div className="sb-scroll">
-      {NAV.map(g => (
-        <div key={g.section}>
-          <div className="sb-section">{g.section}</div>
-          <div className="sb-nav">
-            {g.items.map(it => (
-              <button key={it.id}
-                className={'sb-item' + (current === it.id ? ' active' : '')}
-                onClick={() => onNav(it.id)}
-                title={it.label}>
-                <span className="ic"><Icon name={it.icon} /></span>
-                <span className="label">{it.label}</span>
-                <span className="kbd">{it.kbd}</span>
-              </button>
-            ))}
+}) => {
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  return (
+    <aside className="sb">
+      <div className="sb-brand">
+        <span className="dot"></span>
+        <span className="label">DevOS</span>
+        <span className="v">v1.0</span>
+      </div>
+      
+      <div className="sb-scroll">
+        {NAV.map(g => (
+          <div key={g.section}>
+            <div className="sb-section">{g.section}</div>
+            <div className="sb-nav">
+              {g.items.map(it => (
+                <button key={it.id}
+                  className={'sb-item' + (current === it.id ? ' active' : '')}
+                  onClick={() => onNav(it.id)}
+                  title={it.label}>
+                  <span className="ic"><Icon name={it.icon} /></span>
+                  <span className="label">{it.label}</span>
+                  <span className="kbd">{it.kbd}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="sb-foot">
+        <div 
+          className="sb-user" 
+          onClick={() => setPanelOpen(true)}
+          style={{ cursor: 'pointer' }}
+          title="Switch workspace"
+        >
+          <div className="ava-wrap">
+            <div className="ava">{user?.avatar || (user?.name?.[0] || 'U').toUpperCase()}</div>
+            <div className="ava-dot" style={{ background: activeWorkstation?.color || 'var(--accent)' }} />
+          </div>
+          <div className="meta">
+            <div className="n">{user?.name  || 'User'}</div>
+            <div className="e">{activeWorkstation?.name || 'Workspace'}</div>
           </div>
         </div>
-      ))}
-    </div>
-    <div className="sb-foot">
-      <div className="sb-user">
-        <div className="ava">{user?.avatar || (user?.name?.[0] || 'U').toUpperCase()}</div>
-        <div className="meta">
-          <div className="n">{user?.name  || 'User'}</div>
-          <div className="e">{user?.email || ''}</div>
+        
+        <div className="sb-collapse-row">
+          <button className="sb-collapse-btn" onClick={onToggleCollapsed}>
+            <span className="label">{collapsed ? 'EXPAND' : 'COLLAPSE'}</span>
+            <span className="sb-collapse-arrow">
+              <Icon name="chev" size={10} />
+            </span>
+          </button>
+          {onLogout && (
+            <button className="sb-collapse-btn sb-logout-btn" onClick={onLogout} title="Sign out">
+              <Icon name="sign-out" size={10} />
+            </button>
+          )}
         </div>
       </div>
-      <div className="sb-collapse-row">
-        <button className="sb-collapse-btn" onClick={onToggleCollapsed}>
-          <span className="label">COLLAPSE</span>
-          <span className="sb-collapse-arrow">
-            <Icon name="chev" size={10} />
-          </span>
-        </button>
-        {onLogout && (
-          <button className="sb-collapse-btn sb-logout-btn" onClick={onLogout} title="Sign out">
-            <Icon name="sign-out" size={10} />
-          </button>
-        )}
-      </div>
-    </div>
-  </aside>
-);
+
+      <WorkstationPanel 
+        open={panelOpen} 
+        onClose={() => setPanelOpen(false)}
+        workstations={workstations}
+        active={activeWorkstation}
+        onSwitch={onWsSwitch}
+        onNew={onNewWs}
+      />
+    </aside>
+  );
+};
 
 // ─── Topbar ────────────────────────────────────────────────────────
 export const Topbar = ({ onOpenCmdK, timer, onTimerJump }) => {

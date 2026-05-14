@@ -2,16 +2,13 @@
 // No raw table queries from the client.
 
 import { supabase } from './supabase.js'
-import {
-  PROJECTS, TASKS, LEARNING, VAULT, NOTES,
-  EMAIL_TEMPLATES, SESSIONS, GANTT_TASKS,
-} from '../data/dashboard-data.jsx'
 
 // ─── Relative time helper ─────────────────────────────────────────
 const relTime = (ts) => {
   if (!ts) return ''
   const diff = Date.now() - new Date(ts).getTime()
   const m = Math.floor(diff / 60000)
+  if (m < 1) return 'just now'
   if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60)
   if (h < 24) return `${h}h ago`
@@ -122,47 +119,6 @@ const taskPayload = (t) => ({
   subs_done:        t.subs?.[1] || 0,
 })
 
-// ─── Seed payload — builds the full jsonb blob for seed_workstation_data ──
-const buildSeedPayload = () => ({
-  projects: PROJECTS.map(projectPayload),
-  tasks:    TASKS.map(taskPayload),
-  notes: NOTES.map(n => ({
-    title:  n.title,
-    folder: n.folder || 'General',
-    tags:   n.tags   || [],
-    pinned: n.pinned || false,
-    body:   n.body   || '',
-  })),
-  vault: VAULT.map(v => ({ cat: v.cat, name: v.name, value: v.value })),
-  learning: [
-    ...LEARNING.toLearn.map(i    => ({ status: 'to_learn',    ...learningPayload(i) })),
-    ...LEARNING.inProgress.map(i => ({ status: 'in_progress', ...learningPayload(i) })),
-    ...LEARNING.completed.map(i  => ({ status: 'completed',   ...learningPayload(i) })),
-  ],
-  email_templates: EMAIL_TEMPLATES.map(t => ({
-    template_id: t.id,
-    cat:         t.cat,
-    name:        t.name,
-    body:        t.body,
-  })),
-  gantt_tasks: GANTT_TASKS.map((g, i) => ({
-    name:       g.name,
-    sub:        g.sub       || null,
-    start_week: g.start,
-    end_week:   g.end,
-    status:     g.status,
-    sort_order: i,
-  })),
-  timer_sessions: SESSIONS.map(s => ({
-    project_name: s.proj,
-    task_name:    s.task,
-    start_time:   s.start,
-    end_time:     s.end,
-    duration:     s.dur,
-    is_live:      s.dur === 'live',
-  })),
-})
-
 const learningPayload = (i) => ({
   topic:        i.topic,
   cat:          i.cat         || '',
@@ -228,20 +184,6 @@ export const setActiveWorkstation = async (workstationId) => {
 // ═══════════════════════════════════════════════════════════════════
 
 export const loadUserData = async (workstationId) => {
-  // Seed demo data on first use of a workstation
-  const { data: isEmpty, error: emptyErr } = await supabase.rpc('check_workstation_empty', {
-    p_workstation_id: workstationId,
-  })
-  if (emptyErr) throw emptyErr
-
-  if (isEmpty) {
-    const { error: seedErr } = await supabase.rpc('seed_workstation_data', {
-      p_workstation_id: workstationId,
-      p_data:           buildSeedPayload(),
-    })
-    if (seedErr) throw seedErr
-  }
-
   const { data, error } = await supabase.rpc('load_workstation_data', {
     p_workstation_id: workstationId,
   })
@@ -390,4 +332,19 @@ export const updateEmailTemplate = async (t) => {
 export const deleteEmailTemplate = async (templateId) => {
   const { error } = await supabase.rpc('delete_email_template', { p_template_id: templateId })
   if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRUD — Learning
+// ═══════════════════════════════════════════════════════════════════
+
+const STATUS_MAP = { toLearn: 'to_learn', inProgress: 'in_progress', completed: 'completed' }
+
+export const createLearningItem = async (item, column, workstationId) => {
+  const { data, error } = await supabase.rpc('create_learning_item', {
+    p_workstation_id: workstationId,
+    p_data: { status: STATUS_MAP[column] || 'to_learn', ...learningPayload(item) },
+  })
+  if (error) throw error
+  return { column, item: fromDbLearning(data) }
 }
