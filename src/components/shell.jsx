@@ -25,6 +25,8 @@ export const Icon = ({ name, size = 16 }) => {
     eye: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M1 8C1 8 3 4 8 4S15 8 15 8S13 12 8 12S1 8 1 8Z" /><circle cx="8" cy="8" r="2" /></g>,
     chev: <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     chevD: <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
+    chevU: <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
+    trash: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M3 5H13M6 5V3H10V5M5 5L6 13H10L11 5" strokeLinecap="round" strokeLinejoin="round" /></g>,
     git: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="4" cy="4" r="1.5" /><circle cx="4" cy="12" r="1.5" /><circle cx="12" cy="8" r="1.5" /><path d="M4 5.5V10.5M5.5 12H10.5C10.5 9.5 4 11 4 6" /></g>,
     pin: <path d="M8 2L11 5L10 6L11 7L9 9L8 14L7 9L5 7L6 6L5 5L8 2Z" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />,
     tag: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M2 7L7 2H13V8L8 13L2 7Z" /><circle cx="10" cy="6" r="0.8" fill="currentColor" /></g>,
@@ -34,7 +36,8 @@ export const Icon = ({ name, size = 16 }) => {
     key: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="5" cy="8" r="3" /><path d="M8 8H14M12 8V11M14 8V10" /></g>,
     code: <path d="M5 4L1 8L5 12M11 4L15 8L11 12" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     palette: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="8" cy="8" r="6" /><circle cx="5" cy="6" r="1" fill="currentColor" /><circle cx="9" cy="4" r="1" fill="currentColor" /><circle cx="12" cy="7" r="1" fill="currentColor" /><circle cx="11" cy="11" r="1" fill="currentColor" /></g>,
-    hash: <g stroke="currentColor" strokeWidth="1.2"><path d="M6 2L4 14M12 2L10 14M2 6H14M2 10H14" /></g>,
+    hash: <g stroke="currentColor" strokeWidth="1.2"><path d="M2 5H14M2 8H14M2 11H14" /></g>,
+    drag: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="5" cy="5" r="0.5" fill="currentColor" /><circle cx="5" cy="8" r="0.5" fill="currentColor" /><circle cx="5" cy="11" r="0.5" fill="currentColor" /><circle cx="11" cy="5" r="0.5" fill="currentColor" /><circle cx="11" cy="8" r="0.5" fill="currentColor" /><circle cx="11" cy="11" r="0.5" fill="currentColor" /></g>,
     arrow: <path d="M3 8H13M9 4L13 8L9 12" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     check: <path d="M3 8L7 12L13 4" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     x: <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />,
@@ -57,6 +60,7 @@ export const Icon = ({ name, size = 16 }) => {
     link: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M7 9C7.55 9.83 8.48 10.37 9.5 10.37C10.18 10.37 10.79 10.1 11.24 9.66L13.02 7.87C13.87 7.02 13.87 5.64 13.02 4.78C12.17 3.93 10.79 3.93 9.93 4.78L9.01 5.69" strokeLinecap="round" /><path d="M9 7C8.45 6.17 7.52 5.63 6.5 5.63C5.82 5.63 5.21 5.9 4.76 6.34L2.98 8.13C2.13 8.98 2.13 10.36 2.98 11.22C3.83 12.07 5.21 12.07 6.07 11.22L6.99 10.31" strokeLinecap="round" /></g>,
     'eye-off': <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M2 2L14 14M6.5 6.55C5.85 7.07 5.38 7.86 5.14 8.46M9.65 9.6C9.2 10.03 8.62 10.3 8 10.3C6.62 10.3 5.5 9.18 5.5 7.8M1 8C1 8 3 4 8 4C8.83 4 9.61 4.17 10.31 4.47M14.5 8C14.5 8 13.5 10.5 11 11.7" strokeLinecap="round" /></g>,
     'sign-out': <path d="M10 3H13V13H10M6 5L3 8L6 11M3 8H11" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
+    camera: <g stroke="currentColor" strokeWidth="1.2" fill="none"><rect x="2" y="5" width="12" height="9" rx="1" /><circle cx="8" cy="9.5" r="2.5" /><path d="M5 5L6 3H10L11 5" /></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>

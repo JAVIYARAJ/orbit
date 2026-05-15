@@ -25,7 +25,8 @@ const fromDbProject = (r) => ({
   _dbId:       r.id,
   name:        r.name,
   client:      r.client,
-  type:        r.type,
+  description: r.description || '',
+  typeId:      r.project_type_id || null,
   start:       r.start_date  || '',
   end:         r.end_date    || '—',
   status:      r.status,
@@ -40,17 +41,17 @@ const fromDbProject = (r) => ({
 })
 
 const fromDbTask = (r) => ({
-  id:     r.task_id,
-  _dbId:  r.id,
-  proj:   r.project_short_id,
-  col:    r.col,
-  p:      r.priority,
-  title:  r.title,
-  due:    r.due_date || '—',
-  est:    Number(r.est_hours)    || 0,
-  actual: Number(r.actual_hours) || 0,
-  tags:   r.tags || [],
-  ...(r.subs_total > 0 ? { subs: [r.subs_total, r.subs_done] } : {}),
+  id:          r.task_id,
+  _dbId:       r.id,
+  proj:        r.project_short_id,
+  col:         r.status_id,
+  p:           r.priority,
+  title:       r.title,
+  description: r.description || '',
+  due:         r.due_date || '—',
+  tags:        r.tag_ids || [],
+  parentId:    r.parent_task_id || null,
+  createdAt:   r.created_at || null,
 })
 
 const fromDbNote = (r) => ({
@@ -90,8 +91,9 @@ const fromDbVault = (r) => ({
 const projectPayload = (p) => ({
   short_id:     p.id,
   name:         p.name,
-  client:       p.client       || '',
-  type:         p.type         || '',
+  client:          p.client      || '',
+  description:     p.description || '',
+  project_type_id: p.typeId      || null,
   start_date:   p.start        || null,
   end_date:     (!p.end || p.end === '—') ? null : p.end,
   status:       p.status,
@@ -108,15 +110,13 @@ const projectPayload = (p) => ({
 const taskPayload = (t) => ({
   task_id:          t.id,
   project_short_id: t.proj,
-  col:              t.col,
+  status_id:        t.col,   // t.col now carries the status UUID
   priority:         t.p,
   title:            t.title,
+  description:      t.description || '',
   due_date:         (!t.due || t.due === '—') ? null : t.due,
-  est_hours:        t.est    || 0,
-  actual_hours:     t.actual || 0,
-  tags:             t.tags   || [],
-  subs_total:       t.subs?.[0] || 0,
-  subs_done:        t.subs?.[1] || 0,
+  tag_ids:          t.tags   || [],
+  parent_task_id:   t.parentId || null,
 })
 
 const learningPayload = (i) => ({
@@ -131,8 +131,32 @@ const learningPayload = (i) => ({
   last_reviewed:i.lastReviewed || null,
 })
 
+// ─── DB → App shape converters ────────────────────────────────────
+const fromDbTag = (r) => ({
+  id:    r.id,
+  name:  r.name,
+  color: r.color || '#888888',
+})
+
+const fromDbProjectType = (r) => ({
+  id:    r.id,
+  label: r.label,
+  order: r.sort_order,
+})
+
+const fromDbStatus = (r) => ({
+  id:    r.id,
+  key:   r.key,
+  label: r.label,
+  color: r.color,
+  order: r.sort_order,
+})
+
 // ─── Transform the jsonb blob from load_workstation_data ──────────
 const transformData = (raw) => ({
+  statuses:     (raw.statuses      || []).map(fromDbStatus),
+  projectTypes: (raw.project_types || []).map(fromDbProjectType),
+  tags:         (raw.tags          || []).map(fromDbTag),
   projects: (raw.projects || []).map(fromDbProject),
   tasks:    (raw.tasks    || []).map(fromDbTask),
   notes:    (raw.notes    || []).map(fromDbNote),
@@ -155,14 +179,26 @@ const transformData = (raw) => ({
 })
 
 // ═══════════════════════════════════════════════════════════════════
-// WORKSTATIONS
+// USER CONTEXT  (single round-trip: profile + workstations + roles)
 // ═══════════════════════════════════════════════════════════════════
 
-export const loadUserWorkstations = async () => {
-  const { data, error } = await supabase.rpc('get_my_workstations')
+// Returns { user, workstations, active_workstation_id }
+// workstations[].role = 'owner' | 'admin' | 'member' | 'viewer'
+export const getMyContext = async () => {
+  const { data, error } = await supabase.rpc('get_my_context')
   if (error) throw error
-  return data || []
+  return data
 }
+
+// Persist a new avatar URL to profiles.avatar_url
+export const updateMyAvatar = async (url) => {
+  const { error } = await supabase.rpc('update_my_avatar', { p_url: url })
+  if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WORKSTATIONS
+// ═══════════════════════════════════════════════════════════════════
 
 export const createWorkstation = async (name, color = '#0099ff') => {
   const { data, error } = await supabase.rpc('create_my_workstation', {
@@ -339,6 +375,104 @@ export const deleteEmailTemplate = async (templateId) => {
 // ═══════════════════════════════════════════════════════════════════
 
 const STATUS_MAP = { toLearn: 'to_learn', inProgress: 'in_progress', completed: 'completed' }
+
+// ═══════════════════════════════════════════════════════════════════
+// CRUD — Task Statuses
+// ═══════════════════════════════════════════════════════════════════
+
+export const createTaskStatus = async (workstationId, data) => {
+  const { data: result, error } = await supabase.rpc('create_task_status', {
+    p_workstation_id: workstationId,
+    p_data:           data,
+  })
+  if (error) throw error
+  return fromDbStatus(result)
+}
+
+export const updateTaskStatus = async (statusId, data) => {
+  const { data: result, error } = await supabase.rpc('update_task_status', {
+    p_status_id: statusId,
+    p_data:      data,
+  })
+  if (error) throw error
+  return fromDbStatus(result)
+}
+
+export const deleteTaskStatus = async (statusId) => {
+  const { error } = await supabase.rpc('delete_task_status', { p_status_id: statusId })
+  if (error) throw error
+}
+
+export const reorderTaskStatuses = async (workstationId, orderedIds) => {
+  const { error } = await supabase.rpc('reorder_task_statuses', {
+    p_workstation_id: workstationId,
+    p_ordered_ids:    orderedIds,
+  })
+  if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRUD — Learning
+// ═══════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
+// CRUD — Project Types
+// ═══════════════════════════════════════════════════════════════════
+
+export const createProjectType = async (workstationId, label) => {
+  const { data, error } = await supabase.rpc('create_project_type', {
+    p_workstation_id: workstationId,
+    p_data: { label, sort_order: 999 },
+  })
+  if (error) throw error
+  return fromDbProjectType(data)
+}
+
+export const updateProjectType = async (id, label) => {
+  const { data, error } = await supabase.rpc('update_project_type', {
+    p_type_id: id,
+    p_data:    { label },
+  })
+  if (error) throw error
+  return fromDbProjectType(data)
+}
+
+export const deleteProjectType = async (id) => {
+  const { error } = await supabase.rpc('delete_project_type', { p_type_id: id })
+  if (error) throw error
+}
+
+export const reorderProjectTypes = async (workstationId, orderedIds) => {
+  const { error } = await supabase.rpc('reorder_project_types', {
+    p_workstation_id: workstationId,
+    p_ordered_ids:    orderedIds,
+  })
+  if (error) throw error
+}
+
+// ─── Tags ─────────────────────────────────────────────────────────
+export const createTag = async (workstationId, name, color = '#888888') => {
+  const { data, error } = await supabase.rpc('create_tag', {
+    p_workstation_id: workstationId,
+    p_data: { name, color },
+  })
+  if (error) throw error
+  return fromDbTag(data)
+}
+
+export const updateTag = async (id, name, color) => {
+  const { data, error } = await supabase.rpc('update_tag', {
+    p_tag_id: id,
+    p_data:   { name, color },
+  })
+  if (error) throw error
+  return fromDbTag(data)
+}
+
+export const deleteTag = async (id) => {
+  const { error } = await supabase.rpc('delete_tag', { p_tag_id: id })
+  if (error) throw error
+}
 
 export const createLearningItem = async (item, column, workstationId) => {
   const { data, error } = await supabase.rpc('create_learning_item', {

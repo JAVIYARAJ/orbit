@@ -1,4 +1,4 @@
-// auth.jsx — Login, Sign-up, Forgot password, Email confirmation
+// auth.jsx — Login, Sign-up, Forgot password, Email confirmation, Reset password
 
 import { useState } from 'react';
 import { Icon } from '../components/shell.jsx';
@@ -434,4 +434,123 @@ const getStrength = (pw) => {
   if (/[A-Z]/.test(pw) && /[0-9]/.test(pw)) s++;
   if (/[^A-Za-z0-9]/.test(pw))             s++;
   return Math.min(s, 4);
+};
+
+// ── Reset Password Page (shown after clicking email link) ──────────────────
+export const ResetPasswordPage = ({ onDone }) => {
+  const [password,  setPassword]  = useState('');
+  const [confirm,   setConfirm]   = useState('');
+  const [showPw,    setShowPw]    = useState(false);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState('');
+  const [success,   setSuccess]   = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (password.length < 6)      { setError('Password must be at least 6 characters.'); return; }
+    if (password !== confirm)     { setError('Passwords do not match.'); return; }
+
+    setLoading(true);
+    const { error: updateErr } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+
+    if (updateErr) { setError(friendlyError(updateErr.message)); return; }
+
+    setSuccess(true);
+    // Sign the user out so they land on the login page with a clean session
+    await supabase.auth.signOut();
+    setTimeout(() => onDone(), 2200);
+  };
+
+  return (
+    <div className="auth-wrap">
+      <aside className="auth-panel">
+        <div className="auth-glow auth-glow-1" />
+        <div className="auth-glow auth-glow-2" />
+        <div className="auth-logo">
+          <span className="auth-logo-dot" />
+          <span>DevOS</span>
+          <span className="auth-logo-ver">v1.0</span>
+        </div>
+        <div className="auth-hero">
+          <div className="auth-hero-eyebrow">Developer Dashboard</div>
+          <h1 className="auth-hero-title">
+            Track projects.<br />
+            Ship on time.<br />
+            <span className="auth-hero-accent">Stay in flow.</span>
+          </h1>
+        </div>
+        <div className="auth-panel-foot">Secure · Local-first · Open source</div>
+      </aside>
+
+      <main className="auth-form-wrap">
+        <form className="auth-form" onSubmit={handleSubmit} noValidate>
+          <div className="auth-form-head">
+            <h2>Set new password</h2>
+            <p>Choose a strong password for your account</p>
+          </div>
+
+          {success ? (
+            <div className="auth-email-sent">
+              <div className="auth-email-sent-icon">
+                <Icon name="check" size={22} />
+              </div>
+              <h3>Password updated!</h3>
+              <p>Your password has been changed. Redirecting you to sign in…</p>
+            </div>
+          ) : (
+            <>
+              {error && (
+                <div className="auth-error" role="alert">
+                  <Icon name="x" size={13} />
+                  {error}
+                </div>
+              )}
+
+              <div className="auth-field">
+                <label htmlFor="rp-pw">New password</label>
+                <div className="auth-pw-wrap">
+                  <input
+                    id="rp-pw"
+                    type={showPw ? 'text' : 'password'}
+                    placeholder="Min. 6 characters"
+                    value={password}
+                    onChange={e => { setPassword(e.target.value); setError(''); }}
+                    autoComplete="new-password"
+                    disabled={loading}
+                    autoFocus
+                  />
+                  <button type="button" className="auth-pw-toggle"
+                    onClick={() => setShowPw(s => !s)} tabIndex={-1}
+                    aria-label={showPw ? 'Hide password' : 'Show password'}>
+                    <Icon name={showPw ? 'eye-off' : 'eye'} size={14} />
+                  </button>
+                </div>
+                {password.length > 0 && <PasswordStrength password={password} />}
+              </div>
+
+              <div className="auth-field">
+                <label htmlFor="rp-confirm">Confirm new password</label>
+                <input
+                  id="rp-confirm"
+                  type={showPw ? 'text' : 'password'}
+                  placeholder="Re-enter password"
+                  value={confirm}
+                  onChange={e => { setConfirm(e.target.value); setError(''); }}
+                  autoComplete="new-password"
+                  disabled={loading}
+                />
+              </div>
+
+              <button type="submit" className="auth-submit" disabled={loading}>
+                {loading && <Spinner light />}
+                {loading ? 'Updating password…' : 'Update password'}
+              </button>
+            </>
+          )}
+        </form>
+      </main>
+    </div>
+  );
 };

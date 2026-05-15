@@ -5,14 +5,14 @@ import {
   TweakToggle, TweakSelect, TweakButton, useTweaks,
 } from '../components/tweaks-panel.jsx';
 import { supabase } from '../lib/supabase.js';
-import { loadUserData, loadUserWorkstations, setActiveWorkstation as persistActiveWs } from '../lib/db.js';
+import { loadUserData, getMyContext, updateMyAvatar, setActiveWorkstation as persistActiveWs } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
 import { ProjectMgmtPage, NotesPage, TimerPage, EmailPage, ToolkitPage } from '../pages/tools.jsx';
 import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
 import { Settings } from '../pages/settings.jsx';
-import { AuthPage } from '../pages/auth.jsx';
+import { AuthPage, ResetPasswordPage } from '../pages/auth.jsx';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#0099ff",
@@ -63,9 +63,10 @@ export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
   // ── Auth ────────────────────────────────────────────────────────
-  const [authUser,    setAuthUser]    = useStateApp(null);
-  const [authLoading, setAuthLoading] = useStateApp(true);
-  const [dataLoading, setDataLoading] = useStateApp(false);
+  const [authUser,         setAuthUser]         = useStateApp(null);
+  const [authLoading,      setAuthLoading]      = useStateApp(true);
+  const [dataLoading,      setDataLoading]      = useStateApp(false);
+  const [showPasswordReset, setShowPasswordReset] = useStateApp(false);
 
   // ── Workstations ────────────────────────────────────────────────
   const [workstations,      setWorkstations]      = useStateApp([]);
@@ -73,14 +74,20 @@ export default function App() {
   const [wsLoading,         setWsLoading]         = useStateApp(false);
   const [showWsSetup,       setShowWsSetup]       = useStateApp(false);
 
-  // Resolve Supabase session on mount
+  // Resolve Supabase session on mount.
+  // onAuthStateChange fires INITIAL_SESSION synchronously, making getSession() redundant.
+  // Handling everything here avoids the race condition between the two.
   useEffectApp(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) setAuthUser(buildUser(session.user));
-      setAuthLoading(false);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // User arrived via a password-reset email link — show the reset form.
+        // Keep the session alive so updateUser() works inside ResetPasswordPage.
+        setShowPasswordReset(true);
+        setAuthLoading(false);
+        return;
+      }
       setAuthUser(session?.user ? buildUser(session.user) : null);
+      setAuthLoading(false);
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -90,22 +97,46 @@ export default function App() {
     return { id: u.id, name, email: u.email, avatar: name[0].toUpperCase() };
   };
 
-  const handleAuth    = (user) => setAuthUser(user);
-  const handleLogout  = async () => { await supabase.auth.signOut(); setAuthUser(null); };
+  const handleAuth       = (user) => setAuthUser(user);
+  const handleUserUpdate = (updates) => setAuthUser(prev => ({ ...prev, ...updates }));
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    // onAuthStateChange SIGNED_OUT will clear authUser; also reset workstation state
+    setWorkstations([]);
+    setActiveWorkstation(null);
+    setShowWsSetup(false);
+    setStatuses([]);
+    setProjectTypes([]);
+    setTags([]);
+  };
 
-  // ── Load workstations on login ──────────────────────────────────
+  // ── Load user context on login (profile + workstations + roles in one call) ──
   useEffectApp(() => {
     if (!authUser?.id) return;
     setWsLoading(true);
-    loadUserWorkstations()
-      .then(list => {
+    getMyContext()
+      .then(ctx => {
+        // Enrich authUser with real profile data from the DB (not just auth metadata)
+        setAuthUser({
+          id:        ctx.user.id,
+          name:      ctx.user.name      || authUser.name,
+          email:     ctx.user.email     || authUser.email,
+          avatar:    ctx.user.avatar    || (ctx.user.name?.[0] || 'U').toUpperCase(),
+          avatarUrl: ctx.user.avatar_url || null,
+          joinedAt:  ctx.user.joined_at,
+        });
+
+        const list = ctx.workstations;
         setWorkstations(list);
+
         if (list.length === 0) {
           setShowWsSetup(true);
         } else {
-          const savedId = localStorage.getItem('devos:activeWs');
-          const found   = list.find(w => w.id === savedId) || list[0];
-          setActiveWorkstation(found);
+          // Prefer the workstation Supabase has as active, fall back to localStorage
+          const savedId  = localStorage.getItem('devos:activeWs');
+          const byServer = list.find(w => w.id === ctx.active_workstation_id);
+          const byLocal  = list.find(w => w.id === savedId);
+          setActiveWorkstation(byServer || byLocal || list[0]);
         }
       })
       .catch(console.error)
@@ -119,6 +150,9 @@ export default function App() {
     setDataLoading(true);
     loadUserData(activeWorkstation.id)
       .then(d => {
+        setStatuses(d.statuses);
+        setProjectTypes(d.projectTypes);
+        setTags(d.tags);
         setProjects(d.projects);
         setTasks(d.tasks);
         setNotes(d.notes);
@@ -157,6 +191,9 @@ export default function App() {
   const [running,  setRunning]  = useStateApp(() => localStorage.getItem('devos:timerRunning') !== 'false');
 
   // Application data
+  const [statuses,       setStatuses]       = useStateApp([]);
+  const [projectTypes,   setProjectTypes]   = useStateApp([]);
+  const [tags,           setTags]           = useStateApp([]);
   const [projects,       setProjects]       = useStateApp([]);
   const [tasks,          setTasks]          = useStateApp([]);
   const [notes,          setNotes]          = useStateApp([]);
@@ -231,6 +268,14 @@ export default function App() {
 
   // ── Gates ───────────────────────────────────────────────────────
   if (authLoading || wsLoading || dataLoading) return <Loading />;
+
+  if (showPasswordReset) return (
+    <ResetPasswordPage onDone={() => {
+      setShowPasswordReset(false);
+      setAuthUser(null);
+    }} />
+  );
+
   if (!authUser)                return <AuthPage onAuth={handleAuth} />;
 
   if (showWsSetup) return (
@@ -264,11 +309,17 @@ export default function App() {
         <div className="content" key={current}>
           <PageRouter
             current={current}
+            user={authUser}
+            onUserUpdate={handleUserUpdate}
+            activeWorkstation={activeWorkstation}
             timer={timer}
             onNav={setCurrent}
             onToggle={onToggleTimer}
             workstationId={activeWorkstation?.id}
-            projects={projects}       setProjects={setProjects}
+            statuses={statuses}           setStatuses={setStatuses}
+            projectTypes={projectTypes}   setProjectTypes={setProjectTypes}
+            tags={tags}                   setTags={setTags}
+            projects={projects}           setProjects={setProjects}
             tasks={tasks}             setTasks={setTasks}
             notes={notes}             setNotes={setNotes}
             vault={vault}             setVault={setVault}
