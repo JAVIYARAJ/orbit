@@ -5,7 +5,7 @@ import {
   TweakToggle, TweakSelect, TweakButton, useTweaks,
 } from '../components/tweaks-panel.jsx';
 import { supabase } from '../lib/supabase.js';
-import { loadUserData, getMyContext, updateMyAvatar, setActiveWorkstation as persistActiveWs } from '../lib/db.js';
+import { loadUserData, getMyContext, updateMyAvatar, setActiveWorkstation as persistActiveWs, loadTaskNoteLinks } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
 import { ProjectMgmtPage, NotesPage, TimerPage, EmailPage, ToolkitPage } from '../pages/tools.jsx';
@@ -161,6 +161,7 @@ export default function App() {
         setSessions(d.sessions);
         setEmailTemplates(d.emailTemplates);
         setGanttTasks(d.ganttTasks);
+        loadTaskNoteLinks(activeWorkstation.id).then(setTaskNoteLinks).catch(console.error);
       })
       .catch(console.error)
       .finally(() => setDataLoading(false));
@@ -202,6 +203,7 @@ export default function App() {
   const [sessions,       setSessions]       = useStateApp([]);
   const [emailTemplates, setEmailTemplates] = useStateApp([]);
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
+  const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
 
   // Persist nav + timer
   useEffectApp(() => { localStorage.setItem('devos:nav', current); }, [current]);
@@ -322,6 +324,7 @@ export default function App() {
             projects={projects}           setProjects={setProjects}
             tasks={tasks}             setTasks={setTasks}
             notes={notes}             setNotes={setNotes}
+            taskNoteLinks={taskNoteLinks} setTaskNoteLinks={setTaskNoteLinks}
             vault={vault}             setVault={setVault}
             learning={learning}       setLearning={setLearning}
             sessions={sessions}

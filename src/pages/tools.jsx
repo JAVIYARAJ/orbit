@@ -188,7 +188,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
 // ═══════════════════════════════════════════════════════════════════
 //  7. NOTES
 // ═══════════════════════════════════════════════════════════════════
-const renderMd = (src) => {
+export const renderMd = (src) => {
   if (!src) return '';
   let s = src;
   s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_, _lang, code) => {

@@ -450,6 +450,39 @@ export const reorderProjectTypes = async (workstationId, orderedIds) => {
   if (error) throw error
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// TASK ↔ NOTE LINKS
+// ═══════════════════════════════════════════════════════════════════
+
+export const linkNoteToTask = async (taskDbId, noteId) => {
+  const { error } = await supabase.rpc('link_note_to_task', {
+    p_task_id: taskDbId,
+    p_note_id: noteId,
+  })
+  if (error) throw error
+}
+
+export const unlinkNoteFromTask = async (taskDbId, noteId) => {
+  const { error } = await supabase.rpc('unlink_note_from_task', {
+    p_task_id: taskDbId,
+    p_note_id: noteId,
+  })
+  if (error) throw error
+}
+
+export const loadTaskNoteLinks = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_task_note_links', {
+    p_workstation_id: workstationId,
+  })
+  if (error) throw error
+  const map = {}
+  for (const row of (data || [])) {
+    if (!map[row.task_id]) map[row.task_id] = []
+    map[row.task_id].push(row.note_id)
+  }
+  return map
+}
+
 // ─── Tags ─────────────────────────────────────────────────────────
 export const createTag = async (workstationId, name, color = '#888888') => {
   const { data, error } = await supabase.rpc('create_tag', {

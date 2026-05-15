@@ -4,7 +4,9 @@ import { useState as useStateA, useEffect as useEffectA, useRef as useRefA } fro
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
   createProject, updateProject, createTask, updateTask, createVaultItem, createLearningItem, createTag,
+  linkNoteToTask, unlinkNoteFromTask,
 } from '../lib/db.js';
+import { renderMd } from './tools.jsx';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 const getDueClass = (date) => {
@@ -23,6 +25,20 @@ const getDueClass = (date) => {
   if (diff <= 2) return 'due-attn soon';
   
   return '';
+};
+
+// Derive up-to-3-char uppercase prefix from a project name
+const getTaskPrefix = (name = '') =>
+  (name || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3) || 'TSK';
+
+// Return max(existing sequential numbers for this project) + 1
+// Counts ALL tasks (parents + subtasks) so the counter is project-wide
+const getNextTaskNum = (allTasks, projId, prefix) => {
+  const re = new RegExp(`^${prefix}-(\\d+)$`);
+  const nums = allTasks
+    .filter(t => t.proj === projId)
+    .map(t => { const m = t.id.match(re); return m ? parseInt(m[1]) : 0; });
+  return (nums.length > 0 ? Math.max(...nums) : 0) + 1;
 };
 
 const formatDate = (str) => {
@@ -730,6 +746,38 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart,
   );
 };
 
+// ── Note view overlay (shown on top of task panel) ─────────────────
+const NoteViewOverlay = ({ note, onClose }) => {
+  useEffectA(() => {
+    const h = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+    };
+    window.addEventListener('keydown', h, true);
+    return () => window.removeEventListener('keydown', h, true);
+  }, []);
+
+  return (
+    <div className="note-overlay">
+      <div className="note-overlay-header">
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <Icon name="note" size={14}/>
+          <span className="note-overlay-title">{note.title}</span>
+        </div>
+        <button className="modal-close" onClick={onClose}><Icon name="x" size={16}/></button>
+      </div>
+      <div className="note-overlay-meta">
+        <span>{(note.folder || 'General').toUpperCase()}</span>
+        <span>·</span>
+        <span>EDITED {(note.edited || '').toUpperCase()}</span>
+      </div>
+      <div
+        className="note-overlay-body note-preview"
+        dangerouslySetInnerHTML={{ __html: renderMd(note.body || '') }}
+      />
+    </div>
+  );
+};
+
 // ── Task Detail Panel (Jira-style right drawer) ────────────────────
 const P_DOT_COLOR = { 1: '#ef4444', 2: 'var(--accent)', 3: 'var(--text-3)' };
 
@@ -737,6 +785,7 @@ const TaskDetailModal = ({
   task, projects, statuses = [], subtasks = [], onClose, onSave,
   onAddSubtask, onOpenSubtask, parentTask, onBack,
   allTags = [], onCreateTag,
+  notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
 }) => {
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
@@ -766,6 +815,48 @@ const TaskDetailModal = ({
   const [saving, setSaving] = useStateA(false);
   const [err, setErr]       = useStateA('');
   const [showSubForm, setShowSubForm] = useStateA(false);
+
+  // Linked notes state
+  const [viewingNote,     setViewingNote]     = useStateA(null);
+  const [showNotePicker,  setShowNotePicker]  = useStateA(false);
+  const [noteQ,           setNoteQ]           = useStateA('');
+  const [noteLinking,     setNoteLinking]     = useStateA(false);
+  const notePickerRef = useRefA(null);
+
+  const linkedNotes    = linkedNoteIds.map(id => notes.find(n => n.id === id)).filter(Boolean);
+  const availableNotes = notes.filter(n => !linkedNoteIds.includes(n.id));
+  const filteredAvail  = availableNotes.filter(n =>
+    !noteQ || n.title.toLowerCase().includes(noteQ.toLowerCase())
+  );
+
+  // Close note picker on outside click
+  useEffectA(() => {
+    if (!showNotePicker) return;
+    const h = (e) => {
+      if (notePickerRef.current && !notePickerRef.current.contains(e.target))
+        setShowNotePicker(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [showNotePicker]);
+
+  const handleAttachNote = async (noteId) => {
+    setNoteLinking(true);
+    try {
+      await onLinkNote(noteId);
+      setShowNotePicker(false);
+      setNoteQ('');
+    } catch (e) {
+      console.error('Failed to link note:', e);
+    } finally {
+      setNoteLinking(false);
+    }
+  };
+
+  const handleDetachNote = async (noteId) => {
+    try { await onUnlinkNote(noteId); }
+    catch (e) { console.error('Failed to unlink note:', e); }
+  };
 
   useEffectA(() => { setForm(toForm(task)); setErr(''); setShowSubForm(false); }, [task.id]);
 
@@ -810,7 +901,6 @@ const TaskDetailModal = ({
     setSubSaving(true);
     try {
       await onAddSubtask({
-        id:          `${task.id}-s${Date.now().toString().slice(-4)}`,
         proj:        task.proj,
         col:         subForm.col,
         p:           parseInt(subForm.p),
@@ -839,7 +929,7 @@ const TaskDetailModal = ({
 
   return (
     <div className="task-panel-backdrop" onClick={onClose}>
-      <div className="task-panel" onClick={e => e.stopPropagation()}>
+      <div className="task-panel" onClick={e => e.stopPropagation()} style={{ position:'relative' }}>
 
         {/* ── Header ── */}
         <div className="task-panel-header">
@@ -991,6 +1081,65 @@ const TaskDetailModal = ({
                 )}
               </div>
             )}
+
+            {/* ── Linked Notes ── */}
+            <div>
+              <div className="tpanel-section">
+                <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <Icon name="note" size={12}/>
+                  Linked Notes
+                  {linkedNotes.length > 0 && <span className="subtasks-count">{linkedNotes.length}</span>}
+                </span>
+                <div style={{ position:'relative' }} ref={notePickerRef}>
+                  <button className="btn sm ghost" style={{ fontSize:11 }}
+                    onClick={() => { setShowNotePicker(s => !s); setNoteQ(''); }}>
+                    <Icon name="plus" size={10}/> Attach
+                  </button>
+                  {showNotePicker && (
+                    <div className="note-picker-dropdown">
+                      <input
+                        autoFocus
+                        value={noteQ}
+                        onChange={e => setNoteQ(e.target.value)}
+                        placeholder="Search notes…"
+                        className="note-picker-search"
+                      />
+                      <div className="note-picker-list">
+                        {filteredAvail.length === 0 ? (
+                          <div className="note-picker-empty">No notes to attach</div>
+                        ) : filteredAvail.map(n => (
+                          <div key={n.id} className="note-picker-item"
+                            onClick={() => !noteLinking && handleAttachNote(n.id)}>
+                            <div className="note-picker-item-title">{n.title}</div>
+                            <div className="note-picker-item-folder">{n.folder}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {linkedNotes.length === 0 ? (
+                <div className="subtasks-empty">No notes linked — attach reference notes to this task.</div>
+              ) : (
+                <div className="linked-notes-list">
+                  {linkedNotes.map(n => (
+                    <div key={n.id} className="linked-note-row" onClick={() => setViewingNote(n)}>
+                      <Icon name="note" size={11}/>
+                      <span className="linked-note-title">{n.title}</span>
+                      <span className="linked-note-folder">{n.folder}</span>
+                      <button
+                        className="linked-note-remove"
+                        onClick={e => { e.stopPropagation(); handleDetachNote(n.id); }}
+                        title="Remove link"
+                      >
+                        <Icon name="x" size={10}/>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ── Sidebar (right) ── */}
@@ -1067,6 +1216,11 @@ const TaskDetailModal = ({
             <Icon name="check" size={12} /> {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
+
+        {/* ── Note view overlay ── */}
+        {viewingNote && (
+          <NoteViewOverlay note={viewingNote} onClose={() => setViewingNote(null)} />
+        )}
       </div>
     </div>
   );
@@ -1086,7 +1240,6 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
   const handleSubmit = async () => {
     if (!form.title.trim()) { setErr('Task title is required.'); return; }
     const newTask = {
-      id:          `${form.proj}-${Date.now().toString().slice(-4)}`,
       proj:        form.proj,
       col:         form.col,
       p:           parseInt(form.p),
@@ -1175,12 +1328,13 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks }) => {
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view,        setView]        = useStateA('board');
   const [projFilter,  setProjFilter]  = useStateA('all');
   const [prioFilter,  setPrioFilter]  = useStateA('all');
+  const [searchQ,     setSearchQ]     = useStateA('');
   const [showAdd,     setShowAdd]     = useStateA(false);
   const [addCol,      setAddCol]      = useStateA(cols[0]?.id || '');
   const [dragOver,       setDragOver]       = useStateA(null);   // col id being hovered
@@ -1213,14 +1367,20 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   // UUID of the final status (key='done') — passed to TaskCard for subtask counts
   const doneStatusId = cols.find(c => c.key === 'done')?.id;
 
+  const sq = searchQ.trim().toLowerCase();
   const filtered = tasks.filter(t =>
     !t.parentId &&
     (projFilter === 'all' || t.proj === projFilter) &&
-    (prioFilter === 'all' || t.p === parseInt(prioFilter))
+    (prioFilter === 'all' || t.p === parseInt(prioFilter)) &&
+    (!sq || t.title.toLowerCase().includes(sq) || t.id.toLowerCase().includes(sq))
   );
   const byCol = (col) => filtered.filter(t => t.col === col);
 
-  const handleAdd = async (task) => {
+  const handleAdd = async (taskData) => {
+    const proj = projects.find(p => p.id === taskData.proj);
+    const prefix = getTaskPrefix(proj?.name);
+    const num = getNextTaskNum(tasks, taskData.proj, prefix);
+    const task = { ...taskData, id: `${prefix}-${num}` };
     const saved = await createTask(task, workstationId);
     setTasks(prev => [...prev, saved]);
   };
@@ -1229,6 +1389,22 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     const tag = await createTag(workstationId, name, color);
     setTags(prev => [...prev, tag]);
     return tag;
+  };
+
+  const handleLinkNote = async (taskDbId, noteId) => {
+    await linkNoteToTask(taskDbId, noteId);
+    setTaskNoteLinks(prev => ({
+      ...prev,
+      [taskDbId]: [...(prev[taskDbId] || []), noteId],
+    }));
+  };
+
+  const handleUnlinkNote = async (taskDbId, noteId) => {
+    await unlinkNoteFromTask(taskDbId, noteId);
+    setTaskNoteLinks(prev => ({
+      ...prev,
+      [taskDbId]: (prev[taskDbId] || []).filter(id => id !== noteId),
+    }));
   };
 
   const openAdd = (col = cols[0]?.id || '') => { setAddCol(col); setShowAdd(true); };
@@ -1307,7 +1483,11 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     setParentTask(null);
   };
 
-  const handleAddSubtask = async (subtask) => {
+  const handleAddSubtask = async (subtaskData) => {
+    const proj = projects.find(p => p.id === subtaskData.proj);
+    const prefix = getTaskPrefix(proj?.name);
+    const num = getNextTaskNum(tasks, subtaskData.proj, prefix);
+    const subtask = { ...subtaskData, id: `${prefix}-${num}` };
     const saved = await createTask(subtask, workstationId);
     setTasks(prev => [...prev, saved]);
   };
@@ -1332,7 +1512,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       </div>
 
       <div className="filter-row-premium">
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, flex: 1, flexWrap: 'wrap' }}>
           <div className="filter-bar">
             <div className="sliding-indicator" style={{ left: projInd.left, width: projInd.width }} />
             <button
@@ -1368,6 +1548,21 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="task-search-wrap">
+          <Icon name="search" size={12}/>
+          <input
+            className="task-search-input"
+            placeholder="Search by title or ID…"
+            value={searchQ}
+            onChange={e => setSearchQ(e.target.value)}
+          />
+          {searchQ && (
+            <button className="task-search-clear" onClick={() => setSearchQ('')}>
+              <Icon name="x" size={10}/>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1479,6 +1674,10 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           onBack={handleBackToParent}
           allTags={tags}
           onCreateTag={handleCreateTag}
+          notes={notes}
+          linkedNoteIds={taskNoteLinks[viewingTask._dbId] || []}
+          onLinkNote={(noteId) => handleLinkNote(viewingTask._dbId, noteId)}
+          onUnlinkNote={(noteId) => handleUnlinkNote(viewingTask._dbId, noteId)}
         />
       )}
     </div>
