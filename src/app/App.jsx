@@ -5,7 +5,13 @@ import {
   TweakToggle, TweakSelect, TweakButton, useTweaks,
 } from '../components/tweaks-panel.jsx';
 import { supabase } from '../lib/supabase.js';
-import { loadUserData, getMyContext, updateMyAvatar, setActiveWorkstation as persistActiveWs, loadTaskNoteLinks } from '../lib/db.js';
+import {
+  loadUserData, getMyContext, updateMyAvatar,
+  setActiveWorkstation as persistActiveWs, loadTaskNoteLinks,
+  startTimeEntry, pauseTimeEntry, resumeTimeEntry,
+  completeTimeEntry, discardTimeEntry, getTimeEntries, getActiveTimeEntry,
+  logManualTime,
+} from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
 import { ProjectMgmtPage, NotesPage, TimerPage, EmailPage, ToolkitPage } from '../pages/tools.jsx';
@@ -165,6 +171,19 @@ export default function App() {
       })
       .catch(console.error)
       .finally(() => setDataLoading(false));
+
+    // Restore active timer entry (survives page refresh)
+    getActiveTimeEntry(activeWorkstation.id).then(entry => {
+      if (!entry) return;
+      // If it was still marked 'running' in DB, leave it paused in UI
+      // (we can't know elapsed since the last page load)
+      setActiveEntry({ ...entry, status: 'paused' });
+      setTimerSec(0);
+      setRunning(false);
+    }).catch(console.error);
+
+    // Load completed entry history
+    getTimeEntries(activeWorkstation.id).then(setTimeEntries).catch(console.error);
   }, [activeWorkstation?.id]);
 
   // Workstation handlers
@@ -187,9 +206,11 @@ export default function App() {
   const [collapsed, setCollapsed] = useStateApp(t.sidebarStart === 'collapsed');
   const [cmdkOpen,  setCmdkOpen]  = useStateApp(false);
 
-  // Persistent timer
-  const [timerSec, setTimerSec] = useStateApp(() => parseInt(localStorage.getItem('devos:timerSec') || '5760', 10));
-  const [running,  setRunning]  = useStateApp(() => localStorage.getItem('devos:timerRunning') !== 'false');
+  // Time tracking state
+  const [activeEntry, setActiveEntry] = useStateApp(null);   // running/paused entry
+  const [timeEntries, setTimeEntries] = useStateApp([]);     // completed entries
+  const [timerSec,    setTimerSec]    = useStateApp(0);      // elapsed in current segment
+  const [running,     setRunning]     = useStateApp(false);  // is tick active
 
   // Application data
   const [statuses,       setStatuses]       = useStateApp([]);
@@ -205,10 +226,8 @@ export default function App() {
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
 
-  // Persist nav + timer
+  // Persist nav
   useEffectApp(() => { localStorage.setItem('devos:nav', current); }, [current]);
-  useEffectApp(() => { localStorage.setItem('devos:timerSec', String(timerSec)); }, [timerSec]);
-  useEffectApp(() => { localStorage.setItem('devos:timerRunning', String(running)); }, [running]);
 
   // Timer tick
   useEffectApp(() => {
@@ -288,9 +307,77 @@ export default function App() {
     />
   );
 
-  const timer        = { running, display: FORMAT_TIME(timerSec), label: running ? 'KMBL-17' : 'Idle' };
-  const onToggleTimer = () => setRunning(r => !r);
-  const onResetTimer  = () => { setTimerSec(0); setRunning(false); };
+  // ── Timer handlers ──────────────────────────────────────────────
+  const handleTimerStart = async (projectId, taskId) => {
+    const entry = await startTimeEntry(activeWorkstation.id, projectId, taskId || null);
+    setActiveEntry(entry);
+    setTimerSec(0);
+    setRunning(true);
+  };
+
+  const handleTimerPause = async () => {
+    if (!activeEntry) return;
+    const updated = await pauseTimeEntry(activeEntry.id, timerSec);
+    setActiveEntry(updated);
+    setTimerSec(0);
+    setRunning(false);
+  };
+
+  const handleTimerResume = async () => {
+    if (!activeEntry) return;
+    const updated = await resumeTimeEntry(activeEntry.id);
+    setActiveEntry(updated);
+    setTimerSec(0);
+    setRunning(true);
+  };
+
+  const handleTimerStop = async (notes) => {
+    if (!activeEntry) return;
+    const completed = await completeTimeEntry(activeEntry.id, timerSec, notes);
+    setTimeEntries(prev => [completed, ...prev]);
+    setProjects(prev => prev.map(p =>
+      p._dbId === completed.projectId
+        ? { ...p, hoursLogged: +(p.hoursLogged + completed.totalSeconds / 3600).toFixed(4) }
+        : p
+    ));
+    setActiveEntry(null);
+    setTimerSec(0);
+    setRunning(false);
+  };
+
+  const handleTimerDiscard = async () => {
+    if (!activeEntry) return;
+    await discardTimeEntry(activeEntry.id);
+    setActiveEntry(null);
+    setTimerSec(0);
+    setRunning(false);
+  };
+
+  const handleLogManualTime = async (taskDbId, projDbId, minutes, notes) => {
+    const entry = await logManualTime(activeWorkstation.id, projDbId, taskDbId, minutes, notes);
+    setTimeEntries(prev => [entry, ...prev]);
+    setProjects(prev => prev.map(p =>
+      p._dbId === projDbId
+        ? { ...p, hoursLogged: +(p.hoursLogged + entry.totalSeconds / 3600).toFixed(4) }
+        : p
+    ));
+    setTasks(prev => prev.map(t =>
+      t._dbId === taskDbId
+        ? { ...t, loggedMinutes: (t.loggedMinutes || 0) + minutes }
+        : t
+    ));
+  };
+
+  const displaySec = (activeEntry?.totalSeconds || 0) + timerSec;
+  const timer = {
+    running,
+    status:      activeEntry ? activeEntry.status : 'idle',
+    display:     FORMAT_TIME(displaySec),
+    activeEntry,
+    label: activeEntry
+      ? activeEntry.projectShort + (activeEntry.taskShort ? ' / ' + activeEntry.taskShort : '')
+      : 'Idle',
+  };
 
   return (
     <div className={'app' + (collapsed ? ' collapsed' : '') + (t.density === 'compact' ? ' dense' : '')}>
@@ -316,18 +403,23 @@ export default function App() {
             activeWorkstation={activeWorkstation}
             timer={timer}
             onNav={setCurrent}
-            onToggle={onToggleTimer}
             workstationId={activeWorkstation?.id}
             statuses={statuses}           setStatuses={setStatuses}
             projectTypes={projectTypes}   setProjectTypes={setProjectTypes}
             tags={tags}                   setTags={setTags}
             projects={projects}           setProjects={setProjects}
-            tasks={tasks}             setTasks={setTasks}
-            notes={notes}             setNotes={setNotes}
-            taskNoteLinks={taskNoteLinks} setTaskNoteLinks={setTaskNoteLinks}
-            vault={vault}             setVault={setVault}
-            learning={learning}       setLearning={setLearning}
-            sessions={sessions}
+            tasks={tasks}                 setTasks={setTasks}
+            notes={notes}                 setNotes={setNotes}
+            taskNoteLinks={taskNoteLinks}  setTaskNoteLinks={setTaskNoteLinks}
+            vault={vault}                 setVault={setVault}
+            learning={learning}           setLearning={setLearning}
+            timeEntries={timeEntries}
+            onTimerStart={handleTimerStart}
+            onTimerPause={handleTimerPause}
+            onTimerResume={handleTimerResume}
+            onTimerStop={handleTimerStop}
+            onTimerDiscard={handleTimerDiscard}
+            onLogTime={handleLogManualTime}
             emailTemplates={emailTemplates} setEmailTemplates={setEmailTemplates}
             ganttTasks={ganttTasks}
           />
@@ -358,7 +450,7 @@ export default function App() {
         <TweakRadio label="Density" value={t.density}
           options={[{value:'regular',label:'Regular'},{value:'compact',label:'Compact'}]}
           onChange={v => setTweak('density', v)} />
-        <TweakButton label="Reset timer" onClick={onResetTimer} />
+        <TweakButton label="Discard timer" onClick={handleTimerDiscard} />
       </TweaksPanel>
     </div>
   );

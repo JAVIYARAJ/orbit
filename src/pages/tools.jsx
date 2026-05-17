@@ -483,82 +483,426 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
 // ═══════════════════════════════════════════════════════════════════
 //  8. TIME TRACKER
 // ═══════════════════════════════════════════════════════════════════
-export const TimerPage = ({ timer, onToggle, projects, tasks, sessions }) => {
-  const [selProj, setSelProj] = useStateB(projects[0]?.id || '');
-  const [selTask, setSelTask] = useStateB('');
+// ── Time formatting helpers ──────────────────────────────────────
+const fmtDur = (sec) => {
+  if (!sec || sec < 1) return '0m';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+};
 
-  const projTasks = tasks.filter(t => t.proj === selProj);
+const fmtClock = (sec) => {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+};
+
+const fmtTime = (ts) => {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
+const fmtDate = (ts) => {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const EVENT_META = {
+  start:    { icon: 'play',         color: '#22c55e', label: 'Started'   },
+  pause:    { icon: 'pause',        color: '#f59e0b', label: 'Paused'    },
+  resume:   { icon: 'rev',          color: '#0099ff', label: 'Resumed'   },
+  complete: { icon: 'check-circle', color: '#22c55e', label: 'Completed' },
+  discard:  { icon: 'trash',        color: '#ef4444', label: 'Discarded' },
+};
+
+export const TimerPage = ({
+  timer, projects, tasks, statuses = [], timeEntries = [],
+  onTimerStart, onTimerPause, onTimerResume, onTimerStop, onTimerDiscard,
+}) => {
+  const { status, activeEntry } = timer;
+
+  // Selectors (only meaningful when idle)
+  const [selProjDbId,    setSelProjDbId]    = useStateB('');
+  const [selTaskDbId,    setSelTaskDbId]    = useStateB('');
+  const [notes,          setNotes]          = useStateB('');
+  const [busy,           setBusy]           = useStateB(false);
+  const [err,            setErr]            = useStateB('');
+  const [expandedEntry,  setExpandedEntry]  = useStateB(null);
+
+  // Seed selector with first project on mount
+  useEffectB(() => {
+    if (projects.length > 0 && !selProjDbId) setSelProjDbId(projects[0]._dbId || '');
+  }, [projects]);
+
+  // Only tasks with "In Progress" status are trackable
+  const inProgressStatusId = statuses.find(s => s.key === 'progress')?.id;
+  const selProj       = projects.find(p => p._dbId === selProjDbId);
+  const projTasks     = tasks.filter(t => selProj && t.proj === selProj.id && !t.parentId);
+  const trackableTasks = projTasks.filter(t => t.col === inProgressStatusId);
+
+  // ── Stats ──────────────────────────────────────────────────────
+  const today       = todayIso();
+  const todayEntries = timeEntries.filter(e =>
+    e.status === 'completed' && (e.startedAt || '').slice(0, 10) === today
+  );
+  const todaySec = todayEntries.reduce((a, e) => a + e.totalSeconds, 0);
+
+  // Per-project totals (completed, today)
+  const projMap = {};
+  todayEntries.forEach(e => {
+    projMap[e.projectShort] = (projMap[e.projectShort] || 0) + e.totalSeconds;
+  });
+  const projStats = Object.entries(projMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([short, sec]) => ({ short, sec }));
+  const maxProjSec = projStats[0]?.sec || 1;
+
+  // All-time total
+  const allTimeSec = timeEntries
+    .filter(e => e.status === 'completed')
+    .reduce((a, e) => a + e.totalSeconds, 0);
+
+  // ── Handlers ───────────────────────────────────────────────────
+  const wrap = async (fn) => {
+    setBusy(true); setErr('');
+    try { await fn(); }
+    catch (e) { setErr(e.message || 'Something went wrong.'); }
+    finally { setBusy(false); }
+  };
+
+  const handleStart = () => wrap(async () => {
+    if (!selProjDbId) throw new Error('Select a project first.');
+    await onTimerStart(selProjDbId, selTaskDbId || null);
+  });
+
+  const handlePause   = () => wrap(() => onTimerPause());
+  const handleResume  = () => wrap(() => onTimerResume());
+  const handleStop    = () => wrap(async () => { await onTimerStop(notes); setNotes(''); });
+  const handleDiscard = () => wrap(async () => {
+    if (!window.confirm('Discard this session? All time will be lost.')) return;
+    await onTimerDiscard();
+    setNotes('');
+  });
+
+  // ── CSV export ─────────────────────────────────────────────────
+  const handleExport = () => {
+    const rows = [['ID','Project','Task','Status','Started','Ended','Duration (s)','Notes']];
+    timeEntries.forEach(e => rows.push([
+      e.id, e.projectShort, e.taskShort || '', e.status,
+      e.startedAt || '', e.endedAt || '', e.totalSeconds, e.notes,
+    ]));
+    const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a'); a.href = url; a.download = 'time-entries.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Render ─────────────────────────────────────────────────────
+  const isIdle    = status === 'idle';
+  const isRunning = status === 'running';
+  const isPaused  = status === 'paused';
+  const hasActive = !isIdle;
+
+  const displaySec = (activeEntry?.totalSeconds || 0) + (isRunning ? 0 : 0); // ticked in App
+  // timer.display already has the formatted time from App.jsx
 
   return (
     <div className="page page-wide">
       <div className="page-head">
         <div>
           <div className="crumb">TOOLS / TIME TRACKER</div>
-          <h1>Time tracker</h1>
-          <div className="sub">{sessions.length} sessions logged</div>
+          <h1>Time Tracker</h1>
+          <div className="sub">
+            {timeEntries.filter(e => e.status === 'completed').length} entries ·{' '}
+            {fmtDur(allTimeSec)} total · {fmtDur(todaySec)} today
+          </div>
         </div>
         <div className="actions">
-          <button className="btn"><Icon name="download" size={12}/> Export CSV</button>
-          <button className="btn"><Icon name="settings" size={12}/> Rates</button>
+          <button className="btn" onClick={handleExport}>
+            <Icon name="download" size={12}/> Export CSV
+          </button>
         </div>
       </div>
 
       <div className="timer-page">
-        <div className={'timer-big' + (timer.running ? ' running' : '')}>
-          <div className="ctx">
-            <div className="label-mono" style={{ letterSpacing: '0.12em' }}>{timer.running ? 'RUNNING' : 'IDLE'}</div>
-            <div className="lnk">
-              <span>PROJECT</span>
-              <select
-                value={selProj}
-                onChange={e => { setSelProj(e.target.value); setSelTask(''); }}
-                disabled={projects.length === 0}
-              >
-                {projects.length === 0
-                  ? <option value="">— No projects —</option>
-                  : projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
-              </select>
-              <span>TASK</span>
-              <select value={selTask} onChange={e => setSelTask(e.target.value)} disabled={projTasks.length === 0}>
-                {projTasks.length === 0
-                  ? <option value="">— No tasks —</option>
-                  : projTasks.map(t => <option key={t.id} value={t.id}>{t.id} — {t.title.slice(0, 30)}</option>)}
-              </select>
+
+        {/* ── LEFT: Timer card ───────────────────────────────── */}
+        <div className="timer-main-col">
+
+          {/* Big timer */}
+          <div className={'timer-big' + (isRunning ? ' running' : isPaused ? ' paused' : '')}>
+            <div className="ctx">
+              <div className="label-mono" style={{ letterSpacing: '0.12em', color: isRunning ? 'var(--accent-hi)' : isPaused ? '#f59e0b' : 'var(--text-3)' }}>
+                {isRunning ? '● RUNNING' : isPaused ? '⏸ PAUSED' : 'IDLE'}
+              </div>
+
+              {/* Context label when active */}
+              {hasActive && (
+                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-2)', fontFamily: 'var(--f-mono)' }}>
+                  {activeEntry.projectShort}
+                  {activeEntry.taskShort && <span style={{ color: 'var(--text-3)' }}> / {activeEntry.taskShort}</span>}
+                  {activeEntry.taskTitle && <span style={{ color: 'var(--text-3)', marginLeft: 8 }}>— {activeEntry.taskTitle.slice(0, 40)}</span>}
+                </div>
+              )}
+
+              {/* Selectors — only shown when idle */}
+              {isIdle && (
+                <div className="lnk" style={{ marginTop: 12 }}>
+                  <span style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-3)' }}>PROJECT</span>
+                  <select
+                    value={selProjDbId}
+                    onChange={e => { setSelProjDbId(e.target.value); setSelTaskDbId(''); }}
+                    disabled={projects.length === 0}
+                    style={{ marginBottom: 8 }}
+                  >
+                    {projects.length === 0
+                      ? <option value="">— No projects —</option>
+                      : projects.map(p => <option key={p._dbId} value={p._dbId}>{p.id} — {p.name}</option>)
+                    }
+                  </select>
+                  <span style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-3)' }}>
+                    TASK <span style={{ fontWeight: 400 }}>(In Progress only)</span>
+                  </span>
+                  <select
+                    value={selTaskDbId}
+                    onChange={e => setSelTaskDbId(e.target.value)}
+                    disabled={trackableTasks.length === 0}
+                  >
+                    {trackableTasks.length === 0
+                      ? <option value="">— Move a task to In Progress first —</option>
+                      : <><option value="">— No task (project-level) —</option>
+                         {trackableTasks.map(t => <option key={t._dbId} value={t._dbId}>{t.id} — {t.title.slice(0, 36)}</option>)}</>
+                    }
+                  </select>
+                  {selProj && projTasks.length > 0 && trackableTasks.length === 0 && (
+                    <div style={{ fontSize: 10, color: '#f59e0b', fontFamily: 'var(--f-mono)', marginTop: 2 }}>
+                      No In Progress tasks for this project — set a task status to "In Progress" in the Tasks board first.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Big clock display */}
+            <div className="display">{timer.display}</div>
+
+            {/* Notes field when active */}
+            {hasActive && (
+              <div style={{ padding: '0 24px', width: '100%', boxSizing: 'border-box' }}>
+                <input
+                  className="tpanel-input"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="Session notes (optional)…"
+                  style={{ width: '100%', fontSize: 12 }}
+                />
+              </div>
+            )}
+
+            {err && (
+              <div style={{ padding: '0 24px', fontSize: 12, color: '#ef4444', fontFamily: 'var(--f-mono)' }}>{err}</div>
+            )}
+
+            {/* Controls */}
+            <div className="ctrls">
+              {isIdle && (
+                <button className="btn primary" onClick={handleStart} disabled={busy || !selProjDbId}>
+                  <Icon name="play" size={12}/> START
+                </button>
+              )}
+              {isRunning && (
+                <button className="btn" onClick={handlePause} disabled={busy}>
+                  <Icon name="pause" size={12}/> PAUSE
+                </button>
+              )}
+              {isPaused && (
+                <button className="btn primary" onClick={handleResume} disabled={busy}>
+                  <Icon name="play" size={12}/> RESUME
+                </button>
+              )}
+              {hasActive && (<>
+                <button className="btn" style={{ borderColor: '#22c55e', color: '#22c55e' }} onClick={handleStop} disabled={busy}>
+                  <Icon name="check-circle" size={12}/> STOP & LOG
+                </button>
+                <button className="btn ghost" onClick={handleDiscard} disabled={busy} style={{ color: '#ef4444' }}>
+                  <Icon name="trash" size={12}/> DISCARD
+                </button>
+              </>)}
             </div>
           </div>
-          <div className="display">{timer.display}</div>
-          <div className="ctrls">
-            <button className="btn" onClick={onToggle}>
-              <Icon name={timer.running ? 'pause' : 'play'} size={11}/>
-              {timer.running ? 'PAUSE' : 'RESUME'}
-            </button>
-            <button className="btn primary" disabled={!selTask}><Icon name="stop" size={11}/> STOP & LOG</button>
-            <button className="btn"><Icon name="x" size={11}/> DISCARD</button>
-          </div>
+
+          {/* Event log for active entry */}
+          {hasActive && activeEntry.events.length > 0 && (
+            <div className="card">
+              <div className="card-h">
+                <div className="t">Event Log</div>
+                <span className="lbl">CURRENT SESSION</span>
+              </div>
+              <div className="card-pad">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {activeEntry.events.map((ev, i) => {
+                    const meta = EVENT_META[ev.event] || { icon: 'activity', color: 'var(--text-3)', label: ev.event };
+                    return (
+                      <div key={ev.id || i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < activeEntry.events.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: meta.color + '18', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                          <Icon name={meta.icon} size={13} style={{ color: meta.color }}/>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500 }}>{meta.label}</div>
+                          {ev.elapsed > 0 && (
+                            <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>
+                              +{fmtDur(ev.elapsed)}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', flexShrink: 0 }}>
+                          {fmtTime(ev.at)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="card">
-          <div className="card-h"><div className="t">Sessions</div><span className="lbl">{sessions.length} TOTAL</span></div>
-          <div className="session-log">
-            {sessions.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)' }}>
-                No sessions yet. Start the timer to log time.
-              </div>
-            ) : sessions.map((s, i) => (
-              <div key={i} className="session-row">
-                <div className="name">
-                  {s.task}
-                  <div className="sub">{s.proj}</div>
+        {/* ── RIGHT: Stats + Project breakdown ───────────────── */}
+        <div className="timer-side-col">
+
+          {/* Today summary */}
+          <div className="card">
+            <div className="card-h">
+              <div className="t">Today</div>
+              <span className="lbl">{fmtDur(todaySec)}</span>
+            </div>
+            <div className="card-pad">
+              {projStats.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', textAlign: 'center', padding: '12px 0' }}>
+                  No sessions today
                 </div>
-                <span className="time">{s.start} → {s.end}</span>
-                <span className="dur">
-                  {s.dur === 'live'
-                    ? <span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{width:5,height:5,background:'#ef4444',borderRadius:'50%',animation:'pulse 1.4s infinite'}}></span>{timer.display}</span>
-                    : s.dur}
-                </span>
-              </div>
-            ))}
+              ) : projStats.map(({ short, sec }) => (
+                <div key={short} style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-2)' }}>{short}</span>
+                    <span style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-3)' }}>{fmtDur(sec)}</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 2, background: 'var(--bg-3)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: 'var(--accent-hi)', borderRadius: 2, width: `${Math.round(sec / maxProjSec * 100)}%`, transition: 'width 0.4s' }}/>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
+
+          {/* Quick stats */}
+          <div className="card">
+            <div className="card-h"><div className="t">All-time</div></div>
+            <div className="card-pad">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { label: 'Total logged', value: fmtDur(allTimeSec) },
+                  { label: 'Entries',      value: timeEntries.filter(e => e.status === 'completed').length },
+                  { label: 'Projects',     value: new Set(timeEntries.map(e => e.projectShort)).size },
+                ].map(s => (
+                  <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{s.label}</span>
+                    <span style={{ fontSize: 13, fontFamily: 'var(--f-mono)', color: 'var(--text-1)' }}>{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Entries table ──────────────────────────────────────── */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-h">
+          <div className="t">Entry History</div>
+          <span className="lbl">{timeEntries.filter(e => e.status === 'completed').length} COMPLETED</span>
+        </div>
+        <div className="session-log">
+          {timeEntries.filter(e => e.status === 'completed').length === 0 ? (
+            <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)' }}>
+              No entries yet — start the timer to log time.
+            </div>
+          ) : timeEntries.filter(e => e.status === 'completed').map(e => {
+            const isOpen = expandedEntry === e.id;
+            return (
+              <div key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                {/* Main row — click to toggle events */}
+                <div
+                  className="session-row"
+                  style={{ gap: 12, cursor: 'pointer', borderBottom: 'none' }}
+                  onClick={() => setExpandedEntry(isOpen ? null : e.id)}
+                >
+                  {/* Chevron + event count */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, width: 36 }}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" style={{ color: 'var(--text-3)', transition: 'transform 0.15s', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', flexShrink: 0 }}>
+                      <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    <span style={{ fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--text-3)' }}>
+                      {e.events.length}
+                    </span>
+                  </div>
+
+                  <div className="name" style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {e.taskTitle || <span style={{ color: 'var(--text-3)' }}>No task</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 2 }}>
+                      {e.projectShort}{e.taskShort ? ' / ' + e.taskShort : ''}
+                    </div>
+                    {e.notes && (
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {e.notes}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-2)' }}>
+                      {fmtTime(e.startedAt)} → {fmtTime(e.endedAt)}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{fmtDate(e.startedAt)}</div>
+                  </div>
+
+                  <span className="dur" style={{ flexShrink: 0, minWidth: 48, textAlign: 'right', fontFamily: 'var(--f-mono)', fontSize: 13, color: 'var(--accent-hi)' }}>
+                    {fmtDur(e.totalSeconds)}
+                  </span>
+                </div>
+
+                {/* Expandable events */}
+                {isOpen && (
+                  <div style={{ padding: '0 16px 12px 52px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {e.events.slice().reverse().map((ev, i) => {
+                      const meta = EVENT_META[ev.event] || { color: 'var(--text-3)', label: ev.event };
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, color: 'var(--text-2)', minWidth: 70 }}>{meta.label}</span>
+                          <span style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-3)' }}>{fmtTime(ev.at)}</span>
+                          {ev.elapsed > 0 && (
+                            <span style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--accent-hi)', marginLeft: 'auto' }}>
+                              +{fmtDur(ev.elapsed)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

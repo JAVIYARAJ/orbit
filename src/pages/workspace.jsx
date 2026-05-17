@@ -4,7 +4,7 @@ import { useState as useStateA, useEffect as useEffectA, useRef as useRefA } fro
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
   createProject, updateProject, createTask, updateTask, createVaultItem, createLearningItem, createTag,
-  linkNoteToTask, unlinkNoteFromTask,
+  linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs,
 } from '../lib/db.js';
 import { renderMd } from './tools.jsx';
 
@@ -231,10 +231,9 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
                     </div>
                     <StatusPill status={p.status} />
                   </div>
-                  <div className="prog" style={{ marginTop: 12 }}><div className="fill" style={{ width: p.progress + '%' }}></div></div>
                   <div className="home-proj-meta">
-                    <span>{p.progress}% · {p.openTasks} open</span>
-                    <span>{p.hoursLogged}/{p.hoursEst}h</span>
+                    <span>{p.openTasks} open tasks</span>
+                    <span>{Number(p.hoursLogged).toFixed(1)}h logged</span>
                   </div>
                 </div>
               ))}
@@ -300,9 +299,7 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
     end:         (!p.end || p.end === '—') ? '' : p.end,
     budget:      (!p.budget || p.budget === '—') ? '' : p.budget,
     repo:        (!p.repo  || p.repo  === '—') ? '' : p.repo,
-    hoursEst:    String(p.hoursEst || 80),
-    progress:    String(p.progress  || 0),
-  } : { name: '', client: '', description: '', typeId: projectTypes[0]?.id || '', status: 'planning', stack: '', start: '', end: '', budget: '', repo: '', hoursEst: '80', progress: '0' };
+  } : { name: '', client: '', description: '', typeId: projectTypes[0]?.id || '', status: 'planning', stack: '', start: '', end: '', budget: '', repo: '' };
 
   const [form, setForm] = useStateA(() => toForm(initial));
   const [err,  setErr]  = useStateA('');
@@ -315,10 +312,9 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
 
   const handleSubmit = async () => {
     if (!form.name.trim()) { setErr('Project name is required.'); return; }
-    const progress = Math.min(100, Math.max(0, parseInt(form.progress) || 0));
     const payload = {
-      ...(isEdit ? { id: initial.id, _dbId: initial._dbId, tasks: initial.tasks, openTasks: initial.openTasks, hoursLogged: initial.hoursLogged } : {
-        id: genId(form.name), tasks: 0, openTasks: 0, hoursLogged: 0,
+      ...(isEdit ? { id: initial.id, _dbId: initial._dbId, tasks: initial.tasks, openTasks: initial.openTasks, hoursLogged: initial.hoursLogged, progress: initial.progress || 0 } : {
+        id: genId(form.name), tasks: 0, openTasks: 0, hoursLogged: 0, progress: 0,
       }),
       name:        form.name.trim(),
       client:      form.client.trim() || 'Self',
@@ -328,8 +324,7 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
       end:      form.end   || '—',
       status:   form.status,
       stack:    form.stack.split(',').map(s => s.trim()).filter(Boolean),
-      progress,
-      hoursEst: parseInt(form.hoursEst) || 80,
+      hoursEst: isEdit ? (initial.hoursEst || 0) : 0,
       repo:     form.repo.trim()   || '—',
       budget:   form.budget.trim() || '—',
     };
@@ -378,26 +373,14 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
             </select>
           </div>
         </div>
-        <div className="fld-row">
-          <div className="fld">
-            <label>Status</label>
-            <select value={form.status} onChange={e => set('status', e.target.value)}>
-              {['planning','progress','review','done','hold'].map(s => (
-                <option key={s} value={s}>{({planning:'Planning',progress:'In Progress',review:'Review',done:'Done',hold:'On Hold'})[s]}</option>
-              ))}
-            </select>
-          </div>
-          <div className="fld">
-            <label>Est. hours</label>
-            <input type="number" value={form.hoursEst} onChange={e => set('hoursEst', e.target.value)} placeholder="80" min="1" />
-          </div>
+        <div className="fld">
+          <label>Status</label>
+          <select value={form.status} onChange={e => set('status', e.target.value)}>
+            {['planning','progress','review','done','hold'].map(s => (
+              <option key={s} value={s}>{({planning:'Planning',progress:'In Progress',review:'Review',done:'Done',hold:'On Hold'})[s]}</option>
+            ))}
+          </select>
         </div>
-        {isEdit && (
-          <div className="fld">
-            <label>Progress (%)</label>
-            <input type="number" value={form.progress} onChange={e => set('progress', e.target.value)} placeholder="0" min="0" max="100" />
-          </div>
-        )}
         <div className="fld">
           <label>Tech stack</label>
           <input value={form.stack} onChange={e => set('stack', e.target.value)} placeholder="Flutter, Supabase, Stripe (comma-separated)" />
@@ -437,10 +420,96 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
   );
 };
 
+// ── Project view panel (read-only) ──────────────────────────────────
+const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [] }) => {
+  if (!project) return null;
+  const typeName = projectTypes.find(pt => pt.id === project.typeId)?.label || '—';
+
+  return (
+    <SlidePanel open={open} onClose={onClose}
+      title={project.name}
+      subtitle={`WORKSPACE / PROJECTS / ${project.id}`}>
+      <div className="sp-body">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <StatusPill status={project.status} />
+          <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>{typeName}</span>
+        </div>
+
+        {project.description && (
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>DESCRIPTION</label>
+            <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {project.description}
+            </div>
+          </div>
+        )}
+
+        <div className="fld-row">
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>CLIENT / OWNER</label>
+            <div style={{ fontSize: 13, color: 'var(--text-1)' }}>{project.client || '—'}</div>
+          </div>
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>TIME LOGGED</label>
+            <div style={{ fontSize: 13, color: 'var(--text-1)', fontFamily: 'var(--f-mono)' }}>
+              {Number(project.hoursLogged).toFixed(2)}h
+            </div>
+          </div>
+        </div>
+
+        <div className="fld-row">
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>START DATE</label>
+            <div style={{ fontSize: 13, color: 'var(--text-1)', fontFamily: 'var(--f-mono)' }}>{project.start || '—'}</div>
+          </div>
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>END DATE</label>
+            <div style={{ fontSize: 13, color: 'var(--text-1)', fontFamily: 'var(--f-mono)' }}>{project.end || '—'}</div>
+          </div>
+        </div>
+
+        <div className="fld-row">
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>BUDGET</label>
+            <div style={{ fontSize: 13, color: 'var(--text-1)' }}>{project.budget || '—'}</div>
+          </div>
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>REPOSITORY</label>
+            <div style={{ fontSize: 13, color: 'var(--text-1)', wordBreak: 'break-all' }}>{project.repo || '—'}</div>
+          </div>
+        </div>
+
+        {(project.stack || []).length > 0 && (
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>TECH STACK</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {project.stack.map(s => <span key={s} className="tag">{s}</span>)}
+            </div>
+          </div>
+        )}
+
+        <div className="fld">
+          <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>TASKS</label>
+          <div style={{ fontSize: 13, color: 'var(--text-1)', fontFamily: 'var(--f-mono)' }}>
+            {project.tasks} total · {project.openTasks} open
+          </div>
+        </div>
+      </div>
+      <div className="sp-footer">
+        <button className="btn ghost" onClick={onClose}>Close</button>
+        <button className="btn primary" onClick={onEdit}>
+          <Icon name="edit" size={12} /> Edit project
+        </button>
+      </div>
+    </SlidePanel>
+  );
+};
+
 export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [] }) => {
   const [view,    setView]    = useStateA('card');
   const [filter,  setFilter]  = useStateA('all');
   const [showAdd, setShowAdd] = useStateA(false);
+  const [viewing, setViewing] = useStateA(null); // project open in view panel
   const [editing, setEditing] = useStateA(null); // project being edited
   const [indStyle, setIndStyle] = useStateA({ left: 0, width: 0 });
   const itemRefs = useRefA({});
@@ -520,7 +589,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
           ) : (
             <div className="proj-grid">
               {filtered.map(p => (
-                <div key={p.id} className="proj-card">
+                <div key={p.id} className="proj-card" style={{ cursor: 'pointer' }} onClick={() => setViewing(p)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                     <div>
                       <div className="client">{p.id} · {projectTypes.find(pt => pt.id === p.typeId)?.label || '—'}</div>
@@ -531,7 +600,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                       <button
                         className="btn sm ghost"
                         style={{ padding: '3px 6px' }}
-                        onClick={() => setEditing(p)}
+                        onClick={e => { e.stopPropagation(); setEditing(p); }}
                         title="Edit project"
                       >
                         <Icon name="edit" size={12} />
@@ -550,10 +619,9 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                     <span>START {p.start || '—'}</span>
                     <span>END {p.end || '—'}</span>
                   </div>
-                  <div className="prog"><div className="fill" style={{ width: p.progress + '%' }}></div></div>
                   <div className="row-end">
-                    <span className="pct">{p.progress}% · {p.tasks} tasks ({p.openTasks} open)</span>
-                    <span className="pct">{p.hoursLogged}/{p.hoursEst}h</span>
+                    <span className="pct">{p.tasks} tasks ({p.openTasks} open)</span>
+                    <span className="pct">{Number(p.hoursLogged).toFixed(1)}h logged</span>
                   </div>
                 </div>
               ))}
@@ -565,13 +633,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
           <table className="tbl">
             <thead><tr>
               <th>Project</th><th>Client</th><th>Status</th><th>Stack</th>
-              <th>Progress</th><th>Tasks</th><th>Hours</th><th>End</th><th></th>
+              <th>Tasks</th><th>Hours</th><th>End</th><th></th>
             </tr></thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 32 }}>No projects match this filter.</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 32 }}>No projects match this filter.</td></tr>
               ) : filtered.map(p => (
-                <tr key={p.id}>
+                <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setViewing(p)}>
                   <td><span className="num" style={{color:'var(--text-3)'}}>{p.id}</span> <b style={{marginLeft:6}}>{p.name}</b></td>
                   <td>{p.client}</td>
                   <td><StatusPill status={p.status} /></td>
@@ -581,17 +649,11 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                       {(p.stack || []).length>2 && <span className="tag">+{p.stack.length-2}</span>}
                     </div>
                   </td>
-                  <td>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <div className="prog" style={{width:80}}><div className="fill" style={{width:p.progress+'%'}}></div></div>
-                      <span className="num" style={{fontSize:11,color:'var(--text-2)'}}>{p.progress}%</span>
-                    </div>
-                  </td>
                   <td className="mono">{p.openTasks}/{p.tasks}</td>
-                  <td className="mono">{p.hoursLogged}/{p.hoursEst}h</td>
+                  <td className="mono">{Number(p.hoursLogged).toFixed(1)}h</td>
                   <td className="mono">{p.end || '—'}</td>
                   <td>
-                    <button className="btn sm ghost" onClick={() => setEditing(p)} title="Edit project">
+                    <button className="btn sm ghost" onClick={e => { e.stopPropagation(); setEditing(p); }} title="Edit project">
                       <Icon name="edit" size={12} />
                     </button>
                   </td>
@@ -602,6 +664,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         </div>
       )}
 
+      <ProjectViewPanel
+        open={!!viewing && !editing}
+        onClose={() => setViewing(null)}
+        project={viewing}
+        projectTypes={projectTypes}
+        onEdit={() => { setEditing(viewing); setViewing(null); }}
+      />
       <ProjectFormPanel open={showAdd}   onClose={() => setShowAdd(false)} onSubmit={handleAdd}  projectTypes={projectTypes} />
       <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)}  onSubmit={handleEdit} projectTypes={projectTypes} initial={editing} />
     </div>
@@ -781,11 +850,21 @@ const NoteViewOverlay = ({ note, onClose }) => {
 // ── Task Detail Panel (Jira-style right drawer) ────────────────────
 const P_DOT_COLOR = { 1: '#ef4444', 2: 'var(--accent)', 3: 'var(--text-3)' };
 
+const fmtMin = (min) => {
+  if (!min || min < 1) return '—';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+};
+
 const TaskDetailModal = ({
-  task, projects, statuses = [], subtasks = [], onClose, onSave,
+  task, projects, statuses = [], subtasks = [], onClose, onSave, onStatusChange,
   onAddSubtask, onOpenSubtask, parentTask, onBack,
   allTags = [], onCreateTag,
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
+  onLogTime,
 }) => {
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
@@ -815,6 +894,63 @@ const TaskDetailModal = ({
   const [saving, setSaving] = useStateA(false);
   const [err, setErr]       = useStateA('');
   const [showSubForm, setShowSubForm] = useStateA(false);
+
+  // Manual time log state
+  const [showLogTime, setShowLogTime] = useStateA(false);
+  const [logMin,      setLogMin]      = useStateA('');
+  const [logNote,     setLogNote]     = useStateA('');
+  const [logSaving,   setLogSaving]   = useStateA(false);
+
+  const handleLogTime = async () => {
+    const minutes = parseInt(logMin) || 0;
+    if (minutes <= 0) return;
+    const projDbId = projects.find(p => p.id === task.proj)?._dbId;
+    if (!projDbId) return;
+    setLogSaving(true);
+    try {
+      await onLogTime(task._dbId, projDbId, minutes, logNote);
+      setShowLogTime(false);
+      setLogMin(''); setLogNote('');
+    } catch (e) {
+      console.error('Failed to log time:', e);
+    } finally {
+      setLogSaving(false);
+    }
+  };
+
+  // Status history
+  const [statusLogs,    setStatusLogs]    = useStateA([]);
+  const [logsLoading,   setLogsLoading]   = useStateA(false);
+  const [statusSaving,  setStatusSaving]  = useStateA(false);
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    setLogsLoading(true);
+    getTaskStatusLogs(task._dbId)
+      .then(setStatusLogs)
+      .catch(() => setStatusLogs([]))
+      .finally(() => setLogsLoading(false));
+  }, [task._dbId]);
+
+  const reloadStatusLogs = () => {
+    if (!task._dbId) return;
+    getTaskStatusLogs(task._dbId).then(setStatusLogs).catch(() => {});
+  };
+
+  const handleStatusChange = async (newStatusId) => {
+    if (!onStatusChange || newStatusId === task.col) return;
+    set('col', newStatusId);
+    setStatusSaving(true);
+    try {
+      await onStatusChange({ ...task, col: newStatusId });
+      reloadStatusLogs();
+    } catch (e) {
+      set('col', task.col); // rollback on error
+      console.error('Status change failed:', e);
+    } finally {
+      setStatusSaving(false);
+    }
+  };
 
   // Linked notes state
   const [viewingNote,     setViewingNote]     = useStateA(null);
@@ -858,7 +994,10 @@ const TaskDetailModal = ({
     catch (e) { console.error('Failed to unlink note:', e); }
   };
 
-  useEffectA(() => { setForm(toForm(task)); setErr(''); setShowSubForm(false); }, [task.id]);
+  useEffectA(() => {
+    setForm(toForm(task)); setErr(''); setShowSubForm(false);
+    setShowLogTime(false); setLogMin(''); setLogNote('');
+  }, [task.id]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -1140,6 +1279,72 @@ const TaskDetailModal = ({
                 </div>
               )}
             </div>
+
+            {/* ── Status History ── */}
+            <div>
+              <div className="tpanel-section" style={{ marginTop: 4 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="activity" size={12}/>
+                  Status History
+                  {statusLogs.length > 0 && <span className="subtasks-count">{statusLogs.length}</span>}
+                </span>
+              </div>
+              {logsLoading ? (
+                <div className="subtasks-empty">Loading…</div>
+              ) : statusLogs.length === 0 ? (
+                <div className="subtasks-empty">No status changes yet.</div>
+              ) : (
+                <div style={{ padding: '8px 0 4px 0' }}>
+                  {statusLogs.map((log, i) => {
+                    const isLatest = i === 0;
+                    const color    = log.toStatusColor || '#888';
+                    const d        = new Date(log.changedAt);
+                    const dateStr  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const timeStr  = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                    return (
+                      <div key={log.id || i} style={{ display: 'flex', gap: 10 }}>
+                        {/* Rail */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 16, flexShrink: 0 }}>
+                          <div style={{
+                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 13,
+                            background: isLatest ? color : 'var(--bg-3, #333)',
+                            border: `1.5px solid ${isLatest ? color : 'var(--border)'}`,
+                          }}/>
+                          {i < statusLogs.length - 1 && (
+                            <div style={{ width: 1, flex: 1, minHeight: 16, marginTop: 4, background: 'var(--border)' }}/>
+                          )}
+                        </div>
+
+                        {/* Row */}
+                        <div style={{ flex: 1, paddingBottom: i < statusLogs.length - 1 ? 14 : 2, paddingTop: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {/* From */}
+                            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                              {log.fromStatusLabel || 'Created'}
+                            </span>
+                            {/* Arrow */}
+                            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>
+                            {/* To — only this gets a subtle color dot */}
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }}/>
+                              <span style={{ fontSize: 11, color: 'var(--text-1)', fontWeight: 500 }}>
+                                {log.toStatusLabel || '—'}
+                              </span>
+                            </span>
+                            {isLatest && (
+                              <span style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.05em', marginLeft: 2 }}>· current</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 3 }}>
+                            {dateStr} · {timeStr}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ── Sidebar (right) ── */}
@@ -1147,9 +1352,17 @@ const TaskDetailModal = ({
 
             {/* Status */}
             <div className="tpanel-prop">
-              <div className="tpanel-prop-label">Status</div>
-              <select className="tpanel-status-sel" value={form.col} onChange={e => set('col', e.target.value)}
-                style={{ borderLeftColor: COL_COLOR[form.col] || '#888', borderLeftWidth: 3 }}>
+              <div className="tpanel-prop-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                Status
+                {statusSaving && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>saving…</span>}
+              </div>
+              <select
+                className="tpanel-status-sel"
+                value={form.col}
+                onChange={e => handleStatusChange(e.target.value)}
+                disabled={statusSaving}
+                style={{ borderLeftColor: COL_COLOR[form.col] || '#888', borderLeftWidth: 3 }}
+              >
                 {statuses.map(s => (
                   <option key={s.id} value={s.id} disabled={!isAllowedStatus(s.id)}>
                     {s.label}{!isAllowedStatus(s.id) ? ' — locked' : ''}
@@ -1198,6 +1411,64 @@ const TaskDetailModal = ({
               />
             </div>
 
+            {/* Time tracking */}
+            <div className="tpanel-prop">
+              <div className="tpanel-prop-label">Time</div>
+              <div style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-2)', display: 'flex', justifyContent: 'space-between' }}>
+                <span><span style={{ color: 'var(--text-3)' }}>EST </span>{fmtMin(task.estMinutes)}</span>
+                <span><span style={{ color: 'var(--text-3)' }}>LOG </span>{fmtMin(task.loggedMinutes)}</span>
+              </div>
+              {task.estMinutes > 0 && (
+                <div style={{ height: 3, borderRadius: 2, background: 'var(--bg-3)', marginTop: 5 }}>
+                  <div style={{
+                    height: '100%', borderRadius: 2, background: task.loggedMinutes > task.estMinutes ? '#ef4444' : 'var(--accent-hi)',
+                    width: `${Math.min(100, Math.round((task.loggedMinutes / task.estMinutes) * 100))}%`,
+                    transition: 'width 0.3s',
+                  }} />
+                </div>
+              )}
+              <button
+                className="btn sm ghost"
+                style={{ marginTop: 8, width: '100%', fontSize: 10, letterSpacing: '0.06em' }}
+                onClick={() => setShowLogTime(s => !s)}
+              >
+                <Icon name="plus" size={10} /> Log time
+              </button>
+              {showLogTime && (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3 }}>MINUTES</div>
+                    <input
+                      type="number" min="1" placeholder="e.g. 25" value={logMin}
+                      onChange={e => setLogMin(e.target.value)}
+                      className="tpanel-input" style={{ width: '100%' }}
+                      autoFocus
+                    />
+                    {(parseInt(logMin) || 0) >= 60 && (
+                      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 3 }}>
+                        = {Math.floor((parseInt(logMin) || 0) / 60)}h {(parseInt(logMin) || 0) % 60}m
+                      </div>
+                    )}
+                  </div>
+                  <input placeholder="Notes (optional)" value={logNote}
+                    onChange={e => setLogNote(e.target.value)} className="tpanel-input" />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn sm ghost" style={{ flex: 1, fontSize: 10 }}
+                      onClick={() => { setShowLogTime(false); setLogMin(''); setLogNote(''); }}>
+                      Cancel
+                    </button>
+                    <button
+                      className="btn sm primary" style={{ flex: 1, fontSize: 10 }}
+                      onClick={handleLogTime}
+                      disabled={logSaving || (parseInt(logMin) || 0) <= 0}
+                    >
+                      {logSaving ? '…' : 'Add time'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Created */}
             {createdStr && (
               <div className="tpanel-prop">
@@ -1227,7 +1498,7 @@ const TaskDetailModal = ({
 };
 
 const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuses = [], allTags = [], onCreateTag }) => {
-  const empty = { title: '', proj: projects[0]?.id || '', p: '2', col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '' };
+  const empty = { title: '', proj: projects[0]?.id || '', p: '2', col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
   // Reset col when defaultCol (i.e. which column's + button was clicked) changes
@@ -1240,13 +1511,14 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
   const handleSubmit = async () => {
     if (!form.title.trim()) { setErr('Task title is required.'); return; }
     const newTask = {
-      proj:        form.proj,
-      col:         form.col,
-      p:           parseInt(form.p),
-      title:       form.title.trim(),
+      proj:       form.proj,
+      col:        form.col,
+      p:          parseInt(form.p),
+      title:      form.title.trim(),
       description: form.description,
-      due:         form.due || '—',
-      tags:        form.tagIds,
+      due:        form.due || '—',
+      tags:       form.tagIds,
+      estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
     };
     setSaving(true);
     try {
@@ -1302,6 +1574,16 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
             <input type="date" value={form.due} onChange={e => set('due', e.target.value)} />
           </div>
         </div>
+        <div className="fld-row">
+          <div className="fld">
+            <label>Est. hours</label>
+            <input type="number" min="0" value={form.estH} onChange={e => set('estH', e.target.value)} placeholder="0" />
+          </div>
+          <div className="fld">
+            <label>Est. minutes</label>
+            <input type="number" min="0" max="59" value={form.estM} onChange={e => set('estM', e.target.value)} placeholder="0" />
+          </div>
+        </div>
         <div className="fld">
           <label>Tags</label>
           <TagPicker
@@ -1328,7 +1610,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime }) => {
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view,        setView]        = useStateA('board');
@@ -1483,6 +1765,12 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     setParentTask(null);
   };
 
+  const handleTaskStatusChange = async (updated) => {
+    const saved = await updateTask(updated);
+    setTasks(prev => prev.map(t => t.id === saved.id ? saved : t));
+    setViewingTask(saved);
+  };
+
   const handleAddSubtask = async (subtaskData) => {
     const proj = projects.find(p => p.id === subtaskData.proj);
     const prefix = getTaskPrefix(proj?.name);
@@ -1490,6 +1778,17 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     const subtask = { ...subtaskData, id: `${prefix}-${num}` };
     const saved = await createTask(subtask, workstationId);
     setTasks(prev => [...prev, saved]);
+  };
+
+  const handleLogTime = async (taskDbId, projDbId, minutes, notes) => {
+    await onLogTime(taskDbId, projDbId, minutes, notes);
+    setViewingTask(prev => prev?._dbId === taskDbId
+      ? { ...prev, loggedMinutes: (prev.loggedMinutes || 0) + minutes }
+      : prev
+    );
+    setTasks(prev => prev.map(t =>
+      t._dbId === taskDbId ? { ...t, loggedMinutes: (t.loggedMinutes || 0) + minutes } : t
+    ));
   };
 
   return (
@@ -1669,6 +1968,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           parentTask={parentTask}
           onClose={handleCloseModal}
           onSave={handleTaskSave}
+          onStatusChange={handleTaskStatusChange}
           onAddSubtask={handleAddSubtask}
           onOpenSubtask={handleOpenSubtask}
           onBack={handleBackToParent}
@@ -1678,6 +1978,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           linkedNoteIds={taskNoteLinks[viewingTask._dbId] || []}
           onLinkNote={(noteId) => handleLinkNote(viewingTask._dbId, noteId)}
           onUnlinkNote={(noteId) => handleUnlinkNote(viewingTask._dbId, noteId)}
+          onLogTime={handleLogTime}
         />
       )}
     </div>

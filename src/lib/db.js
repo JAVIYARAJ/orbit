@@ -41,17 +41,19 @@ const fromDbProject = (r) => ({
 })
 
 const fromDbTask = (r) => ({
-  id:          r.task_id,
-  _dbId:       r.id,
-  proj:        r.project_short_id,
-  col:         r.status_id,
-  p:           r.priority,
-  title:       r.title,
-  description: r.description || '',
-  due:         r.due_date || '—',
-  tags:        r.tag_ids || [],
-  parentId:    r.parent_task_id || null,
-  createdAt:   r.created_at || null,
+  id:            r.task_id,
+  _dbId:         r.id,
+  proj:          r.project_short_id,
+  col:           r.status_id,
+  p:             r.priority,
+  title:         r.title,
+  description:   r.description || '',
+  due:           r.due_date || '—',
+  tags:          r.tag_ids || [],
+  parentId:      r.parent_task_id || null,
+  createdAt:     r.created_at || null,
+  estMinutes:    r.est_minutes    || 0,
+  loggedMinutes: r.logged_minutes || 0,
 })
 
 const fromDbNote = (r) => ({
@@ -110,13 +112,14 @@ const projectPayload = (p) => ({
 const taskPayload = (t) => ({
   task_id:          t.id,
   project_short_id: t.proj,
-  status_id:        t.col,   // t.col now carries the status UUID
+  status_id:        t.col,
   priority:         t.p,
   title:            t.title,
   description:      t.description || '',
   due_date:         (!t.due || t.due === '—') ? null : t.due,
-  tag_ids:          t.tags   || [],
-  parent_task_id:   t.parentId || null,
+  tag_ids:          t.tags        || [],
+  parent_task_id:   t.parentId    || null,
+  est_minutes:      t.estMinutes  || 0,
 })
 
 const learningPayload = (i) => ({
@@ -505,6 +508,119 @@ export const updateTag = async (id, name, color) => {
 export const deleteTag = async (id) => {
   const { error } = await supabase.rpc('delete_tag', { p_tag_id: id })
   if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TIME TRACKING
+// ═══════════════════════════════════════════════════════════════════
+
+const fromTimeEntry = (r) => ({
+  id:           r.id,
+  projectId:    r.projectId,
+  projectName:  r.projectName,
+  projectShort: r.projectShort,
+  taskId:       r.taskId    || null,
+  taskTitle:    r.taskTitle  || null,
+  taskShort:    r.taskShort  || null,
+  status:       r.status,
+  totalSeconds: r.totalSeconds || 0,
+  notes:        r.notes        || '',
+  startedAt:    r.startedAt,
+  endedAt:      r.endedAt     || null,
+  events:       (r.events || []).map(ev => ({
+    id:      ev.id,
+    event:   ev.event,
+    at:      ev.at,
+    elapsed: ev.elapsed || 0,
+  })),
+})
+
+export const startTimeEntry = async (workstationId, projectId, taskId = null) => {
+  const { data, error } = await supabase.rpc('start_time_entry', {
+    p_workstation_id: workstationId,
+    p_project_id:     projectId,
+    p_task_id:        taskId,
+  })
+  if (error) throw error
+  return fromTimeEntry(data)
+}
+
+export const pauseTimeEntry = async (entryId, elapsedSeconds) => {
+  const { data, error } = await supabase.rpc('pause_time_entry', {
+    p_entry_id:        entryId,
+    p_elapsed_seconds: elapsedSeconds,
+  })
+  if (error) throw error
+  return fromTimeEntry(data)
+}
+
+export const resumeTimeEntry = async (entryId) => {
+  const { data, error } = await supabase.rpc('resume_time_entry', {
+    p_entry_id: entryId,
+  })
+  if (error) throw error
+  return fromTimeEntry(data)
+}
+
+export const completeTimeEntry = async (entryId, elapsedSeconds, notes = '') => {
+  const { data, error } = await supabase.rpc('complete_time_entry', {
+    p_entry_id:        entryId,
+    p_elapsed_seconds: elapsedSeconds,
+    p_notes:           notes,
+  })
+  if (error) throw error
+  return fromTimeEntry(data)
+}
+
+export const discardTimeEntry = async (entryId) => {
+  const { error } = await supabase.rpc('discard_time_entry', {
+    p_entry_id: entryId,
+  })
+  if (error) throw error
+}
+
+export const getTimeEntries = async (workstationId, limit = 100) => {
+  const { data, error } = await supabase.rpc('get_time_entries', {
+    p_workstation_id: workstationId,
+    p_limit:          limit,
+  })
+  if (error) throw error
+  return (data || []).map(fromTimeEntry)
+}
+
+export const logManualTime = async (workstationId, projectId, taskId, minutes, notes = '') => {
+  const { data, error } = await supabase.rpc('log_manual_time', {
+    p_workstation_id: workstationId,
+    p_project_id:     projectId,
+    p_task_id:        taskId,
+    p_minutes:        minutes,
+    p_notes:          notes,
+  })
+  if (error) throw error
+  return fromTimeEntry(data)
+}
+
+export const getActiveTimeEntry = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_active_time_entry', {
+    p_workstation_id: workstationId,
+  })
+  if (error) throw error
+  return data ? fromTimeEntry(data) : null
+}
+
+export const getTaskStatusLogs = async (taskDbId) => {
+  const { data, error } = await supabase.rpc('get_task_status_logs', {
+    p_task_id: taskDbId,
+  })
+  if (error) throw error
+  return (data || []).map(r => ({
+    id:              r.id,
+    fromStatusLabel: r.fromStatusLabel || null,
+    fromStatusColor: r.fromStatusColor || null,
+    toStatusLabel:   r.toStatusLabel   || null,
+    toStatusColor:   r.toStatusColor   || null,
+    changedAt:       r.changedAt,
+  }))
 }
 
 export const createLearningItem = async (item, column, workstationId) => {
