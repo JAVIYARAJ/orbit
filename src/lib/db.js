@@ -317,6 +317,23 @@ export const deleteNote = async (noteId) => {
   if (error) throw error
 }
 
+export const restoreNote = async (noteId) => {
+  const { data, error } = await supabase.rpc('restore_note', { p_note_id: noteId })
+  if (error) throw error
+  return fromDbNote(data)
+}
+
+export const purgeNote = async (noteId) => {
+  const { error } = await supabase.rpc('purge_note', { p_note_id: noteId })
+  if (error) throw error
+}
+
+export const getDeletedNotes = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_deleted_notes', { p_workstation_id: workstationId })
+  if (error) throw error
+  return (data || []).map(fromDbNote)
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // CRUD — Vault
 // ═══════════════════════════════════════════════════════════════════

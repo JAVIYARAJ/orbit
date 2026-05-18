@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
   createNote as dbCreateNote, updateNote as dbUpdateNote, deleteNote as dbDeleteNote,
+  restoreNote as dbRestoreNote, purgeNote as dbPurgeNote, getDeletedNotes as dbGetDeletedNotes,
   createEmailTemplate,
 } from '../lib/db.js';
 
@@ -189,9 +190,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
 // ═══════════════════════════════════════════════════════════════════
 //  7. NOTES
 // ═══════════════════════════════════════════════════════════════════
-export const renderMd = (src) => {
-  if (!src) return '';
-  let s = src;
+const renderMdCore = (s) => {
   s = s.replace(/```(\w*)\n([\s\S]*?)```/g, (_, _lang, code) => {
     const escaped = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     return `<pre><code>${escaped}</code></pre>`;
@@ -234,6 +233,11 @@ export const renderMd = (src) => {
   return s;
 };
 
+export const renderMd = (src) => {
+  if (!src) return '';
+  return renderMdCore(src);
+};
+
 const FOLDERS = ['Clients', 'Pulse', 'Ideas', 'Daily'];
 
 export const NotesPage = ({ notes, setNotes, workstationId }) => {
@@ -262,8 +266,10 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
   const handleBodyChange = (val) => { setBody(val); setSaved(false); };
   const handleTitleChange = (val) => { setTitle(val); setSaved(false); };
   const wordCount = body.split(/\s+/).filter(Boolean).length;
-  const readMs = Math.min(90000, Math.max(8000, Math.round((wordCount / 220) * 60000)));
+  const readMs = Math.max(8000, Math.round((wordCount / 220) * 60000));
   const readLabel = readMs >= 60000 ? `${Math.round(readMs / 60000)}m` : `${Math.round(readMs / 1000)}s`;
+  const readMsRef = useRefB(readMs);
+  readMsRef.current = readMs;
 
   const stopAutoScroll = () => {
     if (scrollDelayRef.current) window.clearTimeout(scrollDelayRef.current);
@@ -292,7 +298,7 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
       }
 
       const tick = (now) => {
-        const progress = Math.min(1, (now - startedAt) / readMs);
+        const progress = Math.min(1, (now - startedAt) / readMsRef.current);
         target.scrollTop = start + distance * progress;
         if (progress < 1) {
           scrollFrameRef.current = window.requestAnimationFrame(tick);
@@ -337,7 +343,7 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
       const startedAt = performance.now();
       if (distance <= 0) { setFocusAutoScrolling(false); return; }
       const tick = (now) => {
-        const progress = Math.min(1, (now - startedAt) / readMs);
+        const progress = Math.min(1, (now - startedAt) / readMsRef.current);
         target.scrollTop = start + distance * progress;
         if (progress < 1) focusScrollFrameRef.current = window.requestAnimationFrame(tick);
         else { setFocusAutoScrolling(false); focusScrollFrameRef.current = null; }
@@ -416,14 +422,59 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
   const deleteNote = async () => {
     if (!note) return;
     const deletingId = activeId;
+    const deletedNote = notes.find(n => n.id === deletingId);
     const remaining = notes.filter(n => n.id !== deletingId);
     setNotes(remaining);
     setActiveId(remaining[0]?.id || null);
     setConfirmDelete(false);
+    if (deletedNote) setTrashNotes(prev => [deletedNote, ...prev]);
     try {
       await dbDeleteNote(deletingId);
     } catch (err) {
       console.error('Failed to delete note:', err);
+      setNotes(prev => [deletedNote, ...prev]);
+      setTrashNotes(prev => prev.filter(n => n.id !== deletingId));
+    }
+  };
+
+  // ── Trash ─────────────────────────────────────────────────────────
+  const [trashOpen, setTrashOpen] = useStateB(false);
+  const [trashNotes, setTrashNotes] = useStateB([]);
+  const [trashLoaded, setTrashLoaded] = useStateB(false);
+  const [trashLoading, setTrashLoading] = useStateB(false);
+
+  const openTrash = async () => {
+    setTrashOpen(true);
+    if (trashLoaded) return;
+    setTrashLoading(true);
+    try {
+      const deleted = await dbGetDeletedNotes(workstationId);
+      setTrashNotes(deleted);
+      setTrashLoaded(true);
+    } catch (err) {
+      console.error('Failed to load trash:', err);
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+
+  const handleRestore = async (noteId) => {
+    try {
+      const restored = await dbRestoreNote(noteId);
+      setTrashNotes(prev => prev.filter(n => n.id !== noteId));
+      setNotes(prev => [restored, ...prev]);
+      setActiveId(restored.id);
+    } catch (err) {
+      console.error('Failed to restore note:', err);
+    }
+  };
+
+  const handlePurge = async (noteId) => {
+    setTrashNotes(prev => prev.filter(n => n.id !== noteId));
+    try {
+      await dbPurgeNote(noteId);
+    } catch (err) {
+      console.error('Failed to purge note:', err);
     }
   };
 
@@ -493,6 +544,44 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                 </React.Fragment>
               );
             })}
+          </div>
+
+          {/* ── Trash ── */}
+          <div className="notes-trash-section">
+            <button
+              className="notes-trash-toggle"
+              onClick={trashOpen ? () => setTrashOpen(false) : openTrash}
+            >
+              <Icon name="trash" size={9}/> &nbsp;TRASH
+              {trashNotes.length > 0 && <span className="notes-trash-count">{trashNotes.length}</span>}
+              <Icon name="chev" size={9} style={{ marginLeft: 'auto', transform: trashOpen ? 'rotate(180deg)' : 'none' }}/>
+            </button>
+            {trashOpen && (
+              <div className="notes-trash-list">
+                {trashLoading && <div className="notes-trash-empty">Loading…</div>}
+                {!trashLoading && trashNotes.length === 0 && (
+                  <div className="notes-trash-empty">Trash is empty</div>
+                )}
+                {!trashLoading && trashNotes.map(n => (
+                  <div key={n.id} className="notes-trash-item">
+                    <div className="notes-trash-title">{n.title}</div>
+                    <div className="notes-trash-actions">
+                      <button className="btn sm" onClick={() => handleRestore(n.id)} title="Restore note">
+                        <Icon name="rev" size={9}/> Restore
+                      </button>
+                      <button
+                        className="btn sm"
+                        style={{ color: '#ff3d3d', borderColor: '#ff3d3d33' }}
+                        onClick={() => handlePurge(n.id)}
+                        title="Delete permanently"
+                      >
+                        <Icon name="x" size={9}/>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
