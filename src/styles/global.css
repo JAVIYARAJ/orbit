@@ -4943,6 +4943,118 @@ body.texture-grid::before {
   margin: 0 0 12px;
 }
 
+/* ───── NOTE FOCUS MODE ───── */
+.nfm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: var(--bg-0);
+  display: flex;
+  flex-direction: column;
+  animation: nfmFadeIn 0.18s ease;
+}
+
+@keyframes nfmFadeIn {
+  from { opacity: 0; transform: scale(0.992); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.nfm-progress-bar {
+  height: 2px;
+  background: var(--border);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.nfm-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.12s linear;
+}
+
+.nfm-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  scroll-behavior: smooth;
+}
+
+.nfm-inner {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 64px 32px 80px;
+}
+
+.nfm-header {
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.nfm-title {
+  font-family: var(--f-display);
+  font-size: 2.2em;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0 0 14px;
+  color: var(--text);
+}
+
+.nfm-meta {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  letter-spacing: 0.06em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.nfm-body {
+  line-height: 1.85;
+}
+
+.nfm-body p {
+  font-size: 1em;
+  line-height: 1.85;
+  margin-bottom: 1.3em;
+}
+
+.nfm-body h1 { font-size: 1.55em; margin-top: 2em; }
+.nfm-body h2 { font-size: 1.28em; margin-top: 1.8em; }
+.nfm-body h3 { font-size: 1.1em;  margin-top: 1.5em; }
+
+.nfm-bar {
+  border-top: 1px solid var(--border);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+
+.nfm-bar-l,
+.nfm-bar-r {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nfm-bar-c {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 /* ───── TIMER PAGE ───── */
 .timer-page {
   display: grid;

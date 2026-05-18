@@ -2,9 +2,10 @@
 
 import React from 'react';
 import { useState as useStateB, useEffect as useEffectB, useRef as useRefB } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
-  createNote as dbCreateNote, updateNote as dbUpdateNote,
+  createNote as dbCreateNote, updateNote as dbUpdateNote, deleteNote as dbDeleteNote,
   createEmailTemplate,
 } from '../lib/db.js';
 
@@ -307,6 +308,63 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
 
   useEffectB(() => stopAutoScroll, [activeId, tab, body]);
 
+  // ── Focus read mode ─────────────────────────────────────────────
+  const [focusMode, setFocusMode] = useStateB(false);
+  const [focusFontSize, setFocusFontSize] = useStateB(15);
+  const [focusProgress, setFocusProgress] = useStateB(0);
+  const [focusAutoScrolling, setFocusAutoScrolling] = useStateB(false);
+  const focusScrollRef = useRefB(null);
+  const focusScrollFrameRef = useRefB(null);
+  const focusScrollDelayRef = useRefB(null);
+
+  const stopFocusScroll = () => {
+    if (focusScrollDelayRef.current) window.clearTimeout(focusScrollDelayRef.current);
+    if (focusScrollFrameRef.current) window.cancelAnimationFrame(focusScrollFrameRef.current);
+    focusScrollDelayRef.current = null;
+    focusScrollFrameRef.current = null;
+    setFocusAutoScrolling(false);
+  };
+
+  const startFocusScroll = () => {
+    const target = focusScrollRef.current;
+    if (!target) return;
+    stopFocusScroll();
+    setFocusAutoScrolling(true);
+    focusScrollDelayRef.current = window.setTimeout(() => {
+      const start = target.scrollTop;
+      const end = Math.max(0, target.scrollHeight - target.clientHeight);
+      const distance = end - start;
+      const startedAt = performance.now();
+      if (distance <= 0) { setFocusAutoScrolling(false); return; }
+      const tick = (now) => {
+        const progress = Math.min(1, (now - startedAt) / readMs);
+        target.scrollTop = start + distance * progress;
+        if (progress < 1) focusScrollFrameRef.current = window.requestAnimationFrame(tick);
+        else { setFocusAutoScrolling(false); focusScrollFrameRef.current = null; }
+      };
+      focusScrollFrameRef.current = window.requestAnimationFrame(tick);
+    }, 700);
+  };
+
+  const handleFocusScroll = (e) => {
+    const el = e.currentTarget;
+    const max = el.scrollHeight - el.clientHeight;
+    setFocusProgress(max > 0 ? Math.round((el.scrollTop / max) * 100) : 0);
+  };
+
+  useEffectB(() => {
+    if (!focusMode) return;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape') setFocusMode(false); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [focusMode]);
+
+  useEffectB(() => stopFocusScroll, [activeId, body, focusMode]);
+
   const saveNote = async () => {
     // Optimistic update for instant feedback
     setNotes(prev => prev.map(n => n.id === activeId ? { ...n, title, body, edited: 'Just now' } : n));
@@ -350,6 +408,22 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
       } catch (err) {
         console.error('Failed to quick-save note:', err);
       }
+    }
+  };
+
+  const [confirmDelete, setConfirmDelete] = useStateB(false);
+
+  const deleteNote = async () => {
+    if (!note) return;
+    const deletingId = activeId;
+    const remaining = notes.filter(n => n.id !== deletingId);
+    setNotes(remaining);
+    setActiveId(remaining[0]?.id || null);
+    setConfirmDelete(false);
+    try {
+      await dbDeleteNote(deletingId);
+    } catch (err) {
+      console.error('Failed to delete note:', err);
     }
   };
 
@@ -422,6 +496,59 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
           </div>
         </div>
 
+        {focusMode && note && createPortal(
+          <div className="nfm-overlay">
+            <div className="nfm-progress-bar">
+              <div className="nfm-progress-fill" style={{ width: `${focusProgress}%` }} />
+            </div>
+            <div className="nfm-scroll" ref={focusScrollRef} onScroll={handleFocusScroll}>
+              <div className="nfm-inner" style={{ fontSize: focusFontSize }}>
+                <div className="nfm-header">
+                  <h1 className="nfm-title">{title}</h1>
+                  <div className="nfm-meta">
+                    <span>{(note.folder || 'General').toUpperCase()}</span>
+                    <span>·</span>
+                    <span>{wordCount} WORDS</span>
+                    <span>·</span>
+                    <span>{readLabel} READ</span>
+                    {note.tags.length > 0 && (
+                      <>{note.tags.map(t => <span key={t} className="tag" style={{ color: 'var(--accent-hi)', borderColor: 'var(--accent-tint-2)' }}>{t}</span>)}</>
+                    )}
+                    {note.pinned && <span className="tag" style={{ color: '#fbbf24' }}><Icon name="pin" size={9}/> PINNED</span>}
+                  </div>
+                </div>
+                <div className="note-preview nfm-body" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
+              </div>
+            </div>
+            <div className="nfm-bar">
+              <div className="nfm-bar-l">
+                <button
+                  className={'btn sm' + (focusAutoScrolling ? ' primary' : '')}
+                  onClick={focusAutoScrolling ? stopFocusScroll : startFocusScroll}
+                  title={`Auto-scroll over about ${readLabel}`}
+                >
+                  <Icon name={focusAutoScrolling ? 'pause' : 'arrow'} size={10}/>
+                  {focusAutoScrolling ? 'Pause' : `Auto scroll · ${readLabel}`}
+                </button>
+                <button className="btn sm" onClick={() => setFocusFontSize(s => Math.max(12, s - 1))} title="Decrease font size">A−</button>
+                <button className="btn sm" onClick={() => setFocusFontSize(s => Math.min(22, s + 1))} title="Increase font size">A+</button>
+              </div>
+              <div className="nfm-bar-c">
+                <span>{focusProgress}%</span>
+                <span>·</span>
+                <span>{wordCount} words</span>
+                <span>·</span>
+                <span>{readLabel} read</span>
+              </div>
+              <div className="nfm-bar-r">
+                <button className="btn sm" onClick={() => setFocusMode(false)} title="Exit focus mode (Esc)">
+                  <Icon name="x" size={10}/> Exit Focus
+                </button>
+              </div>
+            </div>
+          </div>
+        , document.body)}
+
         {note && (
           <div className="note-editor">
             <div className="note-eh">
@@ -430,6 +557,21 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                 {!saved && (
                   <button className="btn sm primary" onClick={saveNote}>
                     <Icon name="check" size={10}/> Save
+                  </button>
+                )}
+                {confirmDelete ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)' }}>Delete?</span>
+                    <button className="btn sm" style={{ color: '#ff3d3d', borderColor: '#ff3d3d33' }} onClick={deleteNote}>
+                      <Icon name="check" size={10}/> Yes
+                    </button>
+                    <button className="btn sm" onClick={() => setConfirmDelete(false)}>
+                      <Icon name="x" size={10}/> No
+                    </button>
+                  </div>
+                ) : (
+                  <button className="btn sm" style={{ color: 'var(--text-3)' }} onClick={() => setConfirmDelete(true)} title="Delete note">
+                    <Icon name="trash" size={10}/>
                   </button>
                 )}
                 <div className="note-reader-actions">
@@ -442,6 +584,9 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                       {autoScrolling ? 'Stop' : `Auto scroll · ${readLabel}`}
                     </button>
                   )}
+                  <button className="btn sm" onClick={() => { setTab('preview'); setFocusMode(true); setFocusProgress(0); }} title="Focus read mode — distraction-free (Esc to exit)">
+                    <Icon name="eye" size={10}/> Focus
+                  </button>
                   <div className="note-tabs">
                     <button className={tab==='edit' ? 'active' : ''} onClick={() => setTab('edit')}>EDIT</button>
                     <button className={tab==='preview' ? 'active' : ''} onClick={() => setTab('preview')}>PREVIEW</button>
