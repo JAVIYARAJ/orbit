@@ -141,7 +141,7 @@ const StatusRow = ({ status, index, total, onUpdate, onDelete, onMoveUp, onMoveD
     if (!trimmed || trimmed === status.label) { setLabel(status.label); return; }
     setSaving(true);
     try {
-      await onUpdate(status.id, { key: status.key, label: trimmed, color, sort_order: status.order });
+      await onUpdate(status.id, { key: status.key, label: trimmed, color, sort_order: status.order, is_done: status.isDone });
     } finally {
       setSaving(false);
     }
@@ -151,7 +151,17 @@ const StatusRow = ({ status, index, total, onUpdate, onDelete, onMoveUp, onMoveD
     setColor(newColor);
     setSaving(true);
     try {
-      await onUpdate(status.id, { key: status.key, label, color: newColor, sort_order: status.order });
+      await onUpdate(status.id, { key: status.key, label, color: newColor, sort_order: status.order, is_done: status.isDone });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleDone = async () => {
+    if (status.isDone) return; // already the done status, can't unset without picking another
+    setSaving(true);
+    try {
+      await onUpdate(status.id, { key: status.key, label, color, sort_order: status.order, is_done: true });
     } finally {
       setSaving(false);
     }
@@ -187,6 +197,13 @@ const StatusRow = ({ status, index, total, onUpdate, onDelete, onMoveUp, onMoveD
         disabled={saving}
       />
       <span className="status-key-badge">{status.key}</span>
+      <button
+        className={`iconbtn${status.isDone ? ' active' : ''}`}
+        onClick={handleToggleDone}
+        disabled={saving || status.isDone}
+        title={status.isDone ? 'This is the completion status' : 'Mark as completion status'}
+        style={{ color: status.isDone ? '#22c55e' : undefined, fontSize: 14, fontWeight: 700, padding: '0 4px' }}
+      >✓</button>
       <div className="status-row-actions">
         <button className="iconbtn" onClick={onMoveUp} disabled={index === 0} title="Move up">
           <Icon name="chevU" size={12} />
@@ -312,7 +329,11 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
 
   const handleUpdateStatus = async (id, data) => {
     const updated = await updateTaskStatus(id, data);
-    setStatuses(prev => prev.map(s => s.id === id ? updated : s));
+    setStatuses(prev => prev.map(s => {
+      if (s.id === id) return updated;
+      if (data.is_done) return { ...s, isDone: false }; // DB cleared all others
+      return s;
+    }));
   };
 
   const handleDeleteStatus = async (id) => {

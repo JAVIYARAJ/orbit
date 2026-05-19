@@ -7,6 +7,7 @@ import {
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs,
 } from '../lib/db.js';
 import { renderMd } from './tools.jsx';
+import { ghGetRepos, ghGetLastCommit, ghCreateBranch, ghGetBranches } from '../lib/github.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 const getDueClass = (date) => {
@@ -57,10 +58,17 @@ const genId = (name) => {
   return base + Math.floor(Math.random() * 90 + 10);
 };
 
+const fmtHours = (h) => {
+  const n = Number(h);
+  return n < 1 ? `${Math.round(n * 60)}m` : `${n.toFixed(2)}h`;
+};
+
+const fmtDate = (d) => (!d || d === '—') ? '—' : d;
+
 // ═══════════════════════════════════════════════════════════════════
 //  1. HOME — Command Center
 // ═══════════════════════════════════════════════════════════════════
-export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, onToggle }) => {
+export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, onToggle, statuses = [] }) => {
   const today   = new Date();
   const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const isoStr  = today.toISOString().slice(0, 10);
@@ -76,7 +84,8 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
   const todayTasks          = tasks.filter(t => ['progress', 'todo', 'review'].includes(t.col)).slice(0, 6);
   const dueTodayTasks       = tasks.filter(t => t.due === isoStr);
   const activeProjects      = projects.filter(p => p.status === 'progress' || p.status === 'review');
-  const openTasksCount      = tasks.filter(t => t.col !== 'done').length;
+  const doneStatusId        = statuses.find(s => s.isDone)?.id;
+  const openTasksCount      = tasks.filter(t => t.col !== doneStatusId).length;
   const activeProjectsCount = projects.filter(p => p.status === 'progress').length;
   const templatePreview     = (emailTemplates || []).slice(0, 3);
 
@@ -285,7 +294,72 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
 //  2. PROJECTS
 // ═══════════════════════════════════════════════════════════════════
 // Shared form panel — handles both Add and Edit
-const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] }) => {
+// ── Repo selector dropdown (shown when GitHub is connected) ─────────
+const RepoSelector = ({ repos, loading, value, onChange }) => {
+  const [open, setOpen]   = useStateA(false);
+  const [q,    setQ]      = useStateA('');
+  const ref               = useRefA(null);
+  const searchRef         = useRefA(null);
+
+  useEffectA(() => {
+    if (!open) return;
+    searchRef.current?.focus();
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const selected = repos.find(r => r.html_url === value);
+  const filtered = repos.filter(r => !q || r.full_name.toLowerCase().includes(q.toLowerCase()));
+
+  return (
+    <div className="repo-sel" ref={ref}>
+      <button type="button" className="repo-sel-btn" onClick={() => setOpen(o => !o)}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0, color: 'var(--text-3)' }}>
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+          {loading ? 'Loading repos…' : selected ? selected.full_name : 'Select a repository…'}
+        </span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, color: 'var(--text-3)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="repo-sel-drop">
+          <div className="repo-sel-search">
+            <input ref={searchRef} placeholder="Search repos…" value={q} onChange={e => setQ(e.target.value)} />
+          </div>
+          <div className="repo-sel-list">
+            {value && (
+              <button className="repo-sel-item repo-sel-clear" onClick={() => { onChange(''); setOpen(false); setQ(''); }}>
+                — No repository
+              </button>
+            )}
+            {filtered.length === 0 && !loading && (
+              <div className="repo-sel-empty">No repos match</div>
+            )}
+            {filtered.map(r => (
+              <button
+                key={r.id}
+                className={'repo-sel-item' + (r.html_url === value ? ' active' : '')}
+                onClick={() => { onChange(r.html_url); setOpen(false); setQ(''); }}
+              >
+                <span className="repo-sel-name">{r.full_name}</span>
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  {r.private && <span className="repo-badge private">private</span>}
+                  {r.language && <span className="repo-badge lang">{r.language}</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], githubToken = null }) => {
   const isEdit = !!initial;
 
   const toForm = (p) => p ? {
@@ -301,12 +375,22 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
     repo:        (!p.repo  || p.repo  === '—') ? '' : p.repo,
   } : { name: '', client: '', description: '', typeId: projectTypes[0]?.id || '', status: 'planning', stack: '', start: '', end: '', budget: '', repo: '' };
 
-  const [form, setForm] = useStateA(() => toForm(initial));
-  const [err,  setErr]  = useStateA('');
-  const [saving, setSaving] = useStateA(false);
+  const [form,        setForm]        = useStateA(() => toForm(initial));
+  const [err,         setErr]         = useStateA('');
+  const [saving,      setSaving]      = useStateA(false);
+  const [ghRepos,     setGhRepos]     = useStateA([]);
+  const [ghLoading,   setGhLoading]   = useStateA(false);
 
   // Re-initialise form whenever the panel opens with different data
-  useEffectA(() => { if (open) { setForm(toForm(initial)); setErr(''); } }, [open, initial?.id]);
+  useEffectA(() => {
+    if (!open) return;
+    setForm(toForm(initial));
+    setErr('');
+    if (githubToken && ghRepos.length === 0) {
+      setGhLoading(true);
+      ghGetRepos(githubToken).then(setGhRepos).catch(console.error).finally(() => setGhLoading(false));
+    }
+  }, [open, initial?.id]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -403,7 +487,11 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
           </div>
           <div className="fld">
             <label>Repository</label>
-            <input value={form.repo} onChange={e => set('repo', e.target.value)} placeholder="github.com/user/repo" />
+            {githubToken ? (
+              <RepoSelector repos={ghRepos} loading={ghLoading} value={form.repo} onChange={v => set('repo', v)} />
+            ) : (
+              <input value={form.repo} onChange={e => set('repo', e.target.value)} placeholder="github.com/user/repo" />
+            )}
           </div>
         </div>
       </div>
@@ -421,9 +509,42 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [] 
 };
 
 // ── Project view panel (read-only) ──────────────────────────────────
-const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [] }) => {
+const timeAgo = (dateStr) => {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 2)  return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+};
+
+const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [], tasks = [], statuses = [], githubToken = null }) => {
   if (!project) return null;
   const typeName = projectTypes.find(pt => pt.id === project.typeId)?.label || '—';
+  const doneId = statuses.find(s => s.isDone)?.id ?? 'done';
+  const projectTasks = tasks.filter(t => t.proj === project.id);
+  const totalTasks = projectTasks.length;
+  const openTasks = projectTasks.filter(t => t.col !== doneId).length;
+
+  const [lastCommit,    setLastCommit]    = useStateA(null);
+  const [commitLoading, setCommitLoading] = useStateA(false);
+
+  const repoFullName = project.repo
+    ? project.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
+    : null;
+
+  useEffectA(() => {
+    if (!open || !githubToken || !repoFullName) { setLastCommit(null); return; }
+    setCommitLoading(true);
+    setLastCommit(null);
+    ghGetLastCommit(githubToken, repoFullName)
+      .then(data => setLastCommit(data?.[0] || null))
+      .catch(() => setLastCommit(null))
+      .finally(() => setCommitLoading(false));
+  }, [open, project?.id, repoFullName]);
 
   return (
     <SlidePanel open={open} onClose={onClose}
@@ -452,7 +573,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [] })
           <div className="fld">
             <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>TIME LOGGED</label>
             <div style={{ fontSize: 13, color: 'var(--text-1)', fontFamily: 'var(--f-mono)' }}>
-              {Number(project.hoursLogged).toFixed(2)}h
+              {fmtHours(project.hoursLogged)}
             </div>
           </div>
         </div>
@@ -475,9 +596,67 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [] })
           </div>
           <div className="fld">
             <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>REPOSITORY</label>
-            <div style={{ fontSize: 13, color: 'var(--text-1)', wordBreak: 'break-all' }}>{project.repo || '—'}</div>
+            {project.repo ? (
+              <a
+                href={project.repo}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4,
+                  fontSize: 12, color: 'var(--text-1)', background: 'var(--bg-2)',
+                  border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '5px 10px', textDecoration: 'none', fontFamily: 'var(--f-mono)',
+                  cursor: 'pointer', width: 'fit-content', maxWidth: '100%', overflow: 'hidden'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-3)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-2)'}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {project.repo.replace(/^https?:\/\/github\.com\//, '') || project.repo}
+                </span>
+              </a>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--text-1)' }}>—</div>
+            )}
           </div>
         </div>
+
+        {repoFullName && githubToken && (
+          <div className="fld">
+            <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>LAST COMMIT</label>
+            {commitLoading ? (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 4 }}>Fetching…</div>
+            ) : lastCommit ? (
+              <a
+                href={lastCommit.html_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="last-commit-card"
+              >
+                <div className="lc-top">
+                  <span className="lc-sha">{lastCommit.sha.slice(0, 7)}</span>
+                  <span className="lc-time">{timeAgo(lastCommit.commit.author.date)}</span>
+                </div>
+                <div className="lc-msg">{lastCommit.commit.message.split('\n')[0]}</div>
+                <div className="lc-author">
+                  {lastCommit.author?.avatar_url ? (
+                    <img src={lastCommit.author.avatar_url} alt="" className="lc-avatar" />
+                  ) : (
+                    <span className="lc-avatar lc-avatar-mono">
+                      {lastCommit.commit.author.name?.[0]?.toUpperCase() || '?'}
+                    </span>
+                  )}
+                  {lastCommit.commit.author.name}
+                </div>
+              </a>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>No commits found</div>
+            )}
+          </div>
+        )}
 
         {(project.stack || []).length > 0 && (
           <div className="fld">
@@ -491,7 +670,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [] })
         <div className="fld">
           <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>TASKS</label>
           <div style={{ fontSize: 13, color: 'var(--text-1)', fontFamily: 'var(--f-mono)' }}>
-            {project.tasks} total · {project.openTasks} open
+            {totalTasks} total · {openTasks} open
           </div>
         </div>
       </div>
@@ -505,9 +684,10 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [] })
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [] }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], statuses = [], githubToken = null }) => {
   const [view,    setView]    = useStateA('card');
   const [filter,  setFilter]  = useStateA('all');
+  const [search,  setSearch]  = useStateA('');
   const [showAdd, setShowAdd] = useStateA(false);
   const [viewing, setViewing] = useStateA(null); // project open in view panel
   const [editing, setEditing] = useStateA(null); // project being edited
@@ -521,7 +701,17 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
     }
   }, [filter]);
 
-  const filtered = projects.filter(p => filter === 'all' || p.status === filter);
+  const q = search.trim().toLowerCase();
+  const filtered = projects.filter(p => {
+    if (filter !== 'all' && p.status !== filter) return false;
+    if (!q) return true;
+    return (
+      p.name?.toLowerCase().includes(q) ||
+      p.client?.toLowerCase().includes(q) ||
+      p.description?.toLowerCase().includes(q) ||
+      (p.stack || []).some(s => s.toLowerCase().includes(q))
+    );
+  });
 
   const handleAdd = async (project) => {
     const saved = await createProject(project, workstationId);
@@ -567,6 +757,20 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
             </button>
           ))}
         </div>
+        <div className="task-search-wrap">
+          <Icon name="search" size={12}/>
+          <input
+            className="task-search-input"
+            placeholder="Search projects…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {search && (
+            <button className="task-search-clear" onClick={() => setSearch('')}>
+              <Icon name="x" size={10}/>
+            </button>
+          )}
+        </div>
       </div>
 
       {projects.length === 0 ? (
@@ -583,8 +787,8 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
           {filtered.length === 0 ? (
             <div className="empty-state">
               <Icon name="folder" size={28} />
-              <div className="empty-title">No projects match this filter</div>
-              <div className="empty-sub">Try selecting a different status.</div>
+              <div className="empty-title">No projects found</div>
+              <div className="empty-sub">{q ? `No results for "${search}".` : 'Try selecting a different status.'}</div>
             </div>
           ) : (
             <div className="proj-grid">
@@ -592,7 +796,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                 <div key={p.id} className="proj-card" style={{ cursor: 'pointer' }} onClick={() => setViewing(p)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                     <div>
-                      <div className="client">{p.id} · {projectTypes.find(pt => pt.id === p.typeId)?.label || '—'}</div>
+                      <div className="client">{projectTypes.find(pt => pt.id === p.typeId)?.label || '—'}</div>
                       <div className="name" style={{ marginTop: 4 }}>{p.name}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -616,12 +820,12 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                   )}
                   <div className="stack">{(p.stack || []).map(s => <span key={s} className="tag">{s}</span>)}</div>
                   <div className="dates">
-                    <span>START {p.start || '—'}</span>
-                    <span>END {p.end || '—'}</span>
+                    <span>START {fmtDate(p.start)}</span>
+                    <span>END {fmtDate(p.end)}</span>
                   </div>
                   <div className="row-end">
                     <span className="pct">{p.tasks} tasks ({p.openTasks} open)</span>
-                    <span className="pct">{Number(p.hoursLogged).toFixed(1)}h logged</span>
+                    <span className="pct">{fmtHours(p.hoursLogged)} logged</span>
                   </div>
                 </div>
               ))}
@@ -637,10 +841,10 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
             </tr></thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 32 }}>No projects match this filter.</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 32 }}>{q ? `No results for "${search}".` : 'No projects match this filter.'}</td></tr>
               ) : filtered.map(p => (
                 <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => setViewing(p)}>
-                  <td><span className="num" style={{color:'var(--text-3)'}}>{p.id}</span> <b style={{marginLeft:6}}>{p.name}</b></td>
+                  <td><b>{p.name}</b></td>
                   <td>{p.client}</td>
                   <td><StatusPill status={p.status} /></td>
                   <td>
@@ -650,8 +854,8 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                     </div>
                   </td>
                   <td className="mono">{p.openTasks}/{p.tasks}</td>
-                  <td className="mono">{Number(p.hoursLogged).toFixed(1)}h</td>
-                  <td className="mono">{p.end || '—'}</td>
+                  <td className="mono">{fmtHours(p.hoursLogged)}</td>
+                  <td className="mono">{fmtDate(p.end)}</td>
                   <td>
                     <button className="btn sm ghost" onClick={e => { e.stopPropagation(); setEditing(p); }} title="Edit project">
                       <Icon name="edit" size={12} />
@@ -669,10 +873,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         onClose={() => setViewing(null)}
         project={viewing}
         projectTypes={projectTypes}
+        tasks={tasks}
+        statuses={statuses}
+        githubToken={githubToken}
         onEdit={() => { setEditing(viewing); setViewing(null); }}
       />
-      <ProjectFormPanel open={showAdd}   onClose={() => setShowAdd(false)} onSubmit={handleAdd}  projectTypes={projectTypes} />
-      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)}  onSubmit={handleEdit} projectTypes={projectTypes} initial={editing} />
+      <ProjectFormPanel open={showAdd}   onClose={() => setShowAdd(false)} onSubmit={handleAdd}  projectTypes={projectTypes} githubToken={githubToken} />
+      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)}  onSubmit={handleEdit} projectTypes={projectTypes} githubToken={githubToken} initial={editing} />
     </div>
   );
 };
@@ -687,7 +894,7 @@ const COL_DEFS = [
   { id: 'todo',     key: 'todo',     label: 'To Do',       color: '#888888' },
   { id: 'progress', key: 'progress', label: 'In Progress', color: '#0099ff' },
   { id: 'review',   key: 'review',   label: 'Review',      color: '#f59e0b' },
-  { id: 'done',     key: 'done',     label: 'Done',        color: '#22c55e' },
+  { id: 'done',     key: 'done',     label: 'Done',        color: '#22c55e', isDone: true },
 ];
 
 // ── Tag colour palette for new tags created inline ─────────────────
@@ -783,9 +990,10 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart,
   const proj = projects.find(p => p.id === t.proj);
   const subs = tasks ? tasks.filter(s => s.parentId === t._dbId) : [];
   const subsDone = doneStatusId ? subs.filter(s => s.col === doneStatusId).length : 0;
+  const isDone = doneStatusId && t.col === doneStatusId;
   return (
     <div
-      className={'tcard' + (getDueClass(t.due).includes('overdue') ? ' overdue' : '')}
+      className={'tcard' + (isDone ? ' tcard-done' : getDueClass(t.due).includes('overdue') ? ' overdue' : '')}
       draggable
       onDragStart={(e) => onDragStart(e, t)}
       onDragEnd={onDragEnd}
@@ -804,13 +1012,11 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart,
       </div>
       <div className="title">{t.title}</div>
       <div className="proj">→ {proj?.name || t.proj}</div>
-      <div className="foot">
-        {subs.length > 0 && <div className="subs"><Icon name="list" size={10}/> {subsDone}/{subs.length}</div>}
-        <span className={getDueClass(t.due)}>
-          {getDueClass(t.due).includes('overdue') && <Icon name="alert" size={12} />}
-          {formatDate(t.due)}
-        </span>
-      </div>
+      {subs.length > 0 && (
+        <div className="foot">
+          <div className="subs"><Icon name="list" size={10}/> {subsDone}/{subs.length}</div>
+        </div>
+      )}
     </div>
   );
 };
@@ -847,6 +1053,173 @@ const NoteViewOverlay = ({ note, onClose }) => {
   );
 };
 
+// ── Description field with link rendering & previews ──────────────
+const URL_RE = /https?:\/\/[^\s<>"']+/g;
+
+const extractUrls = (text) => {
+  const found = [];
+  let m;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(text)) !== null) {
+    if (!found.includes(m[0])) found.push(m[0]);
+  }
+  return found;
+};
+
+const renderDescription = (text) => {
+  if (!text) return null;
+  const parts = [];
+  let last = 0;
+  let match;
+  URL_RE.lastIndex = 0;
+  while ((match = URL_RE.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    const url = match[0];
+    let label;
+    try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = url; }
+    parts.push(
+      <a key={match.index} href={url} target="_blank" rel="noopener noreferrer" className="desc-link"
+        onClick={e => e.stopPropagation()}>
+        {label}
+      </a>
+    );
+    last = match.index + url.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+};
+
+// ── Link preview — instant, no external API ────────────────────────
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?.*)?$/i;
+const YT_RE        = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+const GH_RE        = /github\.com\/([^/]+\/[^/\s?#]+)/;
+
+const getLinkMeta = (url) => {
+  let hostname;
+  try { hostname = new URL(url).hostname.replace(/^www\./, ''); } catch { hostname = url; }
+
+  const favicon = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+
+  // Direct image URL — show the image itself
+  if (IMAGE_EXT_RE.test(url)) {
+    return { type: 'image', thumb: url, title: url.split('/').pop().split('?')[0], hostname, favicon };
+  }
+
+  // YouTube — known thumbnail pattern, zero API call
+  const yt = url.match(YT_RE);
+  if (yt) {
+    return { type: 'youtube', thumb: `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`, title: 'YouTube Video', hostname: 'youtube.com', favicon };
+  }
+
+  // GitHub repo — social preview image follows a known pattern
+  const gh = url.match(GH_RE);
+  if (gh) {
+    return { type: 'github', thumb: `https://opengraph.githubassets.com/1/${gh[1]}`, title: gh[1], hostname: 'github.com', favicon };
+  }
+
+  // Everything else — favicon + hostname only, instant
+  return { type: 'link', thumb: null, title: hostname, hostname, favicon };
+};
+
+const LinkPreview = ({ url }) => {
+  const meta = getLinkMeta(url);
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={'link-preview-card' + (meta.type === 'image' ? ' link-preview-card-image' : '')}
+      onClick={e => e.stopPropagation()}
+    >
+      {meta.thumb && meta.type !== 'image' && (
+        <div className="link-preview-thumb">
+          <img
+            src={meta.thumb}
+            alt=""
+            onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
+          />
+        </div>
+      )}
+      {meta.type === 'image' ? (
+        <img
+          src={meta.thumb}
+          alt={meta.title}
+          className="link-preview-full-img"
+          onError={e => { e.currentTarget.style.display = 'none'; }}
+        />
+      ) : (
+        <div className="link-preview-body">
+          <div className="link-preview-title-row">
+            <img src={meta.favicon} alt="" className="link-preview-favicon"
+              onError={e => { e.currentTarget.style.display = 'none'; }} />
+            <span className="link-preview-title">{meta.title}</span>
+          </div>
+          <div className="link-preview-url">{meta.hostname}</div>
+        </div>
+      )}
+    </a>
+  );
+};
+
+const DescriptionField = ({ value, onChange }) => {
+  const [editing, setEditing] = useStateA(false);
+  const taRef = useRefA(null);
+  const urls = editing ? [] : extractUrls(value || '').slice(0, 3);
+
+  useEffectA(() => {
+    if (editing && taRef.current) {
+      taRef.current.focus();
+      const len = taRef.current.value.length;
+      taRef.current.setSelectionRange(len, len);
+    }
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <div>
+        <div className="tpanel-section">Description</div>
+        <textarea
+          ref={taRef}
+          className="tpanel-desc"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="Add a description — scope, context, acceptance criteria…"
+          rows={5}
+          onBlur={() => setEditing(false)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="tpanel-section">Description</div>
+      <div
+        className={'tpanel-desc-view' + (!value ? ' tpanel-desc-empty' : '')}
+        onClick={() => setEditing(true)}
+        title="Click to edit"
+      >
+        {value
+          ? renderDescription(value).map((part, i) =>
+              typeof part === 'string'
+                ? part.split('\n').map((line, j, arr) => (
+                    <span key={`${i}-${j}`}>{line}{j < arr.length - 1 && <br />}</span>
+                  ))
+                : part
+            )
+          : 'Add a description — scope, context, acceptance criteria…'
+        }
+      </div>
+      {urls.length > 0 && (
+        <div className="link-previews">
+          {urls.map(u => <LinkPreview key={u} url={u} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Task Detail Panel (Jira-style right drawer) ────────────────────
 const P_DOT_COLOR = { 1: '#ef4444', 2: 'var(--accent)', 3: 'var(--text-3)' };
 
@@ -864,7 +1237,7 @@ const TaskDetailModal = ({
   onAddSubtask, onOpenSubtask, parentTask, onBack,
   allTags = [], onCreateTag,
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
-  onLogTime,
+  onLogTime, githubToken = null, onBranchUpdate,
 }) => {
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
@@ -872,7 +1245,7 @@ const TaskDetailModal = ({
   const proj = projects.find(p => p.id === task.proj);
 
   // 'done' status UUID — used for subtask completion percentage
-  const doneStatusId = statuses.find(s => s.key === 'done')?.id;
+  const doneStatusId = statuses.find(s => s.isDone)?.id;
 
   // Only allow moving to the immediately adjacent status in sequence
   const taskColIdx = statuses.findIndex(s => s.id === task.col);
@@ -922,6 +1295,8 @@ const TaskDetailModal = ({
   const [statusLogs,    setStatusLogs]    = useStateA([]);
   const [logsLoading,   setLogsLoading]   = useStateA(false);
   const [statusSaving,  setStatusSaving]  = useStateA(false);
+  const [logsVisible,   setLogsVisible]   = useStateA(10);
+  const LOG_PAGE = 10;
 
   useEffectA(() => {
     if (!task._dbId) return;
@@ -994,9 +1369,56 @@ const TaskDetailModal = ({
     catch (e) { console.error('Failed to unlink note:', e); }
   };
 
+  // GitHub branch management
+  const taskProjObj = projects.find(p => p.id === task.proj);
+  const taskRepoFull = taskProjObj?.repo
+    ? taskProjObj.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
+    : null;
+  const showBranchSection = !!githubToken && !!taskRepoFull;
+
+  const [ghBranch,       setGhBranch]       = useStateA(task.ghBranch || '');
+  const [branches,       setBranches]       = useStateA([]);
+  const [branchesLoading,setBranchesLoading]= useStateA(false);
+  const [branchMode,     setBranchMode]     = useStateA('none'); // 'none' | 'switch' | 'create' — which is checked
+  const [branchOpen,     setBranchOpen]     = useStateA(false);  // whether the form is expanded
+  const [newBranchName,  setNewBranchName]  = useStateA('');
+  const [branchSaving,   setBranchSaving]   = useStateA(false);
+  const [branchErr,      setBranchErr]      = useStateA('');
+
+  useEffectA(() => {
+    if (!showBranchSection || branchMode !== 'switch' || !branchOpen) return;
+    setBranchesLoading(true);
+    ghGetBranches(githubToken, taskRepoFull)
+      .then(data => setBranches(data.map(b => b.name)))
+      .catch(() => setBranches([]))
+      .finally(() => setBranchesLoading(false));
+  }, [branchMode, branchOpen, showBranchSection]);
+
+  const handleBranchSave = async () => {
+    const name = branchMode === 'create' ? newBranchName.trim() : ghBranch;
+    if (!name) { setBranchErr('Branch name is required.'); return; }
+    setBranchSaving(true);
+    setBranchErr('');
+    try {
+      if (branchMode === 'create') {
+        await ghCreateBranch(githubToken, taskRepoFull, name);
+      }
+      await onBranchUpdate({ ...task, ghBranch: name });
+      setGhBranch(name);
+      setBranchOpen(false); // collapse form but keep checkmark
+    } catch (e) {
+      setBranchErr(e.message || 'Failed to update branch.');
+    } finally {
+      setBranchSaving(false);
+    }
+  };
+
   useEffectA(() => {
     setForm(toForm(task)); setErr(''); setShowSubForm(false);
     setShowLogTime(false); setLogMin(''); setLogNote('');
+    setLogsVisible(10);
+    setGhBranch(task.ghBranch || '');
+    setBranchMode('none'); setBranchOpen(false); setBranchErr(''); setNewBranchName('');
   }, [task.id]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -1093,25 +1515,22 @@ const TaskDetailModal = ({
             {err && <div className="sp-error">{err}</div>}
 
             {/* Title */}
-            <textarea
-              className="tpanel-title"
-              value={form.title}
-              onChange={e => set('title', e.target.value)}
-              rows={2}
-              placeholder="Task title…"
-            />
-
-            {/* Description */}
             <div>
-              <div className="tpanel-section">Description</div>
+              <div className="tpanel-section">Title</div>
               <textarea
-                className="tpanel-desc"
-                value={form.description}
-                onChange={e => set('description', e.target.value)}
-                placeholder="Add a description — scope, context, acceptance criteria…"
-                rows={5}
+                className="tpanel-title"
+                value={form.title}
+                onChange={e => set('title', e.target.value)}
+                rows={2}
+                placeholder="Task title…"
               />
             </div>
+
+            {/* Description */}
+            <DescriptionField
+              value={form.description}
+              onChange={v => set('description', v)}
+            />
 
             {/* Subtasks — only on parent tasks */}
             {!parentTask && (
@@ -1295,12 +1714,13 @@ const TaskDetailModal = ({
                 <div className="subtasks-empty">No status changes yet.</div>
               ) : (
                 <div style={{ padding: '8px 0 4px 0' }}>
-                  {statusLogs.map((log, i) => {
+                  {statusLogs.slice(0, logsVisible).map((log, i) => {
                     const isLatest = i === 0;
                     const color    = log.toStatusColor || '#888';
                     const d        = new Date(log.changedAt);
                     const dateStr  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     const timeStr  = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                    const sliced   = statusLogs.slice(0, logsVisible);
                     return (
                       <div key={log.id || i} style={{ display: 'flex', gap: 10 }}>
                         {/* Rail */}
@@ -1310,24 +1730,21 @@ const TaskDetailModal = ({
                             background: isLatest ? color : 'var(--bg-3, #333)',
                             border: `1.5px solid ${isLatest ? color : 'var(--border)'}`,
                           }}/>
-                          {i < statusLogs.length - 1 && (
+                          {i < sliced.length - 1 && (
                             <div style={{ width: 1, flex: 1, minHeight: 16, marginTop: 4, background: 'var(--border)' }}/>
                           )}
                         </div>
 
                         {/* Row */}
-                        <div style={{ flex: 1, paddingBottom: i < statusLogs.length - 1 ? 14 : 2, paddingTop: 8 }}>
+                        <div style={{ flex: 1, paddingBottom: i < sliced.length - 1 ? 14 : 2, paddingTop: 8 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            {/* From */}
                             <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
                               {log.fromStatusLabel || 'Created'}
                             </span>
-                            {/* Arrow */}
                             <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>
-                            {/* To — only this gets a subtle color dot */}
                             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }}/>
-                              <span style={{ fontSize: 11, color: 'var(--text-1)', fontWeight: 500 }}>
+                              <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 500 }}>
                                 {log.toStatusLabel || '—'}
                               </span>
                             </span>
@@ -1342,6 +1759,31 @@ const TaskDetailModal = ({
                       </div>
                     );
                   })}
+
+                  {/* Show more / Show less */}
+                  {statusLogs.length > LOG_PAGE && (
+                    <div style={{ paddingTop: 6, paddingLeft: 26, display: 'flex', gap: 10, alignItems: 'center' }}>
+                      {logsVisible < statusLogs.length && (
+                        <button
+                          className="btn sm ghost"
+                          style={{ fontSize: 11 }}
+                          onClick={() => setLogsVisible(v => v + LOG_PAGE)}
+                        >
+                          Show {Math.min(LOG_PAGE, statusLogs.length - logsVisible)} more
+                          <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>· {statusLogs.length - logsVisible} remaining</span>
+                        </button>
+                      )}
+                      {logsVisible > LOG_PAGE && (
+                        <button
+                          className="btn sm ghost"
+                          style={{ fontSize: 11 }}
+                          onClick={() => setLogsVisible(LOG_PAGE)}
+                        >
+                          Show less
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1476,6 +1918,129 @@ const TaskDetailModal = ({
                 <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>{createdStr}</div>
               </div>
             )}
+
+            {/* GitHub Branch */}
+            {showBranchSection && (
+              <div className="tpanel-prop">
+                <div className="tpanel-prop-label">Branch</div>
+
+                {/* Current branch chip */}
+                {ghBranch && branchMode === 'none' && (
+                  <a
+                    href={`https://github.com/${taskRepoFull}/tree/${ghBranch}`}
+                    target="_blank" rel="noreferrer"
+                    className="task-branch-chip"
+                    style={{ display: 'inline-flex', marginBottom: 6 }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {ghBranch}
+                  </a>
+                )}
+
+                {/* Toggle: switch to existing */}
+                <div className="branch-opt" style={{ marginTop: 2 }}>
+                  <label className="branch-opt-toggle"
+                    onClick={() => {
+                      if (branchMode === 'switch') {
+                        setBranchOpen(o => !o);
+                      } else {
+                        setBranchMode('switch');
+                        setBranchOpen(true);
+                        setNewBranchName('');
+                      }
+                      setBranchErr('');
+                    }}>
+                    <span className={'branch-opt-check' + (branchMode === 'switch' ? ' on' : '')}>
+                      {branchMode === 'switch' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3"/></svg>}
+                    </span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
+                      <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+                    </svg>
+                    <span>Switch to existing branch</span>
+                    <span className="branch-opt-repo">{taskRepoFull}</span>
+                  </label>
+                  {branchMode === 'switch' && branchOpen && (
+                    <div className="branch-opt-name">
+                      <label>Select branch</label>
+                      {branchesLoading ? (
+                        <div style={{ fontSize: 11, color: 'var(--text-3)', padding: '4px 0' }}>Loading…</div>
+                      ) : (
+                        <select
+                          className="tpanel-sel"
+                          value={ghBranch}
+                          onChange={e => setGhBranch(e.target.value)}
+                          autoFocus
+                          style={{ width: '100%', marginTop: 2 }}
+                        >
+                          <option value="">— select —</option>
+                          {branches.map(b => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      )}
+                      {branchErr && <div className="branch-opt-err">{branchErr}</div>}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <button className="btn sm ghost" style={{ flex: 1, fontSize: 10 }}
+                          onClick={() => { setBranchOpen(false); setBranchErr(''); setGhBranch(task.ghBranch || ''); }}>
+                          Cancel
+                        </button>
+                        <button className="btn sm primary" style={{ flex: 1, fontSize: 10 }}
+                          onClick={handleBranchSave} disabled={branchSaving || !ghBranch}>
+                          {branchSaving ? '…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Toggle: create new branch */}
+                <div className="branch-opt" style={{ marginTop: 4 }}>
+                  <label className="branch-opt-toggle"
+                    onClick={() => {
+                      if (branchMode === 'create') {
+                        setBranchOpen(o => !o);
+                      } else {
+                        setBranchMode('create');
+                        setBranchOpen(true);
+                        setNewBranchName(toBranchName(task.title));
+                      }
+                      setBranchErr('');
+                    }}>
+                    <span className={'branch-opt-check' + (branchMode === 'create' ? ' on' : '')}>
+                      {branchMode === 'create' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3"/></svg>}
+                    </span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
+                      <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+                    </svg>
+                    <span>Create a new branch</span>
+                    <span className="branch-opt-repo">{taskRepoFull}</span>
+                  </label>
+                  {branchMode === 'create' && branchOpen && (
+                    <div className="branch-opt-name">
+                      <label>Branch name</label>
+                      <input
+                        value={newBranchName}
+                        onChange={e => setNewBranchName(e.target.value)}
+                        placeholder="feat/branch-name"
+                        spellCheck={false}
+                        autoFocus
+                      />
+                      {branchErr && <div className="branch-opt-err">{branchErr}</div>}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <button className="btn sm ghost" style={{ flex: 1, fontSize: 10 }}
+                          onClick={() => { setBranchOpen(false); setBranchErr(''); }}>
+                          Cancel
+                        </button>
+                        <button className="btn sm primary" style={{ flex: 1, fontSize: 10 }}
+                          onClick={handleBranchSave} disabled={branchSaving || !newBranchName.trim()}>
+                          {branchSaving ? 'Creating…' : 'Create'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1497,34 +2062,80 @@ const TaskDetailModal = ({
   );
 };
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuses = [], allTags = [], onCreateTag }) => {
+const toBranchName = (title) =>
+  'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
+
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuses = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
   const empty = { title: '', proj: projects[0]?.id || '', p: '2', col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
   // Reset col when defaultCol (i.e. which column's + button was clicked) changes
   useEffectA(() => { setForm(f => ({ ...f, col: defaultCol || statuses[0]?.id || '' })); }, [defaultCol]);
-  const [err, setErr] = useStateA('');
-  const [saving, setSaving] = useStateA(false);
+
+  const [err,          setErr]          = useStateA('');
+  const [saving,       setSaving]       = useStateA(false);
+  const [createBranch, setCreateBranch] = useStateA(false);
+  const [branchName,   setBranchName]   = useStateA('');
+  const [branchErr,    setBranchErr]    = useStateA('');
+  const branchEditedRef = useRefA(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Auto-generate branch name from title unless user has manually edited it
+  const handleTitleChange = (v) => {
+    set('title', v);
+    if (!branchEditedRef.current) setBranchName(v ? toBranchName(v) : '');
+  };
+
+  // Reset branch state when panel closes
+  useEffectA(() => {
+    if (!open) { setCreateBranch(false); setBranchName(''); setBranchErr(''); branchEditedRef.current = false; }
+  }, [open]);
+
+  const selectedProj = projects.find(p => p.id === form.proj);
+  const projRepoFull = selectedProj?.repo
+    ? selectedProj.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
+    : null;
+  const showBranchOption = !!githubToken && !!projRepoFull;
+
   const handleSubmit = async () => {
     if (!form.title.trim()) { setErr('Task title is required.'); return; }
+    if (createBranch && !branchName.trim()) { setErr('Branch name is required.'); return; }
     const newTask = {
-      proj:       form.proj,
-      col:        form.col,
-      p:          parseInt(form.p),
-      title:      form.title.trim(),
+      proj:        form.proj,
+      col:         form.col,
+      p:           parseInt(form.p),
+      title:       form.title.trim(),
       description: form.description,
-      due:        form.due || '—',
-      tags:       form.tagIds,
-      estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
+      due:         form.due || '—',
+      tags:        form.tagIds,
+      estMinutes:  (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
     };
     setSaving(true);
+    setBranchErr('');
     try {
-      await onAdd(newTask);
+      const savedTask = await onAdd(newTask);
+      if (createBranch && projRepoFull) {
+        try {
+          await ghCreateBranch(githubToken, projRepoFull, branchName.trim());
+          // Persist branch on the task and notify parent
+          const branch = branchName.trim();
+          const updated = await updateTask({ ...savedTask, ghBranch: branch });
+          onBranchCreated?.({
+            branchName: branch,
+            url: `https://github.com/${projRepoFull}/tree/${branch}`,
+            task: updated,
+          });
+        } catch (e) {
+          setBranchErr(e.message || 'Branch creation failed.');
+          setSaving(false);
+          return;
+        }
+      }
       setForm(empty);
       setErr('');
+      setBranchErr('');
+      branchEditedRef.current = false;
       onClose();
     } catch (e) {
       setErr(e.message || 'Failed to create task.');
@@ -1542,7 +2153,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
         )}
         <div className="fld">
           <label>Task title *</label>
-          <input value={form.title} onChange={e => set('title', e.target.value)} placeholder="What needs to be done?" disabled={projects.length === 0} />
+          <input value={form.title} onChange={e => handleTitleChange(e.target.value)} placeholder="What needs to be done?" disabled={projects.length === 0} />
         </div>
         <div className="fld-row">
           <div className="fld">
@@ -1599,6 +2210,33 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
             placeholder="Optional scope, context, or acceptance criteria…" rows={3}
             style={{ width:'100%', background:'var(--bg-2)', border:'1px solid var(--border)', color:'var(--text)', fontSize:12, padding:'8px 10px', fontFamily:'inherit', resize:'vertical' }} />
         </div>
+
+        {showBranchOption && (
+          <div className="branch-opt">
+            <label className="branch-opt-toggle" onClick={() => { setCreateBranch(v => !v); setBranchErr(''); }}>
+              <span className={'branch-opt-check' + (createBranch ? ' on' : '')}>
+                {createBranch && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3"/></svg>}
+              </span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
+                <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+              </svg>
+              <span>Create a GitHub branch for this task</span>
+              <span className="branch-opt-repo">{projRepoFull}</span>
+            </label>
+            {createBranch && (
+              <div className="branch-opt-name">
+                <label>Branch name</label>
+                <input
+                  value={branchName}
+                  onChange={e => { setBranchName(e.target.value); branchEditedRef.current = true; }}
+                  placeholder="feat/branch-name"
+                  spellCheck={false}
+                />
+                {branchErr && <div className="branch-opt-err">{branchErr}</div>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="sp-footer">
         <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
@@ -1610,7 +2248,35 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime }) => {
+// ── Branch created toast ───────────────────────────────────────────
+const BranchToast = ({ info, onDismiss }) => {
+  useEffectA(() => {
+    const t = setTimeout(onDismiss, 6000);
+    return () => clearTimeout(t);
+  }, [info]);
+
+  if (!info) return null;
+  return (
+    <div className="branch-toast">
+      <div className="branch-toast-inner">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: '#22c55e', flexShrink: 0 }}>
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        <div className="branch-toast-text">
+          <span>Branch created</span>
+          <code>{info.branchName}</code>
+        </div>
+        <a href={info.url} target="_blank" rel="noopener noreferrer" className="branch-toast-link">
+          View on GitHub
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+        <button className="branch-toast-x" onClick={onDismiss}>×</button>
+      </div>
+    </div>
+  );
+};
+
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, githubToken = null }) => {
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view,        setView]        = useStateA('board');
@@ -1619,6 +2285,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   const [searchQ,     setSearchQ]     = useStateA('');
   const [showAdd,     setShowAdd]     = useStateA(false);
   const [addCol,      setAddCol]      = useStateA(cols[0]?.id || '');
+  const [branchToast, setBranchToast] = useStateA(null);
   const [dragOver,       setDragOver]       = useStateA(null);   // col id being hovered
   const [draggingFromKey, setDraggingFromKey] = useStateA(null);  // source col during drag
   const [viewingTask, setViewingTask] = useStateA(null);   // task open in modal
@@ -1647,7 +2314,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   };
 
   // UUID of the final status (key='done') — passed to TaskCard for subtask counts
-  const doneStatusId = cols.find(c => c.key === 'done')?.id;
+  const doneStatusId = cols.find(c => c.isDone)?.id;
 
   const sq = searchQ.trim().toLowerCase();
   const filtered = tasks.filter(t =>
@@ -1665,6 +2332,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     const task = { ...taskData, id: `${prefix}-${num}` };
     const saved = await createTask(task, workstationId);
     setTasks(prev => [...prev, saved]);
+    return saved;
   };
 
   const handleCreateTag = async (name, color) => {
@@ -1766,6 +2434,12 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   };
 
   const handleTaskStatusChange = async (updated) => {
+    const saved = await updateTask(updated);
+    setTasks(prev => prev.map(t => t.id === saved.id ? saved : t));
+    setViewingTask(saved);
+  };
+
+  const handleBranchUpdate = async (updated) => {
     const saved = await updateTask(updated);
     setTasks(prev => prev.map(t => t.id === saved.id ? saved : t));
     setViewingTask(saved);
@@ -1923,18 +2597,32 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           <table className="tbl">
             <thead><tr>
               <th>ID</th><th>P</th><th>Title</th><th>Project</th><th>Status</th>
-              <th>Tags</th><th>Due</th>
+              <th>Branch</th><th>Tags</th>
             </tr></thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 32 }}>No tasks match this filter.</td></tr>
-              ) : filtered.map(t => (
-                <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setViewingTask(t)}>
+              ) : filtered.map(t => {
+                const isRowDone = doneStatusId && t.col === doneStatusId;
+                const taskProj  = projects.find(p => p.id === t.proj);
+                const branchUrl = t.ghBranch && taskProj?.repo
+                  ? `${taskProj.repo.replace(/\/$/, '')}/tree/${t.ghBranch}`
+                  : null;
+                return (
+                <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
                   <td className="mono">{t.id}</td>
                   <td><span key={t.p} className={'dot-p p'+t.p}></span></td>
-                  <td>{t.title}</td>
+                  <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
                   <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
                   <td><span className="pill muted" style={{textTransform:'uppercase'}}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
+                  <td onClick={e => e.stopPropagation()}>
+                    {t.ghBranch ? (
+                      <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="task-branch-chip">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                        {t.ghBranch}
+                      </a>
+                    ) : <span style={{ color: 'var(--text-4)' }}>—</span>}
+                  </td>
                   <td>
                     {(t.tags || []).slice(0, 2).map(id => {
                       const tg = tags.find(x => x.id === id);
@@ -1944,20 +2632,24 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       <span className="tag-more">+{t.tags.length - 2}</span>
                     )}
                   </td>
-                  <td className="mono">
-                    <span className={getDueClass(t.due)}>
-                      {getDueClass(t.due).includes('overdue') && <Icon name="alert" size={12} />}
-                      {formatDate(t.due)}
-                    </span>
-                  </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
       )}
 
-      <AddTaskPanel open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd} projects={projects} defaultCol={addCol} statuses={cols} allTags={tags} onCreateTag={handleCreateTag} />
+      <AddTaskPanel
+        open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd}
+        projects={projects} defaultCol={addCol} statuses={cols}
+        allTags={tags} onCreateTag={handleCreateTag} githubToken={githubToken}
+        onBranchCreated={({ branchName, url, task }) => {
+          // Update local task state with the saved branch
+          setTasks(prev => prev.map(t => t.id === task.id ? task : t));
+          setBranchToast({ branchName, url });
+        }}
+      />
+      <BranchToast info={branchToast} onDismiss={() => setBranchToast(null)} />
 
       {viewingTask && (
         <TaskDetailModal
@@ -1979,6 +2671,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           onLinkNote={(noteId) => handleLinkNote(viewingTask._dbId, noteId)}
           onUnlinkNote={(noteId) => handleUnlinkNote(viewingTask._dbId, noteId)}
           onLogTime={handleLogTime}
+          githubToken={githubToken}
+          onBranchUpdate={handleBranchUpdate}
         />
       )}
     </div>

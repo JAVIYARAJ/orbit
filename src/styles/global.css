@@ -1043,6 +1043,18 @@ body.texture-grid::before {
   border-bottom-left-radius: 0;
 }
 
+.tcard.tcard-done {
+  border-left: 3px solid #22c55e;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  opacity: 0.6;
+}
+
+.tcard.tcard-done .title {
+  text-decoration: line-through;
+  color: var(--text-3);
+}
+
 .tpanel-input.overdue-input {
   border-color: rgba(255, 90, 90, 0.4);
   background: rgba(255, 90, 90, 0.05);
@@ -3871,6 +3883,159 @@ body.texture-grid::before {
   font-style: italic;
 }
 
+/* Description view (rendered, click-to-edit) */
+.tpanel-desc-view {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.65;
+  padding: 10px 14px;
+  min-height: 90px;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.tpanel-desc-view:hover {
+  border-color: var(--accent);
+}
+
+.tpanel-desc-empty {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.desc-link {
+  color: var(--accent-hi, #60a5fa);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+  word-break: break-all;
+  transition: opacity 0.1s;
+}
+
+.desc-link:hover {
+  opacity: 0.75;
+}
+
+/* Link preview cards */
+.link-previews {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.link-preview-card {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  min-height: 72px;
+}
+
+.link-preview-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-3);
+}
+
+.link-preview-card-image {
+  display: block;
+  padding: 0;
+}
+
+.link-preview-full-img {
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  display: block;
+  background: var(--bg-3);
+  border-radius: 8px;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.link-preview-thumb {
+  width: 120px;
+  min-width: 120px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--bg-3);
+  position: relative;
+  align-self: stretch;
+  min-height: 72px;
+}
+
+.link-preview-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.link-preview-body {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  justify-content: center;
+}
+
+.link-preview-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.link-preview-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.link-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.link-preview-desc {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.link-preview-url {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--f-mono);
+  margin-top: 2px;
+}
+
 /* Subtask progress bar */
 .tpanel-subs-progress {
   display: flex;
@@ -5637,6 +5802,7 @@ body.texture-grid::before {
   background: rgba(0, 0, 0, 0.6);
   z-index: 8000;
   display: flex;
+  align-items: stretch;
   justify-content: flex-end;
 }
 
@@ -5645,7 +5811,9 @@ body.texture-grid::before {
   border-left: 1px solid var(--border-2);
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   animation: sp-in 0.26s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 380px;
   max-width: 100vw;
@@ -5700,11 +5868,16 @@ body.texture-grid::before {
 
 .sp-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.sp-body > * {
+  flex-shrink: 0;
 }
 
 .sp-footer {
@@ -10021,3 +10194,346 @@ body.scanlines::after {
   font-size: 11px;
   opacity: 0.8;
 }
+
+/* ── Branch chip in task table ───────────────────────────────────── */
+.task-branch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-family: var(--f-mono);
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid rgba(0,153,255,0.2);
+  border-radius: 4px;
+  padding: 2px 7px;
+  text-decoration: none;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s, border-color 0.12s;
+}
+.task-branch-chip:hover { background: var(--accent-tint-2); border-color: var(--accent); }
+
+/* ── Branch created toast ────────────────────────────────────────── */
+.branch-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9000;
+  animation: toast-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.branch-toast-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-3);
+  border-radius: 10px;
+  padding: 11px 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  white-space: nowrap;
+}
+
+.branch-toast-text {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.branch-toast-text code {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+
+.branch-toast-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-4);
+  border: 1px solid var(--border-3);
+  border-radius: 6px;
+  padding: 4px 10px;
+  text-decoration: none;
+  font-family: var(--f-mono);
+  transition: background 0.12s, border-color 0.12s;
+  margin-left: 4px;
+}
+.branch-toast-link:hover { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+
+.branch-toast-x {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.12s;
+}
+.branch-toast-x:hover { color: var(--text); }
+
+/* ── Branch create option (task form) ───────────────────────────── */
+.branch-opt {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.branch-opt-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-2);
+  user-select: none;
+  transition: background 0.12s;
+}
+.branch-opt-toggle:hover { background: var(--bg-3); }
+
+.branch-opt-check {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-3);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-1);
+  transition: border-color 0.15s, background 0.15s;
+}
+.branch-opt-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.branch-opt-repo {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: var(--f-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+.branch-opt-name {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.branch-opt-name label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.branch-opt-name input {
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  color: var(--accent);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: var(--f-mono);
+  border-radius: 5px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.branch-opt-name input:focus { border-color: var(--accent); }
+
+.branch-opt-err {
+  font-size: 11px;
+  color: #ef4444;
+  margin-top: 2px;
+}
+
+/* ── Last commit card (project view) ────────────────────────────── */
+.last-commit-card {
+  display: block;
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+}
+.last-commit-card:hover { background: var(--bg-3); border-color: var(--border-3); }
+
+.lc-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.lc-sha {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.lc-time {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.lc-msg {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lc-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--f-mono);
+}
+.lc-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.lc-avatar-mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-4);
+  border: 1px solid var(--border-2);
+  font-size: 9px;
+  font-family: var(--f-mono);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+/* ── Repo selector (project form) ───────────────────────────────── */
+.repo-sel { position: relative; width: 100%; }
+
+.repo-sel-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: var(--f-body);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.repo-sel-btn:hover { border-color: var(--border-3); }
+.repo-sel-btn:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); outline: none; }
+
+.repo-sel-drop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.repo-sel-search { padding: 8px; border-bottom: 1px solid var(--border); }
+.repo-sel-search input {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: var(--f-body);
+  border-radius: 5px;
+  outline: none;
+}
+.repo-sel-search input:focus { border-color: var(--accent); }
+
+.repo-sel-list {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.repo-sel-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: var(--f-mono);
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+.repo-sel-item:hover { background: var(--bg-3); color: var(--text); }
+.repo-sel-item.active { background: var(--accent-tint); color: var(--accent); }
+.repo-sel-item.repo-sel-clear { color: var(--text-3); font-family: var(--f-body); }
+.repo-sel-item.repo-sel-clear:hover { color: var(--text-2); }
+
+.repo-sel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+.repo-sel-empty { padding: 12px 10px; color: var(--text-3); font-size: 12px; }
+
+.repo-badge {
+  font-size: 10px;
+  font-family: var(--f-mono);
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.repo-badge.private { background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border); }
+.repo-badge.lang    { background: var(--accent-tint); color: var(--accent); }

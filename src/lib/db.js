@@ -54,6 +54,7 @@ const fromDbTask = (r) => ({
   createdAt:     r.created_at || null,
   estMinutes:    r.est_minutes    || 0,
   loggedMinutes: r.logged_minutes || 0,
+  ghBranch:      r.gh_branch      || '',
 })
 
 const fromDbNote = (r) => ({
@@ -120,6 +121,7 @@ const taskPayload = (t) => ({
   tag_ids:          t.tags        || [],
   parent_task_id:   t.parentId    || null,
   est_minutes:      t.estMinutes  || 0,
+  gh_branch:        t.ghBranch    || null,
 })
 
 const learningPayload = (i) => ({
@@ -148,11 +150,12 @@ const fromDbProjectType = (r) => ({
 })
 
 const fromDbStatus = (r) => ({
-  id:    r.id,
-  key:   r.key,
-  label: r.label,
-  color: r.color,
-  order: r.sort_order,
+  id:     r.id,
+  key:    r.key,
+  label:  r.label,
+  color:  r.color,
+  order:  r.sort_order,
+  isDone: r.is_done ?? false,
 })
 
 // ─── Transform the jsonb blob from load_workstation_data ──────────

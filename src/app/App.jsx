@@ -146,6 +146,18 @@ export default function App() {
     setTags([]);
   };
 
+  // ── Load GitHub token when user logs in ─────────────────────────
+  useEffectApp(() => {
+    if (!authUser?.id) { setGithubToken(null); return; }
+    supabase.from('user_integrations')
+      .select('access_token')
+      .eq('user_id', authUser.id)
+      .eq('provider', 'github')
+      .maybeSingle()
+      .then(({ data }) => setGithubToken(data?.access_token || null))
+      .catch(() => setGithubToken(null));
+  }, [authUser?.id]);
+
   // ── Load user context on login (profile + workstations + roles in one call) ──
   useEffectApp(() => {
     if (!authUser?.id) return;
@@ -262,6 +274,7 @@ export default function App() {
   const [emailTemplates, setEmailTemplates] = useStateApp([]);
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
+  const [githubToken,    setGithubToken]    = useStateApp(null);
 
   // Persist nav
   useEffectApp(() => { localStorage.setItem('devos:nav', current); }, [current]);
@@ -459,6 +472,7 @@ export default function App() {
             onLogTime={handleLogManualTime}
             emailTemplates={emailTemplates} setEmailTemplates={setEmailTemplates}
             ganttTasks={ganttTasks}
+            githubToken={githubToken}
           />
         </div>
       </div>
