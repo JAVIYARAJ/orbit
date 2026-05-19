@@ -252,14 +252,45 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
     }
   };
 
-  const [integrations] = useState([
-    { id: 1, name: 'GitHub', status: 'connected', color: '#333' },
-    { id: 2, name: 'Stripe', status: 'connected', color: '#0070BA' },
-    { id: 3, name: 'Supabase', status: 'connected', color: '#3FCF8E' },
-    { id: 4, name: 'Slack', status: 'pending', color: '#4A154B' },
-    { id: 5, name: 'Linear', status: 'disconnected', color: '#5E6AD2' },
-    { id: 6, name: 'Vercel', status: 'connected', color: '#888' },
-  ]);
+  // ── GitHub integration ──────────────────────────────────────────────
+  const [githubInteg,  setGithubInteg]  = useState(null);
+  const [ghLoading,    setGhLoading]    = useState(true);
+  const [ghError,      setGhError]      = useState('');
+  const [ghDisconnecting, setGhDisconnecting] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Edge function already saved the token — just read from DB
+    supabase.from('user_integrations').select('*').eq('user_id', user.id).eq('provider', 'github').maybeSingle()
+      .then(({ data }) => setGithubInteg(data || null))
+      .catch(() => setGithubInteg(null))
+      .finally(() => setGhLoading(false));
+  }, [user?.id]);
+
+  const connectGitHub = () => {
+    setGhError('');
+    const EDGE_FN = 'https://sbogupxrurpsybzivrpk.supabase.co/functions/v1/github-oauth';
+    const params = new URLSearchParams({
+      client_id:    'Ov23li4xj01qD2wkGOPk',
+      scope:        'repo read:user user:email',
+      state:        user.id,
+      redirect_uri: EDGE_FN,
+    });
+    window.location.href = `https://github.com/login/oauth/authorize?${params}`;
+  };
+
+  const disconnectGitHub = async () => {
+    setGhDisconnecting(true);
+    try {
+      await supabase.from('user_integrations').delete().eq('user_id', user.id).eq('provider', 'github');
+      setGithubInteg(null);
+    } catch (e) {
+      setGhError(e.message);
+    } finally {
+      setGhDisconnecting(false);
+    }
+  };
 
   const [prefs, setPrefs] = useState([
     { label: 'Email Notifications', value: true },
@@ -482,7 +513,10 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
     }
   };
 
-  const [activeTab, setActiveTab] = useState('profile'); // 'profile', 'kanban', 'integrations', 'workspace'
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('gh_callback') === '1' ? 'integrations' : 'profile';
+  });
   const [activeSubTab, setActiveSubTab] = useState('kanban-cols'); // for nested navigation
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, label: '' });
 
@@ -913,24 +947,64 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                 <div className="section-group">
                   <div className="section-group-h">
                     <span>Connected Platforms</span>
-                    <p>Sync with external tools and automate your workflow.</p>
+                    <p>Sync your external developer accounts. Your tokens are stored securely per user.</p>
                   </div>
-                  <div className="integrations-grid-refined">
-                    {integrations.map(intg => (
-                      <div key={intg.id} className={`intg-item-premium ${intg.status}`}>
-                        <div className="intg-top">
-                          <div className="intg-brand" style={{ color: intg.color, background: intg.color + '10' }}>
-                            <Icon name={INTEGRATION_ICON[intg.name] || 'link'} size={20} />
+
+                  {ghError && <div className="form-error" style={{ marginBottom: 12 }}>{ghError}</div>}
+
+                  {/* GitHub card */}
+                  <div className={`intg-real-card ${githubInteg ? 'connected' : ''}`}>
+                    <div className="intg-real-left">
+                      <div className="intg-real-icon">
+                        <Icon name="github" size={22} />
+                      </div>
+                      <div className="intg-real-info">
+                        <div className="intg-real-name">GitHub</div>
+                        {ghLoading ? (
+                          <div className="intg-real-sub">Checking…</div>
+                        ) : githubInteg ? (
+                          <div className="intg-real-sub connected">
+                            {githubInteg.avatar_url && <img src={githubInteg.avatar_url} className="intg-gh-av" alt="" />}
+                            @{githubInteg.username}
+                            <span className="intg-connected-dot" />
+                            Connected
+                            {githubInteg.connected_at && (
+                              <span className="intg-connected-time" style={{ marginLeft: 4 }}>
+                                · connected {new Date(githubInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              </span>
+                            )}
                           </div>
-                          <div className={`intg-badge ${intg.status}`}>{intg.status}</div>
-                        </div>
-                        <div className="intg-info">
-                          <div className="intg-name">{intg.name}</div>
-                          <div className="intg-desc">Automate your workflow with {intg.name}.</div>
-                        </div>
-                        <button className={`btn sm ${intg.status === 'connected' ? 'ghost' : 'primary'}`}>
-                          {intg.status === 'connected' ? 'Configure' : 'Connect'}
+                        ) : (
+                          <div className="intg-real-sub">Access repos, PRs, issues and activity</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="intg-real-right">
+                      {githubInteg ? (
+                        <button className="intg-btn-disconnect" onClick={disconnectGitHub} disabled={ghDisconnecting}>
+                          <Icon name="x" size={13} /> {ghDisconnecting ? 'Disconnecting…' : 'Disconnect'}
                         </button>
+                      ) : (
+                        <button className="intg-btn-connect" onClick={connectGitHub} disabled={ghLoading}>
+                          <Icon name="github" size={13} /> Connect GitHub
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="intg-coming-soon-grid">
+                    {[
+                      { name: 'Slack',  icon: 'message-square', color: '#4A154B' },
+                      { name: 'Linear', icon: 'layers',          color: '#5E6AD2' },
+                      { name: 'Vercel', icon: 'triangle',        color: '#888'    },
+                      { name: 'Stripe', icon: 'credit-card',     color: '#0070BA' },
+                    ].map(p => (
+                      <div key={p.name} className="intg-soon-card">
+                        <div className="intg-soon-icon" style={{ color: p.color }}>
+                          <Icon name={p.icon} size={16} />
+                        </div>
+                        <span className="intg-soon-name">{p.name}</span>
+                        <span className="intg-soon-badge">Soon</span>
                       </div>
                     ))}
                   </div>

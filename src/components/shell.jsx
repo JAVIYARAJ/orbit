@@ -51,6 +51,8 @@ export const Icon = ({ name, size = 16 }) => {
     flag: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M4 3V14M4 3H13L10 7H13L4 13" strokeLinecap="round" strokeLinejoin="round" /></g>,
     'edit-3': <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M11 2L14 5L6 13L2 14L3 10L11 2Z" /><path d="M9 4L12 7" /></g>,
     activity: <path d="M2 8H5L7 4L9 12L11 7L13 8H14" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
+    star: <path d="M8 2L9.8 6.2L14.5 6.6L11 9.6L12.1 14L8 11.5L3.9 14L5 9.6L1.5 6.6L6.2 6.2L8 2Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
+    'git-fork': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="5" cy="4" r="1.5" /><circle cx="11" cy="4" r="1.5" /><circle cx="8" cy="12" r="1.5" /><path d="M5 5.5V8C5 9 6 10 8 10.5M11 5.5V8C11 9 10 10 8 10.5" /></g>,
     users: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="2.5" /><path d="M1 14C1 11.24 3.24 9 6 9" /><circle cx="11" cy="6" r="2.5" /><path d="M7.5 10.5C8.8 9.58 10.34 9 12 9C13.66 9 15 10 15 14" /></g>,
     layers: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M2 10L8 13L14 10M2 7L8 10L14 7M8 3L14 6L8 9L2 6L8 3Z" strokeLinejoin="round" /></g>,
     github: <g stroke="currentColor" strokeWidth="1.1" fill="none"><path d="M8 2C4.69 2 2 4.69 2 8C2 10.66 3.73 12.93 6.12 13.76C6.42 13.82 6.53 13.63 6.53 13.47V12.33C4.87 12.7 4.51 11.53 4.51 11.53C4.24 10.81 3.84 10.62 3.84 10.62C3.29 10.24 3.88 10.25 3.88 10.25C4.5 10.29 4.82 10.89 4.82 10.89C5.36 11.82 6.24 11.55 6.56 11.39C6.61 11 6.77 10.73 6.95 10.58C5.64 10.43 4.27 9.92 4.27 7.71C4.27 7.04 4.5 6.48 4.89 6.05C4.83 5.9 4.64 5.26 4.94 4.38C4.94 4.38 5.43 4.22 6.52 5.08C7.01 4.94 7.5 4.87 8 4.87C8.5 4.87 8.99 4.94 9.48 5.08C10.57 4.22 11.06 4.38 11.06 4.38C11.36 5.26 11.17 5.9 11.11 6.05C11.5 6.48 11.73 7.04 11.73 7.71C11.73 9.93 10.36 10.43 9.04 10.57C9.26 10.76 9.46 11.12 9.46 11.67V13.47C9.46 13.63 9.57 13.82 9.88 13.76C12.27 12.93 14 10.66 14 8C14 4.69 11.31 2 8 2Z" /></g>,
@@ -85,7 +87,11 @@ export const NAV = [
     { id: 'timer',    label: 'Time Tracker',     icon: 'timer',  kbd: 'G I' },
     { id: 'notes',    label: 'Notes',            icon: 'note',   kbd: 'G N' },
     { id: 'email',    label: 'Email Hub',        icon: 'mail',   kbd: 'G E' },
-    { id: 'toolkit',  label: 'Dev Toolkit',      icon: 'tool',   kbd: 'G D' },
+    { id: 'toolkit',      label: 'Dev Toolkit',      icon: 'tool',   kbd: 'G D' },
+    { id: 'flutter-init', label: 'Flutter Init',     icon: 'flame',  kbd: 'G F' },
+  ]},
+  { section: 'GITHUB', items: [
+    { id: 'github', label: 'GitHub Hub', icon: 'github', kbd: 'G G' },
   ]},
   { section: 'PERSONAL', items: [
     { id: 'learning', label: 'Learning Path',    icon: 'book',   kbd: 'G L' },

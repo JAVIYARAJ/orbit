@@ -5,7 +5,11 @@
       "mcp__claude_ai_Supabase__list_tables",
       "mcp__claude_ai_Supabase__apply_migration",
       "Bash(npm run *)",
-      "mcp__claude_ai_Supabase__execute_sql"
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(python3 *)",
+      "mcp__claude_ai_Supabase__get_advisors",
+      "mcp__claude_ai_Supabase__search_docs",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --screenshot=/tmp/fi_toolkit.png --window-size=1400,900 \"http://localhost:5174\")"
     ]
   }
 }

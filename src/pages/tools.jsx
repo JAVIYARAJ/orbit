@@ -1360,7 +1360,7 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId }) 
 // ═══════════════════════════════════════════════════════════════════
 //  10. DEV TOOLKIT
 // ═══════════════════════════════════════════════════════════════════
-export const ToolkitPage = () => {
+export const ToolkitPage = ({ onNav }) => {
   const [expanded, setExpanded] = useStateB(null);
   const [color, setColor] = useStateB('#0175C2');
   const [jsonIn, setJsonIn] = useStateB('{\n  "user": "raunak",\n  "active": true,\n  "tags": ["flutter","indie"]\n}');
@@ -1536,6 +1536,19 @@ export const ToolkitPage = () => {
           <button className="btn"><Icon name="settings" size={12}/> Manage</button>
         </div>
       </div>
+
+      {onNav && (
+        <div className="toolkit-featured" onClick={() => onNav('flutter-init')}>
+          <div className="toolkit-featured-ic"><Icon name="flame" size={18}/></div>
+          <div className="toolkit-featured-body">
+            <div className="toolkit-featured-name">Flutter Project Generator</div>
+            <div className="toolkit-featured-desc">Scaffold a full Flutter project — pick your packages, architecture, and platforms. Generates a ready-to-use ZIP.</div>
+          </div>
+          <div className="toolkit-featured-cta">
+            Open wizard <Icon name="arrow" size={13}/>
+          </div>
+        </div>
+      )}
 
       <div className="toolkit-grid">
         {TOOLS.map(tool => (

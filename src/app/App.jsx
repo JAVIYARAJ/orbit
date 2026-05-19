@@ -15,6 +15,8 @@ import {
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
 import { ProjectMgmtPage, NotesPage, TimerPage, EmailPage, ToolkitPage } from '../pages/tools.jsx';
+import { FlutterInitPage } from '../pages/flutter-init.jsx';
+import { GitHubPage } from '../pages/github.jsx';
 import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
 import { Settings } from '../pages/settings.jsx';
@@ -48,7 +50,9 @@ function PageRouter({ current, ...props }) {
     case 'notes':     return <NotesPage {...props} />;
     case 'timer':     return <TimerPage {...props} />;
     case 'email':     return <EmailPage {...props} />;
-    case 'toolkit':   return <ToolkitPage {...props} />;
+    case 'toolkit':      return <ToolkitPage {...props} />;
+    case 'flutter-init': return <FlutterInitPage {...props} />;
+    case 'github':    return <GitHubPage {...props} />;
     case 'analytics': return <Analytics {...props} />;
     case 'collab':    return <Collaboration {...props} />;
     case 'settings':  return <Settings {...props} />;
@@ -84,14 +88,40 @@ export default function App() {
   // onAuthStateChange fires INITIAL_SESSION synchronously, making getSession() redundant.
   // Handling everything here avoids the race condition between the two.
   useEffectApp(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        // User arrived via a password-reset email link — show the reset form.
-        // Keep the session alive so updateUser() works inside ResetPasswordPage.
         setShowPasswordReset(true);
         setAuthLoading(false);
         return;
       }
+
+      // GitHub OAuth callback — save provider_token to user_integrations
+      if (event === 'SIGNED_IN' && session?.provider_token && localStorage.getItem('devos:gh_link') === '1') {
+        const storedUid = localStorage.getItem('devos:pre_gh_uid');
+        localStorage.removeItem('devos:gh_link');
+        localStorage.removeItem('devos:pre_gh_uid');
+        // Use stored UID so we always write to the original user's row
+        const targetUid = storedUid || session.user.id;
+        try {
+          const ghUser = await fetch('https://api.github.com/user', {
+            headers: { Authorization: `Bearer ${session.provider_token}`, Accept: 'application/vnd.github+json' },
+          }).then(r => r.json());
+          await supabase.from('user_integrations').upsert({
+            user_id:      targetUid,
+            provider:     'github',
+            access_token: session.provider_token,
+            username:     ghUser.login,
+            display_name: ghUser.name,
+            avatar_url:   ghUser.avatar_url,
+            email:        ghUser.email,
+            scopes:       ['repo', 'read:user', 'user:email'],
+            metadata:     { html_url: ghUser.html_url, public_repos: ghUser.public_repos, followers: ghUser.followers, following: ghUser.following },
+          }, { onConflict: 'user_id,provider' });
+        } catch (e) {
+          console.error('GitHub token save failed:', e);
+        }
+      }
+
       setAuthUser(session?.user ? buildUser(session.user) : null);
       setAuthLoading(false);
     });
@@ -201,8 +231,15 @@ export default function App() {
 
   const handleNewWs = () => setShowWsSetup(true);
 
-  // Navigation
-  const [current,   setCurrent]   = useStateApp(() => localStorage.getItem('devos:nav') || 'home');
+  // Navigation — redirect to settings if returning from GitHub OAuth
+  const [current,   setCurrent]   = useStateApp(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gh_callback') === '1') {
+      window.history.replaceState({}, '', window.location.pathname);
+      return 'settings';
+    }
+    return localStorage.getItem('devos:nav') || 'home';
+  });
   const [collapsed, setCollapsed] = useStateApp(t.sidebarStart === 'collapsed');
   const [cmdkOpen,  setCmdkOpen]  = useStateApp(false);
 
@@ -246,7 +283,7 @@ export default function App() {
       if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
       if (e.key.toLowerCase() === 'g') {
         const handler = (e2) => {
-          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit' };
+          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit',f:'flutter-init',g:'github',s:'settings' };
           const id = map[e2.key.toLowerCase()];
           if (id) setCurrent(id);
           window.removeEventListener('keydown', handler);
