@@ -10373,6 +10373,104 @@ body.scanlines::after {
   margin-top: 2px;
 }
 
+/* ── Project danger card ─────────────────────────────────────────── */
+.danger-card {
+  margin-top: 24px;
+  border: 1px solid #ef444430;
+  border-radius: 10px;
+  padding: 16px;
+  background: #ef444406;
+}
+.danger-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 6px;
+}
+.danger-card-desc {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+.danger-block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: #ef444410;
+  border-radius: 6px;
+  border: 1px solid #ef444425;
+}
+.danger-block-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  color: #ef4444;
+  line-height: 1.4;
+}
+.danger-block-item svg { margin-top: 1px; }
+.danger-confirm-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.danger-repo-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #ef444428;
+  border-radius: 8px;
+  background: var(--bg-2);
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 14px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.danger-repo-opt:hover { background: var(--bg-3); border-color: #ef444450; }
+.danger-repo-opt.active { background: #ef444408; border-color: #ef444450; }
+.danger-repo-check {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-3);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-1);
+  transition: border-color 0.15s, background 0.15s;
+}
+.danger-repo-check.on {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
+.danger-repo-label { flex: 1; min-width: 0; }
+.danger-repo-name {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.danger-repo-slug {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+.btn.danger {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+}
+.btn.danger:hover:not(:disabled) { background: #dc2626; border-color: #dc2626; }
+.btn.danger:disabled { opacity: 0.35; cursor: not-allowed; }
+
 /* ── Last commit card (project view) ────────────────────────────── */
 .last-commit-card {
   display: block;

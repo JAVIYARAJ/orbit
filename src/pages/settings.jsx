@@ -290,7 +290,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
     const EDGE_FN = 'https://sbogupxrurpsybzivrpk.supabase.co/functions/v1/github-oauth';
     const params = new URLSearchParams({
       client_id:    'Ov23li4xj01qD2wkGOPk',
-      scope:        'repo read:user user:email',
+      scope:        'repo delete_repo read:user user:email',
       state:        user.id,
       redirect_uri: EDGE_FN,
     });

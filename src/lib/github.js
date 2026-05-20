@@ -102,3 +102,28 @@ export const ghGetLastCommit = (token, fullName) =>
 export const ghGetBranches = (token, fullName) =>
   cached(`branches:${token}:${fullName}`, GITHUB_CACHE_TTL.COMMIT, () =>
     ghFetch(token, `/repos/${fullName}/branches`, { per_page: 100 }));
+
+export async function ghCreateRepo(token, name, isPrivate = false, description = '') {
+  return ghPost(token, '/user/repos', {
+    name,
+    description,
+    private: isPrivate,
+    auto_init: true,
+  });
+}
+
+export async function ghDeleteRepo(token, fullName) {
+  const res = await fetch(`${BASE}/repos/${fullName}`, {
+    method: 'DELETE',
+    headers: GH_HEADERS(token),
+  });
+  if (res.status === 204) return; // success — no body
+  if (res.status === 403) {
+    throw new Error('GitHub token lacks delete_repo permission — reconnect GitHub in Settings to grant it.');
+  }
+  if (res.status === 404) {
+    throw new Error(`Repository "${fullName}" not found or already deleted.`);
+  }
+  const msg = await res.text().catch(() => res.statusText);
+  throw new Error(`GitHub ${res.status}: ${msg}`);
+}

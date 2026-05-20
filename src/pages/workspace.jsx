@@ -3,11 +3,11 @@
 import { useState as useStateA, useEffect as useEffectA, useRef as useRefA } from 'react';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
-  createProject, updateProject, createTask, updateTask, createVaultItem, createLearningItem, createTag,
+  createProject, updateProject, softDeleteProject, createTask, updateTask, createVaultItem, createLearningItem, createTag,
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs,
 } from '../lib/db.js';
 import { renderMd } from './tools.jsx';
-import { ghGetRepos, ghGetLastCommit, ghCreateBranch, ghGetBranches } from '../lib/github.js';
+import { ghGetRepos, ghGetLastCommit, ghCreateBranch, ghGetBranches, ghCreateRepo, ghDeleteRepo } from '../lib/github.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 const getDueClass = (date) => {
@@ -375,17 +375,23 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
     repo:        (!p.repo  || p.repo  === '—') ? '' : p.repo,
   } : { name: '', client: '', description: '', typeId: projectTypes[0]?.id || '', status: 'planning', stack: '', start: '', end: '', budget: '', repo: '' };
 
-  const [form,        setForm]        = useStateA(() => toForm(initial));
-  const [err,         setErr]         = useStateA('');
-  const [saving,      setSaving]      = useStateA(false);
-  const [ghRepos,     setGhRepos]     = useStateA([]);
-  const [ghLoading,   setGhLoading]   = useStateA(false);
+  const [form,          setForm]          = useStateA(() => toForm(initial));
+  const [err,           setErr]           = useStateA('');
+  const [saving,        setSaving]        = useStateA(false);
+  const [ghRepos,       setGhRepos]       = useStateA([]);
+  const [ghLoading,     setGhLoading]     = useStateA(false);
+  const [repoMode,      setRepoMode]      = useStateA('existing'); // 'existing' | 'new'
+  const [newRepoName,   setNewRepoName]   = useStateA('');
+  const [newRepoPrivate,setNewRepoPrivate]= useStateA(false);
 
   // Re-initialise form whenever the panel opens with different data
   useEffectA(() => {
     if (!open) return;
     setForm(toForm(initial));
     setErr('');
+    setRepoMode('existing');
+    setNewRepoName('');
+    setNewRepoPrivate(false);
     if (githubToken && ghRepos.length === 0) {
       setGhLoading(true);
       ghGetRepos(githubToken).then(setGhRepos).catch(console.error).finally(() => setGhLoading(false));
@@ -396,24 +402,33 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
 
   const handleSubmit = async () => {
     if (!form.name.trim()) { setErr('Project name is required.'); return; }
-    const payload = {
-      ...(isEdit ? { id: initial.id, _dbId: initial._dbId, tasks: initial.tasks, openTasks: initial.openTasks, hoursLogged: initial.hoursLogged, progress: initial.progress || 0 } : {
-        id: genId(form.name), tasks: 0, openTasks: 0, hoursLogged: 0, progress: 0,
-      }),
-      name:        form.name.trim(),
-      client:      form.client.trim() || 'Self',
-      description: form.description.trim(),
-      typeId:      form.typeId,
-      start:    form.start || new Date().toISOString().slice(0, 10),
-      end:      form.end   || '—',
-      status:   form.status,
-      stack:    form.stack.split(',').map(s => s.trim()).filter(Boolean),
-      hoursEst: isEdit ? (initial.hoursEst || 0) : 0,
-      repo:     form.repo.trim()   || '—',
-      budget:   form.budget.trim() || '—',
-    };
+    if (githubToken && repoMode === 'new' && !newRepoName.trim()) {
+      setErr('Repository name is required when creating a new repo.');
+      return;
+    }
     setSaving(true);
     try {
+      let repoUrl = form.repo.trim() || '—';
+      if (githubToken && repoMode === 'new' && newRepoName.trim()) {
+        const created = await ghCreateRepo(githubToken, newRepoName.trim(), newRepoPrivate, form.description.trim());
+        repoUrl = created.html_url;
+      }
+      const payload = {
+        ...(isEdit ? { id: initial.id, _dbId: initial._dbId, tasks: initial.tasks, openTasks: initial.openTasks, hoursLogged: initial.hoursLogged, progress: initial.progress || 0 } : {
+          id: genId(form.name), tasks: 0, openTasks: 0, hoursLogged: 0, progress: 0,
+        }),
+        name:        form.name.trim(),
+        client:      form.client.trim() || 'Self',
+        description: form.description.trim(),
+        typeId:      form.typeId,
+        start:    form.start || new Date().toISOString().slice(0, 10),
+        end:      form.end   || '—',
+        status:   form.status,
+        stack:    form.stack.split(',').map(s => s.trim()).filter(Boolean),
+        hoursEst: isEdit ? (initial.hoursEst || 0) : 0,
+        repo:     repoUrl,
+        budget:   form.budget.trim() || '—',
+      };
       await onSubmit(payload);
       if (!isEdit) setForm(toForm(null));
       setErr('');
@@ -480,20 +495,78 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
             <input type="date" value={form.end} onChange={e => set('end', e.target.value)} />
           </div>
         </div>
-        <div className="fld-row">
-          <div className="fld">
-            <label>Budget</label>
-            <input value={form.budget} onChange={e => set('budget', e.target.value)} placeholder="e.g. €12,400" />
-          </div>
-          <div className="fld">
-            <label>Repository</label>
-            {githubToken ? (
-              <RepoSelector repos={ghRepos} loading={ghLoading} value={form.repo} onChange={v => set('repo', v)} />
-            ) : (
+        {githubToken ? (
+          <>
+            <div className="fld-row">
+              <div className="fld">
+                <label>Budget</label>
+                <input value={form.budget} onChange={e => set('budget', e.target.value)} placeholder="e.g. €12,400" />
+              </div>
+            </div>
+            <div className="fld">
+              <label>Repository</label>
+              {/* Card: Select existing */}
+              <div className="branch-opt" style={{ marginBottom: 6 }}>
+                <label className="branch-opt-toggle" onClick={() => setRepoMode('existing')}>
+                  <span className={'branch-opt-check' + (repoMode === 'existing' ? ' on' : '')}>
+                    {repoMode === 'existing' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3"/></svg>}
+                  </span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+                  </svg>
+                  <span>Select existing repository</span>
+                </label>
+                {repoMode === 'existing' && (
+                  <div className="branch-opt-name">
+                    <label>Choose repository</label>
+                    <RepoSelector repos={ghRepos} loading={ghLoading} value={form.repo} onChange={v => set('repo', v)} />
+                  </div>
+                )}
+              </div>
+              {/* Card: Create new */}
+              <div className="branch-opt">
+                <label className="branch-opt-toggle" onClick={() => setRepoMode('new')}>
+                  <span className={'branch-opt-check' + (repoMode === 'new' ? ' on' : '')}>
+                    {repoMode === 'new' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3"/></svg>}
+                  </span>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+                  </svg>
+                  <span>Create new repository</span>
+                </label>
+                {repoMode === 'new' && (
+                  <>
+                    <div className="branch-opt-name">
+                      <label>Repository name</label>
+                      <input
+                        value={newRepoName}
+                        onChange={e => setNewRepoName(e.target.value)}
+                        placeholder="e.g. my-project"
+                        spellCheck={false}
+                        autoFocus
+                      />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12, color: 'var(--text-2)', cursor: 'pointer', borderTop: '1px solid var(--border)', userSelect: 'none' }}>
+                      <input type="checkbox" checked={newRepoPrivate} onChange={e => setNewRepoPrivate(e.target.checked)} />
+                      Private repository
+                    </label>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="fld-row">
+            <div className="fld">
+              <label>Budget</label>
+              <input value={form.budget} onChange={e => set('budget', e.target.value)} placeholder="e.g. €12,400" />
+            </div>
+            <div className="fld">
+              <label>Repository</label>
               <input value={form.repo} onChange={e => set('repo', e.target.value)} placeholder="github.com/user/repo" />
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
       <div className="sp-footer">
         <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
@@ -521,23 +594,31 @@ const timeAgo = (dateStr) => {
   return new Date(dateStr).toLocaleDateString();
 };
 
-const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [], tasks = [], statuses = [], githubToken = null }) => {
-  if (!project) return null;
-  const typeName = projectTypes.find(pt => pt.id === project.typeId)?.label || '—';
-  const doneId = statuses.find(s => s.isDone)?.id ?? 'done';
-  const projectTasks = tasks.filter(t => t.proj === project.id);
-  const totalTasks = projectTasks.length;
-  const openTasks = projectTasks.filter(t => t.col !== doneId).length;
+const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], githubToken = null, timer = null }) => {
+  // All hooks unconditionally before any early return
+  const [lastCommit,        setLastCommit]        = useStateA(null);
+  const [commitLoading,     setCommitLoading]     = useStateA(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useStateA(false);
+  const [deleting,          setDeleting]          = useStateA(false);
+  const [deleteRepo,        setDeleteRepo]        = useStateA(false);
+  const [repoDeleteErr,     setRepoDeleteErr]     = useStateA('');
 
-  const [lastCommit,    setLastCommit]    = useStateA(null);
-  const [commitLoading, setCommitLoading] = useStateA(false);
+  const doneId       = statuses.find(s => s.isDone)?.id ?? 'done';
+  const projectTasks = tasks.filter(t => t.proj === project?.id);
+  const totalTasks   = projectTasks.length;
+  const openTasks    = projectTasks.filter(t => t.col !== doneId).length;
+  const doneTasks    = projectTasks.filter(t => t.col === doneId).length;
+  const hasOpenTasks   = openTasks > 0;
+  const hasActiveTimer = !!(timer?.running && timer?.activeEntry?.projectShort === project?.id);
 
-  const repoFullName = project.repo
+  const repoFullName = project?.repo
     ? project.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
     : null;
 
+  // useEffect must be before the early return to keep hook order stable
   useEffectA(() => {
-    if (!open || !githubToken || !repoFullName) { setLastCommit(null); return; }
+    if (!open) { setShowDeleteConfirm(false); setDeleteRepo(false); setRepoDeleteErr(''); return; }
+    if (!githubToken || !repoFullName) { setLastCommit(null); return; }
     setCommitLoading(true);
     setLastCommit(null);
     ghGetLastCommit(githubToken, repoFullName)
@@ -545,6 +626,36 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [], t
       .catch(() => setLastCommit(null))
       .finally(() => setCommitLoading(false));
   }, [open, project?.id, repoFullName]);
+
+  if (!project) return null;
+
+  const typeName = projectTypes.find(pt => pt.id === project.typeId)?.label || '—';
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setRepoDeleteErr('');
+    try {
+      // Always delete the project first
+      await onDelete(project.id);
+      // Optionally delete the GitHub repo
+      if (deleteRepo && githubToken && repoFullName) {
+        try {
+          await ghDeleteRepo(githubToken, repoFullName);
+        } catch (repoErr) {
+          // Project is already deleted — surface repo error without blocking close
+          setRepoDeleteErr(repoErr.message || 'Failed to delete repository.');
+          setDeleting(false);
+          return;
+        }
+      }
+      onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
 
   return (
     <SlidePanel open={open} onClose={onClose}
@@ -670,8 +781,100 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [], t
         <div className="fld">
           <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>TASKS</label>
           <div style={{ fontSize: 13, color: 'var(--text-1)', fontFamily: 'var(--f-mono)' }}>
-            {totalTasks} total · {openTasks} open
+            {totalTasks} total · {openTasks} open · {doneTasks} done
           </div>
+        </div>
+
+        {/* ── Danger card ──────────────────────────────────── */}
+        <div className="danger-card">
+          <div className="danger-card-title">Delete this project</div>
+          <div className="danger-card-desc">
+            This project and all its tasks will be soft-deleted and hidden from your workspace. No data is permanently removed.
+          </div>
+
+          {/* Warnings — informational only, deletion is always allowed */}
+          {(hasOpenTasks || hasActiveTimer || totalTasks > 0) && (
+            <div className="danger-block-list" style={{ borderColor: '#f59e0b30', background: '#f59e0b08' }}>
+              {hasActiveTimer && (
+                <div className="danger-block-item" style={{ color: '#f59e0b' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  Timer is currently running on this project — it will continue but the project will be hidden
+                </div>
+              )}
+              {hasOpenTasks && (
+                <div className="danger-block-item" style={{ color: '#f59e0b' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  {openTasks} open task{openTasks > 1 ? 's' : ''} will be soft-deleted along with this project
+                </div>
+              )}
+              {doneTasks > 0 && (
+                <div className="danger-block-item" style={{ color: '#f59e0b' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  {doneTasks} completed task{doneTasks > 1 ? 's' : ''} will be soft-deleted along with this project
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Optional: also delete the linked GitHub repo */}
+          {repoFullName && githubToken && (
+            <div
+              className={'danger-repo-opt' + (deleteRepo ? ' active' : '')}
+              onClick={() => { setDeleteRepo(d => !d); setRepoDeleteErr(''); }}
+            >
+              <div className={'danger-repo-check' + (deleteRepo ? ' on' : '')}>
+                {deleteRepo && (
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="1.5 6 4.5 9 10.5 3"/>
+                  </svg>
+                )}
+              </div>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+              </svg>
+              <div className="danger-repo-label">
+                <div className="danger-repo-name">Also delete GitHub repository</div>
+                <div className="danger-repo-slug">{repoFullName}</div>
+              </div>
+            </div>
+          )}
+
+          {repoDeleteErr && (
+            <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 10, padding: '8px 10px', background: '#ef444412', borderRadius: 6, lineHeight: 1.4 }}>
+              Project deleted, but repo removal failed: {repoDeleteErr}
+            </div>
+          )}
+
+          {!showDeleteConfirm ? (
+            <button
+              className="btn danger"
+              style={{ fontSize: 12, width: '100%' }}
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              Delete project{deleteRepo && repoFullName && githubToken ? ' & repository' : ''}
+            </button>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5 }}>
+                Are you sure? <strong style={{ color: 'var(--text-1)' }}>{project.name}</strong> and all {totalTasks > 0 ? `${totalTasks} task${totalTasks > 1 ? 's' : ''}` : 'related data'} will be hidden from your workspace
+                {deleteRepo && repoFullName ? <>, and the <strong style={{ color: 'var(--text-1)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>{repoFullName}</strong> repository will be deleted</> : ''}.
+              </div>
+              <div className="danger-confirm-row">
+                <button className="btn ghost" style={{ flex: 1, fontSize: 12 }} onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
+                  Cancel
+                </button>
+                <button className="btn danger" style={{ flex: 1, fontSize: 12 }} onClick={handleDelete} disabled={deleting}>
+                  {deleting ? 'Deleting…' : 'Confirm delete'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
       <div className="sp-footer">
@@ -684,7 +887,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, projectTypes = [], t
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], statuses = [], githubToken = null }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], githubToken = null, timer = null }) => {
   const [view,    setView]    = useStateA('card');
   const [filter,  setFilter]  = useStateA('all');
   const [search,  setSearch]  = useStateA('');
@@ -721,6 +924,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
   const handleEdit = async (project) => {
     const saved = await updateProject(project);
     setProjects(prev => prev.map(p => p.id === saved.id ? saved : p));
+  };
+
+  const handleDelete = async (shortId) => {
+    await softDeleteProject(shortId);
+    setProjects(prev => prev.filter(p => p.id !== shortId));
+    setTasks?.(prev => prev.filter(t => t.proj !== shortId));
+    setViewing(null);
   };
 
   return (
@@ -876,7 +1086,9 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         tasks={tasks}
         statuses={statuses}
         githubToken={githubToken}
+        timer={timer}
         onEdit={() => { setEditing(viewing); setViewing(null); }}
+        onDelete={handleDelete}
       />
       <ProjectFormPanel open={showAdd}   onClose={() => setShowAdd(false)} onSubmit={handleAdd}  projectTypes={projectTypes} githubToken={githubToken} />
       <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)}  onSubmit={handleEdit} projectTypes={projectTypes} githubToken={githubToken} initial={editing} />

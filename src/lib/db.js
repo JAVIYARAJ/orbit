@@ -38,6 +38,7 @@ const fromDbProject = (r) => ({
   hoursEst:    Number(r.hours_est)    || 0,
   repo:        r.repo,
   budget:      r.budget,
+  deletedAt:   r.deleted_at  || null,
 })
 
 const fromDbTask = (r) => ({
@@ -55,6 +56,7 @@ const fromDbTask = (r) => ({
   estMinutes:    r.est_minutes    || 0,
   loggedMinutes: r.logged_minutes || 0,
   ghBranch:      r.gh_branch      || '',
+  deletedAt:     r.deleted_at     || null,
 })
 
 const fromDbNote = (r) => ({
@@ -163,8 +165,8 @@ const transformData = (raw) => ({
   statuses:     (raw.statuses      || []).map(fromDbStatus),
   projectTypes: (raw.project_types || []).map(fromDbProjectType),
   tags:         (raw.tags          || []).map(fromDbTag),
-  projects: (raw.projects || []).map(fromDbProject),
-  tasks:    (raw.tasks    || []).map(fromDbTask),
+  projects: (raw.projects || []).map(fromDbProject).filter(p => !p.deletedAt),
+  tasks:    (raw.tasks    || []).map(fromDbTask).filter(t => !t.deletedAt),
   notes:    (raw.notes    || []).map(fromDbNote),
   vault:    (raw.vault    || []).map(fromDbVault),
   learning: {
@@ -257,6 +259,11 @@ export const updateProject = async (p) => {
 
 export const deleteProject = async (shortId) => {
   const { error } = await supabase.rpc('delete_project', { p_short_id: shortId })
+  if (error) throw error
+}
+
+export const softDeleteProject = async (shortId) => {
+  const { error } = await supabase.rpc('soft_delete_project', { p_short_id: shortId })
   if (error) throw error
 }
 
