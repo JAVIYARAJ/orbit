@@ -1,6 +1,7 @@
 // workspace.jsx — Home, Projects, Tasks, Learning, Vault
 
 import { useState as useStateA, useEffect as useEffectA, useRef as useRefA } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
   createProject, updateProject, softDeleteProject, createTask, updateTask, createVaultItem, createLearningItem, createTag,
@@ -290,31 +291,74 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
   );
 };
 
+// ── GitHub "not connected" hint ───────────────────────────────────────
+const GhConnectHint = ({ label }) => (
+  <div className="gh-connect-hint">
+    <div className="gh-connect-hint-row">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0, marginTop: 1, opacity: 0.4 }}>
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      <span className="gh-connect-hint-label">{label}</span>
+    </div>
+    <span className="gh-connect-hint-nav">Settings → Integrations</span>
+  </div>
+);
+
 // ═══════════════════════════════════════════════════════════════════
 //  2. PROJECTS
 // ═══════════════════════════════════════════════════════════════════
 // Shared form panel — handles both Add and Edit
 // ── Repo selector dropdown (shown when GitHub is connected) ─────────
 const RepoSelector = ({ repos, loading, value, onChange }) => {
-  const [open, setOpen]   = useStateA(false);
-  const [q,    setQ]      = useStateA('');
-  const ref               = useRefA(null);
-  const searchRef         = useRefA(null);
+  const [open,   setOpen]   = useStateA(false);
+  const [q,      setQ]      = useStateA('');
+  const [rect,   setRect]   = useStateA(null);
+  const btnRef              = useRefA(null);
+  const dropRef             = useRefA(null);
+  const searchRef           = useRefA(null);
+
+  const openDropdown = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setRect(r);
+    setOpen(true);
+  };
 
   useEffectA(() => {
     if (!open) return;
     searchRef.current?.focus();
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const handleClick = (e) => {
+      if (!btnRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) {
+        setOpen(false);
+        setQ('');
+      }
+    };
+    const handleScroll = () => {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) setRect(r);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('scroll', handleScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('scroll', handleScroll, true);
+    };
   }, [open]);
 
   const selected = repos.find(r => r.html_url === value);
   const filtered = repos.filter(r => !q || r.full_name.toLowerCase().includes(q.toLowerCase()));
 
+  const dropStyle = rect ? {
+    position: 'fixed',
+    bottom:  window.innerHeight - rect.top + 4,
+    left:    rect.left,
+    width:   Math.max(rect.width, 300),
+    maxHeight: rect.top - 12,
+    zIndex:  99999,
+  } : {};
+
   return (
-    <div className="repo-sel" ref={ref}>
-      <button type="button" className="repo-sel-btn" onClick={() => setOpen(o => !o)}>
+    <div className="repo-sel">
+      <button type="button" className="repo-sel-btn" ref={btnRef} onClick={() => open ? (setOpen(false), setQ('')) : openDropdown()}>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0, color: 'var(--text-3)' }}>
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
         </svg>
@@ -325,8 +369,8 @@ const RepoSelector = ({ repos, loading, value, onChange }) => {
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </button>
-      {open && (
-        <div className="repo-sel-drop">
+      {open && createPortal(
+        <div className="repo-sel-drop" ref={dropRef} style={dropStyle}>
           <div className="repo-sel-search">
             <input ref={searchRef} placeholder="Search repos…" value={q} onChange={e => setQ(e.target.value)} />
           </div>
@@ -339,21 +383,28 @@ const RepoSelector = ({ repos, loading, value, onChange }) => {
             {filtered.length === 0 && !loading && (
               <div className="repo-sel-empty">No repos match</div>
             )}
-            {filtered.map(r => (
-              <button
-                key={r.id}
-                className={'repo-sel-item' + (r.html_url === value ? ' active' : '')}
-                onClick={() => { onChange(r.html_url); setOpen(false); setQ(''); }}
-              >
-                <span className="repo-sel-name">{r.full_name}</span>
-                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                  {r.private && <span className="repo-badge private">private</span>}
-                  {r.language && <span className="repo-badge lang">{r.language}</span>}
-                </div>
-              </button>
-            ))}
+            {filtered.map(r => {
+              const [owner, repoName] = r.full_name.split('/');
+              return (
+                <button
+                  key={r.id}
+                  className={'repo-sel-item' + (r.html_url === value ? ' active' : '')}
+                  onClick={() => { onChange(r.html_url); setOpen(false); setQ(''); }}
+                >
+                  <div className="repo-sel-info">
+                    <span className="repo-sel-reponame">{repoName}</span>
+                    <span className="repo-sel-owner">{owner}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignSelf: 'flex-start', marginTop: 2 }}>
+                    {r.private && <span className="repo-badge private">private</span>}
+                    {r.language && <span className="repo-badge lang">{r.language}</span>}
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -556,16 +607,19 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
             </div>
           </>
         ) : (
-          <div className="fld-row">
-            <div className="fld">
-              <label>Budget</label>
-              <input value={form.budget} onChange={e => set('budget', e.target.value)} placeholder="e.g. €12,400" />
+          <>
+            <div className="fld-row">
+              <div className="fld">
+                <label>Budget</label>
+                <input value={form.budget} onChange={e => set('budget', e.target.value)} placeholder="e.g. €12,400" />
+              </div>
+              <div className="fld">
+                <label>Repository</label>
+                <input value={form.repo} onChange={e => set('repo', e.target.value)} placeholder="github.com/user/repo" />
+              </div>
             </div>
-            <div className="fld">
-              <label>Repository</label>
-              <input value={form.repo} onChange={e => set('repo', e.target.value)} placeholder="github.com/user/repo" />
-            </div>
-          </div>
+            <GhConnectHint label="Connect GitHub to browse repos, create new ones &amp; auto-link branches." />
+          </>
         )}
       </div>
       <div className="sp-footer">
@@ -602,6 +656,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
   const [deleting,          setDeleting]          = useStateA(false);
   const [deleteRepo,        setDeleteRepo]        = useStateA(false);
   const [repoDeleteErr,     setRepoDeleteErr]     = useStateA('');
+  const [deleteConfirmText, setDeleteConfirmText] = useStateA('');
 
   const doneId       = statuses.find(s => s.isDone)?.id ?? 'done';
   const projectTasks = tasks.filter(t => t.proj === project?.id);
@@ -617,7 +672,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
 
   // useEffect must be before the early return to keep hook order stable
   useEffectA(() => {
-    if (!open) { setShowDeleteConfirm(false); setDeleteRepo(false); setRepoDeleteErr(''); return; }
+    if (!open) { setShowDeleteConfirm(false); setDeleteRepo(false); setRepoDeleteErr(''); setDeleteConfirmText(''); return; }
     if (!githubToken || !repoFullName) { setLastCommit(null); return; }
     setCommitLoading(true);
     setLastCommit(null);
@@ -769,6 +824,10 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
           </div>
         )}
 
+        {repoFullName && !githubToken && (
+          <GhConnectHint label="Connect GitHub to see last commit activity and manage this repo." />
+        )}
+
         {(project.stack || []).length > 0 && (
           <div className="fld">
             <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>TECH STACK</label>
@@ -846,8 +905,18 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
           )}
 
           {repoDeleteErr && (
-            <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 10, padding: '8px 10px', background: '#ef444412', borderRadius: 6, lineHeight: 1.4 }}>
-              Project deleted, but repo removal failed: {repoDeleteErr}
+            <div style={{ fontSize: 11, marginBottom: 10, padding: '10px 12px', background: '#ef444412', border: '1px solid #ef444430', borderRadius: 8, lineHeight: 1.6 }}>
+              {repoDeleteErr === '__RECONNECT__' ? (
+                <>
+                  <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 4 }}>Repository deletion failed — permission required</div>
+                  <div style={{ color: 'var(--text-2)' }}>
+                    Your GitHub token doesn't have the <code style={{ fontFamily: 'var(--f-mono)', background: '#ef444420', padding: '1px 4px', borderRadius: 3 }}>delete_repo</code> scope.
+                    Go to <strong>Settings → Integrations</strong> and reconnect GitHub to grant it.
+                  </div>
+                </>
+              ) : (
+                <div style={{ color: '#ef4444' }}>Project deleted, but repo removal failed: {repoDeleteErr}</div>
+              )}
             </div>
           )}
 
@@ -855,26 +924,52 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
             <button
               className="btn danger"
               style={{ fontSize: 12, width: '100%' }}
-              onClick={() => setShowDeleteConfirm(true)}
+              onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); }}
             >
               Delete project{deleteRepo && repoFullName && githubToken ? ' & repository' : ''}
             </button>
-          ) : (
-            <>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5 }}>
-                Are you sure? <strong style={{ color: 'var(--text-1)' }}>{project.name}</strong> and all {totalTasks > 0 ? `${totalTasks} task${totalTasks > 1 ? 's' : ''}` : 'related data'} will be hidden from your workspace
-                {deleteRepo && repoFullName ? <>, and the <strong style={{ color: 'var(--text-1)', fontFamily: 'var(--f-mono)', fontSize: 11 }}>{repoFullName}</strong> repository will be deleted</> : ''}.
-              </div>
-              <div className="danger-confirm-row">
-                <button className="btn ghost" style={{ flex: 1, fontSize: 12 }} onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
-                  Cancel
-                </button>
-                <button className="btn danger" style={{ flex: 1, fontSize: 12 }} onClick={handleDelete} disabled={deleting}>
-                  {deleting ? 'Deleting…' : 'Confirm delete'}
-                </button>
-              </div>
-            </>
-          )}
+          ) : (() => {
+            const repoShortName = repoFullName ? repoFullName.split('/')[1] : null;
+            const requiredText  = deleteRepo && repoShortName ? repoShortName : project.name;
+            const isMatch       = deleteConfirmText === requiredText;
+            const hasTyped      = deleteConfirmText.length > 0;
+            return (
+              <>
+                <div className="delete-confirm-box">
+                  <div className="delete-confirm-hint">
+                    Type <span className="delete-confirm-required">{requiredText}</span> to confirm
+                  </div>
+                  <div className="delete-confirm-input-wrap">
+                    <input
+                      className={'delete-confirm-input' + (hasTyped ? (isMatch ? ' match' : ' no-match') : '')}
+                      placeholder={requiredText}
+                      value={deleteConfirmText}
+                      onChange={e => setDeleteConfirmText(e.target.value)}
+                      autoFocus
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    {hasTyped && (
+                      <span className={'delete-confirm-icon' + (isMatch ? ' ok' : ' fail')}>
+                        {isMatch
+                          ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                          : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        }
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="danger-confirm-row">
+                  <button className="btn ghost" style={{ flex: 1, fontSize: 12 }} onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }} disabled={deleting}>
+                    Cancel
+                  </button>
+                  <button className="btn danger" style={{ flex: 1, fontSize: 12 }} onClick={handleDelete} disabled={deleting || !isMatch}>
+                    {deleting ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </div>
       <div className="sp-footer">
@@ -2132,6 +2227,13 @@ const TaskDetailModal = ({
             )}
 
             {/* GitHub Branch */}
+            {taskRepoFull && !githubToken && (
+              <div className="tpanel-prop">
+                <div className="tpanel-prop-label">Branch</div>
+                <GhConnectHint label="Connect GitHub to manage branches for this task." />
+              </div>
+            )}
+
             {showBranchSection && (
               <div className="tpanel-prop">
                 <div className="tpanel-prop-label">Branch</div>
@@ -2422,6 +2524,10 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
             placeholder="Optional scope, context, or acceptance criteria…" rows={3}
             style={{ width:'100%', background:'var(--bg-2)', border:'1px solid var(--border)', color:'var(--text)', fontSize:12, padding:'8px 10px', fontFamily:'inherit', resize:'vertical' }} />
         </div>
+
+        {projRepoFull && !githubToken && (
+          <GhConnectHint label="Connect GitHub to auto-create a branch when adding this task." />
+        )}
 
         {showBranchOption && (
           <div className="branch-opt">

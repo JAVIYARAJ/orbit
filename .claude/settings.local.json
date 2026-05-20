@@ -9,7 +9,8 @@
       "Bash(python3 *)",
       "mcp__claude_ai_Supabase__get_advisors",
       "mcp__claude_ai_Supabase__search_docs",
-      "Bash(google-chrome --headless --disable-gpu --no-sandbox --screenshot=/tmp/fi_toolkit.png --window-size=1400,900 \"http://localhost:5174\")"
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --screenshot=/tmp/fi_toolkit.png --window-size=1400,900 \"http://localhost:5174\")",
+      "Bash(npx vite *)"
     ]
   }
 }

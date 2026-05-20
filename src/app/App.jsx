@@ -203,6 +203,7 @@ export default function App() {
         setTags(d.tags);
         setProjects(d.projects);
         setTasks(d.tasks);
+        setNoteFolders(d.noteFolders);
         setNotes(d.notes);
         setVault(d.vault);
         setLearning(d.learning);
@@ -268,6 +269,7 @@ export default function App() {
   const [projects,       setProjects]       = useStateApp([]);
   const [tasks,          setTasks]          = useStateApp([]);
   const [notes,          setNotes]          = useStateApp([]);
+  const [noteFolders,    setNoteFolders]    = useStateApp([]);
   const [vault,          setVault]          = useStateApp([]);
   const [learning,       setLearning]       = useStateApp({ toLearn: [], inProgress: [], completed: [] });
   const [sessions,       setSessions]       = useStateApp([]);
@@ -460,6 +462,7 @@ export default function App() {
             projects={projects}           setProjects={setProjects}
             tasks={tasks}                 setTasks={setTasks}
             notes={notes}                 setNotes={setNotes}
+            noteFolders={noteFolders}     setNoteFolders={setNoteFolders}
             taskNoteLinks={taskNoteLinks}  setTaskNoteLinks={setTaskNoteLinks}
             vault={vault}                 setVault={setVault}
             learning={learning}           setLearning={setLearning}

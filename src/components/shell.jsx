@@ -63,6 +63,10 @@ export const Icon = ({ name, size = 16 }) => {
     'eye-off': <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M2 2L14 14M6.5 6.55C5.85 7.07 5.38 7.86 5.14 8.46M9.65 9.6C9.2 10.03 8.62 10.3 8 10.3C6.62 10.3 5.5 9.18 5.5 7.8M1 8C1 8 3 4 8 4C8.83 4 9.61 4.17 10.31 4.47M14.5 8C14.5 8 13.5 10.5 11 11.7" strokeLinecap="round" /></g>,
     'sign-out': <path d="M10 3H13V13H10M6 5L3 8L6 11M3 8H11" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     camera: <g stroke="currentColor" strokeWidth="1.2" fill="none"><rect x="2" y="5" width="12" height="9" rx="1" /><circle cx="8" cy="9.5" r="2.5" /><path d="M5 5L6 3H10L11 5" /></g>,
+    'git-branch': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="4" cy="4" r="1.5" /><circle cx="4" cy="12" r="1.5" /><circle cx="12" cy="4" r="1.5" /><path d="M4 5.5V10.5M5.5 4H10.5M10.5 5.5C10.5 8 7 9 4 10.5" strokeLinecap="round" /></g>,
+    'git-commit': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="8" cy="8" r="2.5" /><path d="M2 8H5.5M10.5 8H14" strokeLinecap="round" /></g>,
+    'alert-circle': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="8" cy="8" r="6" /><path d="M8 5V8.5" strokeLinecap="round" /><circle cx="8" cy="11" r="0.6" fill="currentColor" /></g>,
+    'external-link': <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M7 3H3V13H13V9M9 2H14V7M14 2L8 8" strokeLinecap="round" strokeLinejoin="round" /></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>

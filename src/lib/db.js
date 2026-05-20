@@ -60,13 +60,21 @@ const fromDbTask = (r) => ({
 })
 
 const fromDbNote = (r) => ({
-  id:     r.id,
-  title:  r.title,
-  folder: r.folder,
-  tags:   r.tags   || [],
-  pinned: r.pinned,
-  edited: relTime(r.updated_at),
-  body:   r.body,
+  id:         r.id,
+  title:      r.title,
+  folderId:   r.folder_id   || null,
+  folderName: r.folder_name || 'Other',
+  tags:       r.tags        || [],
+  pinned:     r.pinned,
+  edited:     relTime(r.updated_at),
+  updatedAt:  r.updated_at  || null,
+  body:       r.body,
+})
+
+const fromDbNoteFolder = (r) => ({
+  id:        r.id,
+  name:      r.name,
+  sortOrder: r.sort_order ?? 0,
 })
 
 const fromDbLearning = (r) => ({
@@ -167,7 +175,8 @@ const transformData = (raw) => ({
   tags:         (raw.tags          || []).map(fromDbTag),
   projects: (raw.projects || []).map(fromDbProject).filter(p => !p.deletedAt),
   tasks:    (raw.tasks    || []).map(fromDbTask).filter(t => !t.deletedAt),
-  notes:    (raw.notes    || []).map(fromDbNote),
+  noteFolders: (raw.note_folders || []).map(fromDbNoteFolder),
+  notes:       (raw.notes        || []).map(fromDbNote),
   vault:    (raw.vault    || []).map(fromDbVault),
   learning: {
     toLearn:    (raw.learning || []).filter(r => r.status === 'to_learn').map(fromDbLearning),
@@ -302,11 +311,11 @@ export const createNote = async (n, workstationId) => {
   const { data, error } = await supabase.rpc('create_note', {
     p_workstation_id: workstationId,
     p_data: {
-      title:  n.title,
-      folder: n.folder || 'General',
-      tags:   n.tags   || [],
-      pinned: n.pinned || false,
-      body:   n.body   || '',
+      title:     n.title,
+      folder_id: n.folderId || null,
+      tags:      n.tags     || [],
+      pinned:    n.pinned   || false,
+      body:      n.body     || '',
     },
   })
   if (error) throw error
@@ -316,7 +325,13 @@ export const createNote = async (n, workstationId) => {
 export const updateNote = async (n) => {
   const { data, error } = await supabase.rpc('update_note', {
     p_note_id: n.id,
-    p_data: { title: n.title, folder: n.folder, tags: n.tags, pinned: n.pinned, body: n.body },
+    p_data: {
+      title:     n.title,
+      folder_id: n.folderId ?? null,
+      tags:      n.tags,
+      pinned:    n.pinned,
+      body:      n.body,
+    },
   })
   if (error) throw error
   return fromDbNote(data)
@@ -342,6 +357,44 @@ export const getDeletedNotes = async (workstationId) => {
   const { data, error } = await supabase.rpc('get_deleted_notes', { p_workstation_id: workstationId })
   if (error) throw error
   return (data || []).map(fromDbNote)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRUD — Note Folders
+// ═══════════════════════════════════════════════════════════════════
+
+export const createNoteFolder = async (workstationId, name) => {
+  const { data, error } = await supabase.rpc('create_note_folder', {
+    p_workstation_id: workstationId,
+    p_name: name,
+  })
+  if (error) throw error
+  return fromDbNoteFolder(data)
+}
+
+export const renameNoteFolder = async (folderId, name) => {
+  const { data, error } = await supabase.rpc('rename_note_folder', {
+    p_folder_id: folderId,
+    p_name: name,
+  })
+  if (error) throw error
+  return fromDbNoteFolder(data)
+}
+
+export const deleteNoteFolder = async (folderId, workstationId) => {
+  const { error } = await supabase.rpc('delete_note_folder', {
+    p_folder_id: folderId,
+    p_workstation_id: workstationId,
+  })
+  if (error) throw error
+}
+
+export const reorderNoteFolders = async (workstationId, folderIds) => {
+  const { error } = await supabase.rpc('reorder_note_folders', {
+    p_workstation_id: workstationId,
+    p_folder_ids: folderIds,
+  })
+  if (error) throw error
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -7,6 +7,8 @@ import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
   createNote as dbCreateNote, updateNote as dbUpdateNote, deleteNote as dbDeleteNote,
   restoreNote as dbRestoreNote, purgeNote as dbPurgeNote, getDeletedNotes as dbGetDeletedNotes,
+  createNoteFolder as dbCreateNoteFolder, renameNoteFolder as dbRenameNoteFolder,
+  deleteNoteFolder as dbDeleteNoteFolder, reorderNoteFolders as dbReorderNoteFolders,
   createEmailTemplate,
 } from '../lib/db.js';
 
@@ -238,18 +240,66 @@ export const renderMd = (src) => {
   return renderMdCore(src);
 };
 
-const FOLDERS = ['Clients', 'Pulse', 'Ideas', 'Daily'];
+const NoteLinkMenu = ({ items, index, onSelect }) => (
+  <div className="note-link-menu">
+    <div className="note-link-hint">↑↓ navigate · Enter select · Esc cancel</div>
+    {items.map((n, i) => (
+      <button
+        key={n.id}
+        className={'note-link-item' + (i === index ? ' active' : '')}
+        onMouseDown={e => { e.preventDefault(); onSelect(n); }}
+      >
+        <Icon name="note" size={11}/>
+        <span className="note-link-title">{n.title}</span>
+        <span className="note-link-folder">{n.folderName}</span>
+      </button>
+    ))}
+  </div>
+);
 
-export const NotesPage = ({ notes, setNotes, workstationId }) => {
+export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workstationId }) => {
   const [activeId, setActiveId] = useStateB(notes[0]?.id);
   const [tab, setTab] = useStateB('edit');
   const [q, setQ] = useStateB('');
   const [quickText, setQuickText] = useStateB('');
+
+  // ── Folder state ────────────────────────────────────────────────
+  // activeFolderId: null = All Notes, string uuid = specific folder
+  const [activeFolderId, setActiveFolderId] = useStateB(null);
+  const [newFolderName, setNewFolderName] = useStateB('');
+  const [showNewFolder, setShowNewFolder] = useStateB(false);
+  const [movingFolder, setMovingFolder] = useStateB(false);
+  // Rename state: { id, name } of folder being renamed (double-click to activate)
+  const [renamingFolder, setRenamingFolder] = useStateB(null);
+  const [renameValue, setRenameValue] = useStateB('');
+  // Folder reorder — pointer-event drag
+  const foldersContainerRef = useRefB(null);
+  const folderDragRef       = useRefB(null);
+  const [folderDrag,     setFolderDragState] = useStateB(null);
+  // { id, fromIndex, toIndex, ghostY, rects, containerRect }
+  const setFolderDrag = (v) => { folderDragRef.current = v; setFolderDragState(v); };
+  // Note→folder drop highlight (HTML5 drag-and-drop)
+  const [noteDragOverId, setNoteDragOverId] = useStateB(null);
   const [autoScrolling, setAutoScrolling] = useStateB(false);
   const previewRef = useRefB(null);
   const splitPreviewRef = useRefB(null);
   const scrollFrameRef = useRefB(null);
   const scrollDelayRef = useRefB(null);
+
+  // ── Auto-save / keyboard shortcuts / export ──────────────────────
+  const [sortBy, setSortBy] = useStateB('newest');
+  const [copied, setCopied] = useStateB(false);
+  const autoSaveRef    = useRefB(null);
+  const pendingSaveRef = useRefB(null);
+  const titleRef       = useRefB('');
+  const bodyRef        = useRefB('');
+  const searchRef      = useRefB(null);
+  const textareaRef    = useRefB(null);
+
+  // ── Note linking [[ ──────────────────────────────────────────────
+  const [linkMenu,  setLinkMenu]  = useStateB(null); // null | { query }
+  const [linkIndex, setLinkIndex] = useStateB(0);
+  const [editorDragOver, setEditorDragOver] = useStateB(false);
 
   const note = notes.find(n => n.id === activeId) || notes[0];
   const [body, setBody] = useStateB(note?.body || '');
@@ -257,14 +307,43 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
   const [saved, setSaved] = useStateB(true);
 
   useEffectB(() => {
+    // Flush any pending auto-save for the note we're leaving
+    const snap = pendingSaveRef.current;
+    if (snap) {
+      if (autoSaveRef.current) { clearTimeout(autoSaveRef.current); autoSaveRef.current = null; }
+      pendingSaveRef.current = null;
+      setNotes(prev => {
+        const n = prev.find(x => x.id === snap.id);
+        if (!n) return prev;
+        dbUpdateNote({ id: snap.id, title: snap.title, body: snap.body, folderId: n.folderId, tags: n.tags, pinned: n.pinned })
+          .then(updated => setNotes(p => p.map(x => x.id === snap.id ? updated : x)))
+          .catch(console.error);
+        return prev.map(x => x.id === snap.id ? { ...x, title: snap.title, body: snap.body, edited: 'Just now' } : x);
+      });
+    }
     if (!note) return;
     setBody(note.body);
     setTitle(note.title);
+    bodyRef.current  = note.body;
+    titleRef.current = note.title;
     setSaved(true);
   }, [activeId]);
 
-  const handleBodyChange = (val) => { setBody(val); setSaved(false); };
-  const handleTitleChange = (val) => { setTitle(val); setSaved(false); };
+  const handleBodyChange = (val, cursor) => {
+    setBody(val); bodyRef.current = val; setSaved(false);
+    pendingSaveRef.current = { id: activeId, title: titleRef.current, body: val };
+    triggerAutoSave();
+    if (cursor !== undefined) {
+      const match = val.slice(0, cursor).match(/\[\[([^\][\n]*)$/);
+      setLinkMenu(match ? { query: match[1] } : null);
+      if (!match) setLinkIndex(0);
+    }
+  };
+  const handleTitleChange = (val) => {
+    setTitle(val); titleRef.current = val; setSaved(false);
+    pendingSaveRef.current = { id: activeId, title: val, body: bodyRef.current };
+    triggerAutoSave();
+  };
   const wordCount = body.split(/\s+/).filter(Boolean).length;
   const readMs = Math.max(8000, Math.round((wordCount / 220) * 60000));
   const readLabel = readMs >= 60000 ? `${Math.round(readMs / 60000)}m` : `${Math.round(readMs / 1000)}s`;
@@ -371,26 +450,67 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
 
   useEffectB(() => stopFocusScroll, [activeId, body, focusMode]);
 
+
+  const triggerAutoSave = () => {
+    if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+    autoSaveRef.current = setTimeout(() => {
+      const snap = pendingSaveRef.current;
+      if (!snap) return;
+      autoSaveRef.current = null;
+      pendingSaveRef.current = null;
+      setSaved(true);
+      setNotes(prev => {
+        const n = prev.find(x => x.id === snap.id);
+        if (!n) return prev;
+        dbUpdateNote({ id: snap.id, title: snap.title, body: snap.body, folderId: n.folderId, tags: n.tags, pinned: n.pinned })
+          .then(updated => setNotes(p => p.map(x => x.id === snap.id ? updated : x)))
+          .catch(() => setSaved(false));
+        return prev.map(x => x.id === snap.id ? { ...x, title: snap.title, body: snap.body, edited: 'Just now' } : x);
+      });
+    }, 1500);
+  };
+
   const saveNote = async () => {
-    // Optimistic update for instant feedback
-    setNotes(prev => prev.map(n => n.id === activeId ? { ...n, title, body, edited: 'Just now' } : n));
+    if (!note) return;
+    if (autoSaveRef.current) { clearTimeout(autoSaveRef.current); autoSaveRef.current = null; }
+    pendingSaveRef.current = null;
+    const id = activeId, t = titleRef.current || title, b = bodyRef.current || body;
+    setNotes(prev => prev.map(n => n.id === id ? { ...n, title: t, body: b, edited: 'Just now' } : n));
     setSaved(true);
     try {
-      const saved = await dbUpdateNote({
-        id: activeId, title, body,
-        folder: note.folder, tags: note.tags, pinned: note.pinned,
-      });
-      setNotes(prev => prev.map(n => n.id === activeId ? saved : n));
+      const updated = await dbUpdateNote({ id, title: t, body: b, folderId: note.folderId, tags: note.tags, pinned: note.pinned });
+      setNotes(prev => prev.map(n => n.id === id ? updated : n));
     } catch (err) {
       console.error('Failed to save note:', err);
       setSaved(false);
     }
   };
 
+  const exportNote = () => {
+    if (!note) return;
+    const t = titleRef.current || title, b = bodyRef.current || body;
+    const blob = new Blob([`# ${t}\n\n${b}`], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${t.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'note'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copyNote = async () => {
+    if (!note) return;
+    const t = titleRef.current || title, b = bodyRef.current || body;
+    await navigator.clipboard.writeText(`# ${t}\n\n${b}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const createNote = async () => {
+    const folderId = activeFolderId || noteFolders.find(f => f.name === 'Other')?.id || null;
     try {
       const saved = await dbCreateNote(
-        { title: 'Untitled note', folder: 'Ideas', tags: [], pinned: false, body: '' },
+        { title: 'Untitled note', folderId, tags: [], pinned: false, body: '' },
         workstationId,
       );
       setNotes(prev => [saved, ...prev]);
@@ -404,9 +524,10 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
     if (e.key === 'Enter' && quickText.trim()) {
       const text = quickText.trim();
       setQuickText('');
+      const folderId = activeFolderId || noteFolders.find(f => f.name === 'Other')?.id || null;
       try {
         const saved = await dbCreateNote(
-          { title: text, folder: 'Daily', tags: ['#quick'], pinned: false, body: text },
+          { title: text, folderId, tags: ['#quick'], pinned: false, body: text },
           workstationId,
         );
         setNotes(prev => [saved, ...prev]);
@@ -415,6 +536,261 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
         console.error('Failed to quick-save note:', err);
       }
     }
+  };
+
+  const moveNoteFolder = async (targetFolder) => {
+    setMovingFolder(false);
+    const prev = note.folderId;
+    setNotes(ns => ns.map(n => n.id === activeId
+      ? { ...n, folderId: targetFolder.id, folderName: targetFolder.name } : n));
+    try {
+      await dbUpdateNote({ id: activeId, title, body, folderId: targetFolder.id, tags: note.tags, pinned: note.pinned });
+    } catch (err) {
+      console.error('Failed to move note:', err);
+      setNotes(ns => ns.map(n => n.id === activeId
+        ? { ...n, folderId: prev, folderName: note.folderName } : n));
+    }
+  };
+
+  const createFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name || noteFolders.some(f => f.name === name)) return;
+    setNewFolderName('');
+    setShowNewFolder(false);
+    try {
+      const folder = await dbCreateNoteFolder(workstationId, name);
+      setNoteFolders(prev => [...prev, folder].sort((a, b) => a.name.localeCompare(b.name)));
+      setActiveFolderId(folder.id);
+    } catch (err) {
+      console.error('Failed to create folder:', err);
+    }
+  };
+
+  const startRename = (folder) => {
+    setRenamingFolder(folder);
+    setRenameValue(folder.name);
+  };
+
+  const commitRename = async () => {
+    const name = renameValue.trim();
+    const folder = renamingFolder;
+    setRenamingFolder(null);
+    if (!name || name === folder.name) return;
+    setNoteFolders(prev => prev.map(f => f.id === folder.id ? { ...f, name } : f).sort((a, b) => a.name.localeCompare(b.name)));
+    setNotes(prev => prev.map(n => n.folderId === folder.id ? { ...n, folderName: name } : n));
+    try {
+      await dbRenameNoteFolder(folder.id, name);
+    } catch (err) {
+      console.error('Failed to rename folder:', err);
+      setNoteFolders(prev => prev.map(f => f.id === folder.id ? folder : f));
+      setNotes(prev => prev.map(n => n.folderId === folder.id ? { ...n, folderName: folder.name } : n));
+    }
+  };
+
+  const [deleteFolderConfirm, setDeleteFolderConfirm] = useStateB(null); // folder object pending delete
+
+  const handleDeleteFolder = (folder) => {
+    setDeleteFolderConfirm(folder);
+  };
+
+  const confirmDeleteFolder = async () => {
+    const folder = deleteFolderConfirm;
+    setDeleteFolderConfirm(null);
+    if (!folder) return;
+    setNoteFolders(prev => prev.filter(f => f.id !== folder.id));
+    const otherId = noteFolders.find(f => f.name === 'Other')?.id;
+    setNotes(prev => prev.map(n => n.folderId === folder.id ? { ...n, folderId: otherId, folderName: 'Other' } : n));
+    if (activeFolderId === folder.id) setActiveFolderId(null);
+    try {
+      await dbDeleteNoteFolder(folder.id, workstationId);
+    } catch (err) {
+      console.error('Failed to delete folder:', err);
+    }
+  };
+
+  const togglePin = async (n) => {
+    const newPinned = !n.pinned;
+    setNotes(prev => prev.map(x => x.id === n.id ? { ...x, pinned: newPinned } : x));
+    try {
+      await dbUpdateNote({ id: n.id, title: n.title, body: n.body, folderId: n.folderId, tags: n.tags, pinned: newPinned });
+    } catch (err) {
+      console.error('Failed to toggle pin:', err);
+      setNotes(prev => prev.map(x => x.id === n.id ? { ...x, pinned: n.pinned } : x));
+    }
+  };
+
+  // ── Note linking helpers ─────────────────────────────────────────
+  const linkMenuItems = React.useMemo(() => {
+    if (!linkMenu) return [];
+    const lq = linkMenu.query.toLowerCase();
+    return notes.filter(n => n.id !== activeId && n.title.toLowerCase().includes(lq)).slice(0, 6);
+  }, [linkMenu, notes, activeId]);
+
+  useEffectB(() => setLinkIndex(0), [linkMenu?.query]);
+
+  const insertLink = (n) => {
+    const ta = textareaRef.current;
+    const cursor = ta?.selectionStart ?? body.length;
+    const before = body.slice(0, cursor);
+    const match = before.match(/\[\[([^\][\n]*)$/);
+    if (!match) { setLinkMenu(null); return; }
+    const start = cursor - match[0].length;
+    const newVal = body.slice(0, start) + `[[${n.title}]]` + body.slice(cursor);
+    bodyRef.current = newVal;
+    setBody(newVal);
+    setSaved(false);
+    pendingSaveRef.current = { id: activeId, title: titleRef.current, body: newVal };
+    triggerAutoSave();
+    setLinkMenu(null);
+    setLinkIndex(0);
+    setTimeout(() => {
+      if (ta) {
+        const pos = start + n.title.length + 4;
+        ta.setSelectionRange(pos, pos);
+        ta.focus();
+      }
+    }, 0);
+  };
+
+  const applyFormat = (type) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    const sel   = body.slice(start, end);
+    let newVal, newSel;
+
+    if (type === 'bold' || type === 'italic' || type === 'code') {
+      const m = { bold: '**', italic: '*', code: '`' }[type];
+      const ph = { bold: 'bold', italic: 'italic', code: 'code' }[type];
+      if (sel) {
+        if (sel.startsWith(m) && sel.endsWith(m) && sel.length > m.length * 2) {
+          const inner = sel.slice(m.length, -m.length);
+          newVal = body.slice(0, start) + inner + body.slice(end);
+          newSel = [start, start + inner.length];
+        } else {
+          newVal = body.slice(0, start) + m + sel + m + body.slice(end);
+          newSel = [start, start + m.length + sel.length + m.length];
+        }
+      } else {
+        newVal = body.slice(0, start) + m + ph + m + body.slice(start);
+        newSel = [start + m.length, start + m.length + ph.length];
+      }
+    } else {
+      const prefix = type === 'heading' ? '# ' : '- ';
+      const lineStart = body.lastIndexOf('\n', start - 1) + 1;
+      if (body.slice(lineStart).startsWith(prefix)) {
+        newVal = body.slice(0, lineStart) + body.slice(lineStart + prefix.length);
+        newSel = [Math.max(lineStart, start - prefix.length), Math.max(lineStart, end - prefix.length)];
+      } else {
+        newVal = body.slice(0, lineStart) + prefix + body.slice(lineStart);
+        newSel = [start + prefix.length, end + prefix.length];
+      }
+    }
+
+    bodyRef.current = newVal;
+    setBody(newVal);
+    setSaved(false);
+    pendingSaveRef.current = { id: activeId, title: titleRef.current, body: newVal };
+    triggerAutoSave();
+    setTimeout(() => { ta.setSelectionRange(...newSel); ta.focus(); }, 0);
+  };
+
+  const dropNoteLink = (e) => {
+    e.preventDefault();
+    setEditorDragOver(false);
+    const id = e.dataTransfer.getData('application/note-id');
+    if (!id || id === activeId) return;
+    const n = notes.find(x => x.id === id);
+    if (!n) return;
+    const ta = textareaRef.current;
+    const cursor = ta?.selectionStart ?? body.length;
+    const link = `[[${n.title}]]`;
+    const newVal = body.slice(0, cursor) + link + body.slice(cursor);
+    bodyRef.current = newVal;
+    setBody(newVal);
+    setSaved(false);
+    pendingSaveRef.current = { id: activeId, title: titleRef.current, body: newVal };
+    triggerAutoSave();
+    setTimeout(() => {
+      if (ta) { const pos = cursor + link.length; ta.setSelectionRange(pos, pos); ta.focus(); }
+    }, 0);
+  };
+
+  const handleTextareaKeyDown = (e) => {
+    if (!linkMenu || linkMenuItems.length === 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setLinkIndex(i => Math.min(i + 1, linkMenuItems.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setLinkIndex(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); insertLink(linkMenuItems[linkIndex]); }
+    else if (e.key === 'Escape') { setLinkMenu(null); }
+  };
+
+  const renderBody = (text) => {
+    let html = renderMd(text);
+    html = html.replace(/\[\[([^\]]+)\]\]/g, (_, title) => {
+      const found = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
+      if (found) return `<a class="note-wikilink" data-note-id="${found.id}">${title}</a>`;
+      return `<span class="note-wikilink note-wikilink-missing">[[${title}]]</span>`;
+    });
+    return html;
+  };
+
+  const handlePreviewClick = (e) => {
+    const id = e.target.closest('[data-note-id]')?.dataset.noteId;
+    if (id) setActiveId(id);
+  };
+
+  const handleDropOnFolder = (noteId, targetFolder) => {
+    setNoteDragOverId(null);
+    const draggedNote = notes.find(n => n.id === noteId);
+    if (!draggedNote || draggedNote.folderId === targetFolder.id) return;
+    const { folderId: prevId, folderName: prevName } = draggedNote;
+    setNotes(prev => prev.map(n => n.id === noteId
+      ? { ...n, folderId: targetFolder.id, folderName: targetFolder.name } : n));
+    dbUpdateNote({ id: noteId, title: draggedNote.title, body: draggedNote.body,
+      folderId: targetFolder.id, tags: draggedNote.tags, pinned: draggedNote.pinned })
+      .catch(() => setNotes(prev => prev.map(n => n.id === noteId
+        ? { ...n, folderId: prevId, folderName: prevName } : n)));
+  };
+
+  const startFolderDrag = (e, folder, idx) => {
+    e.preventDefault();
+    const rows = Array.from(foldersContainerRef.current?.querySelectorAll('[data-folder-row]') || []);
+    const rects = rows.map(el => el.getBoundingClientRect());
+    const containerRect = foldersContainerRef.current?.getBoundingClientRect() ?? { top: 0, left: 0, width: 160 };
+    const drag = { id: folder.id, fromIndex: idx, toIndex: idx, ghostY: e.clientY, rects, containerRect };
+    setFolderDrag(drag);
+
+    const onMove = (ev) => {
+      const cur = folderDragRef.current;
+      if (!cur) return;
+      let toIndex = cur.rects.length;
+      for (let i = 0; i < cur.rects.length; i++) {
+        if (ev.clientY < cur.rects[i].top + cur.rects[i].height / 2) { toIndex = i; break; }
+      }
+      setFolderDrag({ ...cur, toIndex, ghostY: ev.clientY });
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      const cur = folderDragRef.current;
+      setFolderDrag(null);
+      if (!cur) return;
+      const { fromIndex, toIndex } = cur;
+      const to = toIndex > fromIndex ? toIndex - 1 : toIndex;
+      if (fromIndex === to) return;
+      setNoteFolders(prev => {
+        const arr = [...prev];
+        const [moved] = arr.splice(fromIndex, 1);
+        arr.splice(to, 0, moved);
+        dbReorderNoteFolders(workstationId, arr.map(f => f.id)).catch(() => setNoteFolders(prev));
+        return arr;
+      });
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   const [confirmDelete, setConfirmDelete] = useStateB(false);
@@ -478,24 +854,222 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
     }
   };
 
-  const pinned = notes.filter(n => n.pinned && (!q || n.title.toLowerCase().includes(q.toLowerCase())));
-  const others = notes.filter(n => !n.pinned && (!q || n.title.toLowerCase().includes(q.toLowerCase())));
+  const visibleNotes = React.useMemo(() => {
+    const base = activeFolderId ? notes.filter(n => n.folderId === activeFolderId) : notes;
+    const filtered = q
+      ? base.filter(n => {
+          const lq = q.toLowerCase();
+          return n.title.toLowerCase().includes(lq) || n.body.toLowerCase().includes(lq);
+        })
+      : base;
+    if (sortBy === 'newest') return filtered;
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'oldest') return new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0);
+      if (sortBy === 'alpha')  return a.title.localeCompare(b.title);
+      return 0;
+    });
+  }, [notes, activeFolderId, q, sortBy]);
+
+  const pinned = visibleNotes.filter(n => n.pinned);
+  const unpinned = visibleNotes.filter(n => !n.pinned);
+
+  const hlText = (text, maxLen = text.length) => {
+    const sub = text.slice(0, maxLen);
+    if (!q) return sub;
+    const lq = q.toLowerCase();
+    const idx = sub.toLowerCase().indexOf(lq);
+    if (idx === -1) return sub;
+    return <>{sub.slice(0, idx)}<mark className="note-hl">{sub.slice(idx, idx + q.length)}</mark>{sub.slice(idx + q.length)}</>;
+  };
+
+  const bodySnippet = (text) => {
+    const clean = text.replace(/[#*`>]/g, '');
+    if (!q) return clean.slice(0, 80);
+    const lq = q.toLowerCase();
+    const idx = clean.toLowerCase().indexOf(lq);
+    if (idx === -1) return clean.slice(0, 80);
+    const start = Math.max(0, idx - 20);
+    const snippet = clean.slice(start, start + 80);
+    const qi = snippet.toLowerCase().indexOf(lq);
+    if (qi === -1) return snippet;
+    return <>{start > 0 && '…'}{snippet.slice(0, qi)}<mark className="note-hl">{snippet.slice(qi, qi + q.length)}</mark>{snippet.slice(qi + q.length)}</>;
+  };
+
+  const NoteCard = ({ n }) => (
+    <div
+      className={'note-item' + (n.id === activeId ? ' active' : '')}
+      onClick={() => setActiveId(n.id)}
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData('text/plain', n.id);
+        e.dataTransfer.setData('application/note-id', n.id);
+        e.dataTransfer.effectAllowed = 'all';
+      }}
+      onDragEnd={() => setNoteDragOverId(null)}
+    >
+      <div className="note-item-row">
+        <div className="t">{hlText(n.title, 60)}</div>
+        <button
+          className={'note-pin-btn' + (n.pinned ? ' pinned' : '')}
+          onClick={e => { e.stopPropagation(); togglePin(n); }}
+          title={n.pinned ? 'Remove from favourites' : 'Add to favourites'}
+        >
+          <Icon name="star" size={10}/>
+        </button>
+      </div>
+      <div className="p">{bodySnippet(n.body)}</div>
+      <div className="m">
+        {(n.tags || []).slice(0, 2).map(t => <span key={t}>{t}</span>)}
+        <span style={{ marginLeft: 'auto' }}>{n.edited}</span>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="page page-wide">
+    <div className="page page-wide notes-page">
       <div className="page-head">
         <div>
           <div className="crumb">TOOLS / NOTES</div>
           <h1>Notes</h1>
-          <div className="sub">{notes.length} notes · 4 folders · last synced 2 min ago</div>
+          <div className="sub">{notes.length} notes · {noteFolders.length} folders</div>
         </div>
         <div className="actions">
-          <button className="btn"><Icon name="folder" size={12}/> Folders</button>
           <button className="btn primary" onClick={createNote}><Icon name="plus" size={12}/> New note</button>
         </div>
       </div>
 
       <div className="notes-layout">
+
+        {/* ── Folder sidebar ── */}
+        <div className="notes-folders">
+          {/* Fixed top — never scrolls */}
+          <button
+            className={'nf-item' + (activeFolderId === null ? ' nf-active' : '')}
+            onClick={() => setActiveFolderId(null)}
+          >
+            <Icon name="list" size={12}/>
+            <span>All Notes</span>
+            <span className="nf-count">{notes.length}</span>
+          </button>
+
+          <div className="nf-divider" />
+
+          {/* Scrollable folder list */}
+          <div className="nf-folders-scroll" ref={foldersContainerRef}>
+          {noteFolders.map((f, idx) => {
+            // Shift items to make room for dragged folder
+            let translateY = 0;
+            if (folderDrag && folderDrag.rects[idx]) {
+              const { fromIndex, toIndex } = folderDrag;
+              const h = folderDrag.rects[fromIndex]?.height ?? 30;
+              if (idx !== fromIndex) {
+                if (fromIndex < toIndex && idx > fromIndex && idx < toIndex) translateY = -h;
+                else if (fromIndex > toIndex && idx >= toIndex && idx < fromIndex) translateY = h;
+              }
+            }
+            return (
+              <div
+                key={f.id}
+                data-folder-row
+                className={
+                  'nf-row' +
+                  (activeFolderId === f.id ? ' nf-active' : '') +
+                  (noteDragOverId === f.id ? ' nf-drag-over' : '') +
+                  (folderDrag?.id === f.id ? ' nf-dragging' : '')
+                }
+                style={{
+                  transform: `translateY(${translateY}px)`,
+                  transition: folderDrag ? 'transform 0.15s ease' : 'none',
+                }}
+                onClick={() => renamingFolder?.id !== f.id && setActiveFolderId(f.id)}
+                onDoubleClick={() => f.name !== 'Other' && startRename(f)}
+                onDragOver={e => { e.preventDefault(); setNoteDragOverId(f.id); }}
+                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setNoteDragOverId(null); }}
+                onDrop={e => {
+                  e.preventDefault();
+                  setNoteDragOverId(null);
+                  const noteId = e.dataTransfer.getData('text/plain');
+                  if (noteId) handleDropOnFolder(noteId, f);
+                }}
+              >
+                {/* Grip — pointer-down starts folder reorder */}
+                <div
+                  className="nf-grip"
+                  onPointerDown={e => startFolderDrag(e, f, idx)}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <Icon name="drag" size={11}/>
+                </div>
+
+                {renamingFolder?.id === f.id ? (
+                  <input
+                    autoFocus
+                    className="nf-rename-input"
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenamingFolder(null); }}
+                    onBlur={commitRename}
+                    onClick={e => e.stopPropagation()}
+                  />
+                ) : (
+                  <>
+                    <Icon name="folder" size={12} style={{ flexShrink: 0, color: 'var(--text-3)' }}/>
+                    <span className="nf-label">{f.name}</span>
+                    <span className="nf-count">{notes.filter(n => n.folderId === f.id).length}</span>
+                  </>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Absolute insertion line — positioned from captured rects */}
+          {folderDrag && (() => {
+            const { toIndex, rects, containerRect } = folderDrag;
+            const lineTop = toIndex < rects.length
+              ? rects[toIndex].top - containerRect.top
+              : rects[rects.length - 1]
+                ? rects[rects.length - 1].bottom - containerRect.top
+                : 0;
+            return <div className="nf-insert-line-abs" style={{ top: lineTop }} />;
+          })()}
+          </div>{/* end nf-folders-scroll */}
+
+          {/* Fixed bottom — never scrolls */}
+          <div className="nf-divider" />
+
+          {showNewFolder ? (
+            <div className="nf-new-input">
+              <input
+                autoFocus
+                value={newFolderName}
+                onChange={e => setNewFolderName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setShowNewFolder(false); }}
+                placeholder="Folder name…"
+              />
+              <button onClick={createFolder} disabled={!newFolderName.trim()} title="Create">
+                <Icon name="check" size={11}/>
+              </button>
+              <button className="cancel" onClick={() => setShowNewFolder(false)} title="Cancel">
+                <Icon name="x" size={11}/>
+              </button>
+            </div>
+          ) : (
+            <button className="nf-new-btn" onClick={() => setShowNewFolder(true)}>
+              <Icon name="plus" size={11}/> New folder
+            </button>
+          )}
+
+          <button
+            className={'nf-item nf-trash' + (trashOpen ? ' nf-active' : '')}
+            onClick={trashOpen ? () => setTrashOpen(false) : openTrash}
+          >
+            <Icon name="trash" size={12}/>
+            <span>Trash</span>
+            {trashNotes.length > 0 && <span className="nf-count">{trashNotes.length}</span>}
+          </button>
+        </div>
+
+        {/* ── Note list ── */}
         <div className="notes-list">
           <div className="notes-quick">
             <div className="lbl">QUICK CAPTURE</div>
@@ -507,83 +1081,123 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
             />
           </div>
           <div className="notes-search">
-            <input placeholder="Search notes…" value={q} onChange={e => setQ(e.target.value)} />
-          </div>
-          <div className="notes-scroll">
-            {pinned.length > 0 && (
-              <>
-                <div className="notes-sec"><Icon name="pin" size={9}/> &nbsp;PINNED</div>
-                {pinned.map(n => (
-                  <div key={n.id} className={'note-item' + (n.id === activeId ? ' active' : '')} onClick={() => setActiveId(n.id)}>
-                    <div className="t">{n.title}</div>
-                    <div className="p">{n.body.replace(/[#*`>]/g, '').slice(0, 60)}</div>
-                    <div className="m">
-                      {n.tags.slice(0, 2).map(t => <span key={t}>{t}</span>)}
-                      <span style={{ marginLeft: 'auto' }}>{n.edited}</span>
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
-            {FOLDERS.map(f => {
-              const inFolder = others.filter(n => n.folder === f);
-              if (inFolder.length === 0) return null;
-              return (
-                <React.Fragment key={f}>
-                  <div className="notes-sec">{f.toUpperCase()}</div>
-                  {inFolder.map(n => (
-                    <div key={n.id} className={'note-item' + (n.id === activeId ? ' active' : '')} onClick={() => setActiveId(n.id)}>
-                      <div className="t">{n.title}</div>
-                      <div className="p">{n.body.replace(/[#*`>]/g, '').slice(0, 60)}</div>
-                      <div className="m">
-                        {n.tags.slice(0, 2).map(t => <span key={t}>{t}</span>)}
-                        <span style={{ marginLeft: 'auto' }}>{n.edited}</span>
-                      </div>
-                    </div>
-                  ))}
-                </React.Fragment>
-              );
-            })}
+            <input ref={searchRef} placeholder="Search notes…" value={q} onChange={e => setQ(e.target.value)} />
           </div>
 
-          {/* ── Trash ── */}
-          <div className="notes-trash-section">
-            <button
-              className="notes-trash-toggle"
-              onClick={trashOpen ? () => setTrashOpen(false) : openTrash}
-            >
-              <Icon name="trash" size={9}/> &nbsp;TRASH
-              {trashNotes.length > 0 && <span className="notes-trash-count">{trashNotes.length}</span>}
-              <Icon name="chev" size={9} style={{ marginLeft: 'auto', transform: trashOpen ? 'rotate(180deg)' : 'none' }}/>
-            </button>
-            {trashOpen && (
-              <div className="notes-trash-list">
-                {trashLoading && <div className="notes-trash-empty">Loading…</div>}
-                {!trashLoading && trashNotes.length === 0 && (
-                  <div className="notes-trash-empty">Trash is empty</div>
-                )}
-                {!trashLoading && trashNotes.map(n => (
-                  <div key={n.id} className="notes-trash-item">
-                    <div className="notes-trash-title">{n.title}</div>
-                    <div className="notes-trash-actions">
-                      <button className="btn sm" onClick={() => handleRestore(n.id)} title="Restore note">
-                        <Icon name="rev" size={9}/> Restore
-                      </button>
-                      <button
-                        className="btn sm"
-                        style={{ color: '#ff3d3d', borderColor: '#ff3d3d33' }}
-                        onClick={() => handlePurge(n.id)}
-                        title="Delete permanently"
-                      >
-                        <Icon name="x" size={9}/>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+          <div className="note-sort-bar">
+            {[['newest','Newest'],['oldest','Oldest'],['alpha','A–Z']].map(([k,l]) => (
+              <button key={k} className={'note-sort-btn' + (sortBy === k ? ' active' : '')} onClick={() => setSortBy(k)}>{l}</button>
+            ))}
+          </div>
+
+          {activeFolderId && (
+            <div className="notes-list-header">
+              <span className="lbl">FOLDER: {noteFolders.find(f => f.id === activeFolderId)?.name.toUpperCase()}</span>
+              {noteFolders.find(f => f.id === activeFolderId)?.name !== 'Other' && (
+                <button
+                  className="btn-delete-folder"
+                  title="Delete Folder"
+                  onClick={() => handleDeleteFolder(noteFolders.find(f => f.id === activeFolderId))}
+                >
+                  <Icon name="trash" size={10}/> Delete
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="notes-scroll">
+            {/* Favourites */}
+            {pinned.length > 0 && (
+              <>
+                <div className="notes-sec"><Icon name="star" size={9}/>FAVOURITES</div>
+                {pinned.map(n => <NoteCard key={n.id} n={n} />)}
+              </>
+            )}
+
+            {/* When viewing All Notes: group by folder */}
+            {activeFolderId === null
+              ? noteFolders.map(f => {
+                  const inFolder = unpinned.filter(n => n.folderId === f.id);
+                  if (inFolder.length === 0) return null;
+                  return (
+                    <React.Fragment key={f.id}>
+                      <div className="notes-sec">{f.name.toUpperCase()}</div>
+                      {inFolder.map(n => <NoteCard key={n.id} n={n} />)}
+                    </React.Fragment>
+                  );
+                })
+              : unpinned.map(n => <NoteCard key={n.id} n={n} />)
+            }
+
+            {visibleNotes.length === 0 && (
+              <div style={{ padding: '24px 12px', textAlign: 'center', fontSize: 12, color: 'var(--text-4)' }}>
+                {activeFolderId
+                  ? `No notes in "${noteFolders.find(f => f.id === activeFolderId)?.name}"`
+                  : 'No notes found'}
               </div>
             )}
           </div>
+
+          {/* ── Trash panel (inside list column) ── */}
+          {trashOpen && (
+            <div className="notes-trash-list">
+              {trashLoading && <div className="notes-trash-empty">Loading…</div>}
+              {!trashLoading && trashNotes.length === 0 && <div className="notes-trash-empty">Trash is empty</div>}
+              {!trashLoading && trashNotes.map(n => (
+                <div key={n.id} className="notes-trash-item">
+                  <div className="notes-trash-title">{n.title}</div>
+                  <div className="notes-trash-actions">
+                    <button className="btn sm" onClick={() => handleRestore(n.id)}><Icon name="rev" size={9}/> Restore</button>
+                    <button className="btn sm" style={{ color: '#ff3d3d', borderColor: '#ff3d3d33' }} onClick={() => handlePurge(n.id)}><Icon name="x" size={9}/></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
         </div>
+
+        {/* ── Delete folder confirmation dialog ── */}
+        {deleteFolderConfirm && createPortal(
+          <div className="nf-dialog-backdrop" onClick={() => setDeleteFolderConfirm(null)}>
+            <div className="nf-dialog" onClick={e => e.stopPropagation()}>
+              <div className="nf-dialog-icon">
+                <Icon name="trash" size={20}/>
+              </div>
+              <div className="nf-dialog-title">Delete folder?</div>
+              <div className="nf-dialog-body">
+                <span className="nf-dialog-folder-name">"{deleteFolderConfirm.name}"</span> will be deleted.
+                All <strong>{notes.filter(n => n.folderId === deleteFolderConfirm.id).length} notes</strong> inside
+                will be moved to <strong>Other</strong>.
+              </div>
+              <div className="nf-dialog-actions">
+                <button className="btn" onClick={() => setDeleteFolderConfirm(null)}>
+                  Cancel
+                </button>
+                <button className="btn nf-dialog-confirm" onClick={confirmDeleteFolder}>
+                  <Icon name="trash" size={11}/> Delete folder
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+        {/* Folder drag ghost */}
+        {folderDrag && createPortal(
+          <div className="nf-ghost" style={{
+            top: folderDrag.ghostY - 14,
+            left: folderDrag.containerRect.left,
+            width: folderDrag.containerRect.width,
+          }}>
+            <Icon name="folder" size={12}/>
+            <span>{noteFolders.find(f => f.id === folderDrag.id)?.name}</span>
+            <span className="nf-count" style={{ marginLeft: 'auto' }}>
+              {notes.filter(n => n.folderId === folderDrag.id).length}
+            </span>
+          </div>,
+          document.body
+        )}
 
         {focusMode && note && createPortal(
           <div className="nfm-overlay">
@@ -595,7 +1209,7 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                 <div className="nfm-header">
                   <h1 className="nfm-title">{title}</h1>
                   <div className="nfm-meta">
-                    <span>{(note.folder || 'General').toUpperCase()}</span>
+                    <span>{(note.folderName || 'Other').toUpperCase()}</span>
                     <span>·</span>
                     <span>{wordCount} WORDS</span>
                     <span>·</span>
@@ -603,10 +1217,10 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                     {note.tags.length > 0 && (
                       <>{note.tags.map(t => <span key={t} className="tag" style={{ color: 'var(--accent-hi)', borderColor: 'var(--accent-tint-2)' }}>{t}</span>)}</>
                     )}
-                    {note.pinned && <span className="tag" style={{ color: '#fbbf24' }}><Icon name="pin" size={9}/> PINNED</span>}
+                    {note.pinned && <span className="tag" style={{ color: '#fbbf24', borderColor: 'rgba(251,191,36,0.2)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="star" size={9}/>FAVOURITE</span>}
                   </div>
                 </div>
-                <div className="note-preview nfm-body" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
+                <div className="note-preview nfm-body" onClick={handlePreviewClick} dangerouslySetInnerHTML={{ __html: renderBody(body) }} />
               </div>
             </div>
             <div className="nfm-bar">
@@ -616,7 +1230,7 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                   onClick={focusAutoScrolling ? stopFocusScroll : startFocusScroll}
                   title={`Auto-scroll over about ${readLabel}`}
                 >
-                  <Icon name={focusAutoScrolling ? 'pause' : 'arrow'} size={10}/>
+                  <Icon name={focusAutoScrolling ? 'pause' : 'arrow'} size={10} />
                   {focusAutoScrolling ? 'Pause' : `Auto scroll · ${readLabel}`}
                 </button>
                 <button className="btn sm" onClick={() => setFocusFontSize(s => Math.max(12, s - 1))} title="Decrease font size">A−</button>
@@ -643,15 +1257,11 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
             <div className="note-eh">
               <input className="title" value={title} onChange={e => handleTitleChange(e.target.value)} />
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {!saved && (
-                  <button className="btn sm primary" onClick={saveNote}>
-                    <Icon name="check" size={10}/> Save
-                  </button>
-                )}
+                {!saved && <span className="note-unsaved-dot" title="Auto-saving…">●</span>}
                 {confirmDelete ? (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)' }}>Delete?</span>
-                    <button className="btn sm" style={{ color: '#ff3d3d', borderColor: '#ff3d3d33' }} onClick={deleteNote}>
+                    <button className="btn sm btn-danger" onClick={deleteNote}>
                       <Icon name="check" size={10}/> Yes
                     </button>
                     <button className="btn sm" onClick={() => setConfirmDelete(false)}>
@@ -659,11 +1269,17 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                     </button>
                   </div>
                 ) : (
-                  <button className="btn sm" style={{ color: 'var(--text-3)' }} onClick={() => setConfirmDelete(true)} title="Delete note">
+                  <button className="btn sm btn-danger-ghost" onClick={() => setConfirmDelete(true)} title="Delete note">
                     <Icon name="trash" size={10}/>
                   </button>
                 )}
                 <div className="note-reader-actions">
+                  <button className="btn sm" onClick={exportNote} title="Download as .md file">
+                    <Icon name="download" size={10}/> .md
+                  </button>
+                  <button className="btn sm" onClick={copyNote} title="Copy markdown (⌘C when focused)">
+                    {copied ? <><Icon name="check" size={10}/> Copied!</> : <><Icon name="copy" size={10}/> Copy</>}
+                  </button>
                   {(tab === 'preview' || tab === 'split') && (
                     <button
                       className={'btn sm' + (autoScrolling ? ' primary' : '')}
@@ -673,7 +1289,7 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
                       {autoScrolling ? 'Stop' : `Auto scroll · ${readLabel}`}
                     </button>
                   )}
-                  <button className="btn sm" onClick={() => { setTab('preview'); setFocusMode(true); setFocusProgress(0); }} title="Focus read mode — distraction-free (Esc to exit)">
+                  <button className="btn sm" onClick={() => { setTab('preview'); setFocusMode(true); setFocusProgress(0); }} title="Focus mode">
                     <Icon name="eye" size={10}/> Focus
                   </button>
                   <div className="note-tabs">
@@ -685,27 +1301,102 @@ export const NotesPage = ({ notes, setNotes, workstationId }) => {
               </div>
             </div>
             <div className="note-meta">
-              <span>{(note.folder || 'General').toUpperCase()}</span><span>·</span>
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="nf-item"
+                  style={{ padding: '2px 6px', fontSize: 10, gap: 4 }}
+                  onClick={() => setMovingFolder(v => !v)}
+                  title="Move to folder"
+                >
+                  <Icon name="folder" size={10}/>
+                  <span>{(note.folderName || 'Other').toUpperCase()}</span>
+                  <Icon name="chev" size={9}/>
+                </button>
+                {movingFolder && (
+                  <div className="nf-move-menu">
+                    {noteFolders.filter(f => f.id !== note.folderId).map(f => (
+                      <button key={f.id} className="nf-move-item" onClick={() => moveNoteFolder(f)}>
+                        <Icon name="folder" size={10}/> {f.name}
+                      </button>
+                    ))}
+                    {noteFolders.filter(f => f.id !== note.folderId).length === 0 && (
+                      <div style={{ padding: '6px 10px', fontSize: 11, color: 'var(--text-3)' }}>No other folders</div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <span>·</span>
               <span>EDITED {(note.edited || '').toUpperCase()}</span><span>·</span>
               <span>{body.length} chars · {body.split(/\s+/).filter(Boolean).length} words</span>
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
                 {note.tags.map(t => <span key={t} className="tag" style={{ color: 'var(--accent-hi)', borderColor: 'var(--accent-tint-2)' }}>{t}</span>)}
-                {note.pinned && <span className="tag" style={{ color: '#fbbf24' }}><Icon name="pin" size={9}/> PINNED</span>}
+                <button
+                  className={'note-pin-toggle' + (note.pinned ? ' active' : '')}
+                  onClick={() => togglePin(note)}
+                  title={note.pinned ? 'Remove from favourites' : 'Add to favourites'}
+                >
+                  <Icon name="star" size={9}/>
+                  {note.pinned ? 'Favourited' : 'Favourite'}
+                </button>
               </span>
             </div>
+            {tab !== 'preview' && (
+              <div className="md-toolbar">
+                {[
+                  { type: 'bold',    label: 'B',  title: 'Bold',        style: { fontWeight: 700 } },
+                  { type: 'italic',  label: 'I',  title: 'Italic',      style: { fontStyle: 'italic' } },
+                  { type: 'code',    label: '</>',title: 'Inline code',  style: {} },
+                  null,
+                  { type: 'heading', label: 'H1', title: 'Heading',      style: {} },
+                  { type: 'bullet',  label: '• —', title: 'Bullet list', style: {} },
+                ].map((item, i) =>
+                  item === null
+                    ? <div key={i} className="md-toolbar-sep" />
+                    : <button key={item.type} className="md-toolbar-btn" style={item.style}
+                        title={item.title}
+                        onMouseDown={e => { e.preventDefault(); applyFormat(item.type); }}>
+                        {item.label}
+                      </button>
+                )}
+              </div>
+            )}
             {tab === 'split' ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flex: 1, minHeight: 0 }}>
-                <div className="note-body" style={{ borderRight: '1px solid var(--border)' }}>
-                  <textarea value={body} onChange={e => handleBodyChange(e.target.value)} />
+                <div
+                  className={'note-body' + (editorDragOver ? ' note-body-drop' : '')}
+                  style={{ borderRight: '1px solid var(--border)', position: 'relative' }}
+                  onDragOver={e => { if (e.dataTransfer.types.includes('application/note-id')) { e.preventDefault(); e.dataTransfer.dropEffect = 'link'; setEditorDragOver(true); } }}
+                  onDragLeave={() => setEditorDragOver(false)}
+                  onDrop={dropNoteLink}
+                >
+                  <textarea
+                    ref={textareaRef}
+                    value={body}
+                    onChange={e => handleBodyChange(e.target.value, e.target.selectionStart)}
+                    onKeyDown={handleTextareaKeyDown}
+                  />
+                  {linkMenu && linkMenuItems.length > 0 && <NoteLinkMenu items={linkMenuItems} index={linkIndex} onSelect={insertLink} />}
                 </div>
-                <div ref={splitPreviewRef} className="note-body note-preview" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
+                <div ref={splitPreviewRef} className="note-body note-preview" onClick={handlePreviewClick} dangerouslySetInnerHTML={{ __html: renderBody(body) }} />
               </div>
             ) : tab === 'edit' ? (
-              <div className="note-body">
-                <textarea value={body} onChange={e => handleBodyChange(e.target.value)} />
+              <div
+                className={'note-body' + (editorDragOver ? ' note-body-drop' : '')}
+                style={{ position: 'relative' }}
+                onDragOver={e => { if (e.dataTransfer.types.includes('application/note-id')) { e.preventDefault(); e.dataTransfer.dropEffect = 'link'; setEditorDragOver(true); } }}
+                onDragLeave={() => setEditorDragOver(false)}
+                onDrop={dropNoteLink}
+              >
+                <textarea
+                  ref={textareaRef}
+                  value={body}
+                  onChange={e => handleBodyChange(e.target.value, e.target.selectionStart)}
+                  onKeyDown={handleTextareaKeyDown}
+                />
+                {linkMenu && linkMenuItems.length > 0 && <NoteLinkMenu items={linkMenuItems} index={linkIndex} onSelect={insertLink} />}
               </div>
             ) : (
-              <div ref={previewRef} className="note-body note-preview" dangerouslySetInnerHTML={{ __html: renderMd(body) }} />
+              <div ref={previewRef} className="note-body note-preview" onClick={handlePreviewClick} dangerouslySetInnerHTML={{ __html: renderBody(body) }} />
             )}
           </div>
         )}

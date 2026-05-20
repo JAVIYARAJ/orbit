@@ -58,10 +58,18 @@ export async function ghCreateBranch(token, fullName, branchName) {
     const ref = await ghFetch(token, `/repos/${fullName}/git/ref/heads/master`);
     sha = ref.object.sha;
   }
-  return ghPost(token, `/repos/${fullName}/git/refs`, {
-    ref: `refs/heads/${branchName}`,
-    sha,
+
+  const res = await fetch(`${BASE}/repos/${fullName}/git/refs`, {
+    method: 'POST',
+    headers: { ...GH_HEADERS(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha }),
   });
+  if (res.ok) return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 422) {
+    throw new Error(`Branch "${branchName}" already exists in ${fullName}.`);
+  }
+  throw new Error(body.message || `GitHub ${res.status}`);
 }
 
 export const ghGetUser     = (token) =>
@@ -83,6 +91,16 @@ export const ghGetActivity = (token, username, page = 1) =>
   cached(`activity:${token}:${username}:${page}`, GITHUB_CACHE_TTL.ACTIVITY, () =>
     ghFetch(token, `/users/${username}/events`, { per_page: GITHUB_API.PER_PAGE_ACTIVITY, page }));
 
+export const ghGetActivityAll = (token, username) =>
+  cached(`activity-all:${token}:${username}`, GITHUB_CACHE_TTL.ACTIVITY, async () => {
+    const pages = await Promise.all(
+      [1, 2, 3].map(p =>
+        ghFetch(token, `/users/${username}/events`, { per_page: 100, page: p }).catch(() => [])
+      )
+    );
+    return pages.flat();
+  });
+
 export const ghGetOrgs     = (token) =>
   cached(`orgs:${token}`, GITHUB_CACHE_TTL.ORGS, () =>
     ghFetch(token, '/user/orgs', { per_page: GITHUB_API.PER_PAGE_REPOS }));
@@ -103,6 +121,18 @@ export const ghGetBranches = (token, fullName) =>
   cached(`branches:${token}:${fullName}`, GITHUB_CACHE_TTL.COMMIT, () =>
     ghFetch(token, `/repos/${fullName}/branches`, { per_page: 100 }));
 
+export const ghGetRepoCommits = (token, fullName) =>
+  cached(`commits15:${token}:${fullName}`, GITHUB_CACHE_TTL.COMMIT, () =>
+    ghFetch(token, `/repos/${fullName}/commits`, { per_page: 15 }));
+
+export const ghGetRepoLanguages = (token, fullName) =>
+  cached(`langs:${token}:${fullName}`, GITHUB_CACHE_TTL.COMMIT, () =>
+    ghFetch(token, `/repos/${fullName}/languages`));
+
+export const ghGetRepoContributors = (token, fullName) =>
+  cached(`contributors:${token}:${fullName}`, GITHUB_CACHE_TTL.COMMIT, () =>
+    ghFetch(token, `/repos/${fullName}/contributors`, { per_page: 5 }));
+
 export async function ghCreateRepo(token, name, isPrivate = false, description = '') {
   return ghPost(token, '/user/repos', {
     name,
@@ -118,12 +148,12 @@ export async function ghDeleteRepo(token, fullName) {
     headers: GH_HEADERS(token),
   });
   if (res.status === 204) return; // success — no body
-  if (res.status === 403) {
-    throw new Error('GitHub token lacks delete_repo permission — reconnect GitHub in Settings to grant it.');
-  }
   if (res.status === 404) {
     throw new Error(`Repository "${fullName}" not found or already deleted.`);
   }
-  const msg = await res.text().catch(() => res.statusText);
-  throw new Error(`GitHub ${res.status}: ${msg}`);
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 403) {
+    throw new Error('__RECONNECT__');
+  }
+  throw new Error(body.message || `GitHub ${res.status}`);
 }
