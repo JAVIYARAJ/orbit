@@ -1429,7 +1429,34 @@ const getLinkMeta = (url) => {
 };
 
 const LinkPreview = ({ url }) => {
-  const meta = getLinkMeta(url);
+  const baseMeta = getLinkMeta(url);
+  const [meta, setMeta] = useStateA(baseMeta);
+  const [ogLoading, setOgLoading] = useStateA(baseMeta.type === 'link');
+
+  useEffectA(() => {
+    if (baseMeta.type !== 'link') return;
+    let cancelled = false;
+    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        if (data.status === 'success') {
+          const { title, image, logo } = data.data || {};
+          setMeta(prev => ({
+            ...prev,
+            title: title || prev.title,
+            thumb: image?.url || prev.thumb,
+            favicon: logo?.url || prev.favicon,
+          }));
+        }
+        setOgLoading(false);
+      })
+      .catch(() => setOgLoading(false));
+    return () => { cancelled = true; };
+  }, [url]);
+
+  const showThumb = meta.thumb && meta.type !== 'image';
+  const showThumbPlaceholder = ogLoading && !showThumb;
 
   return (
     <a
@@ -1439,13 +1466,15 @@ const LinkPreview = ({ url }) => {
       className={'link-preview-card' + (meta.type === 'image' ? ' link-preview-card-image' : '')}
       onClick={e => e.stopPropagation()}
     >
-      {meta.thumb && meta.type !== 'image' && (
-        <div className="link-preview-thumb">
-          <img
-            src={meta.thumb}
-            alt=""
-            onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
-          />
+      {(showThumb || showThumbPlaceholder) && (
+        <div className={'link-preview-thumb' + (showThumbPlaceholder ? ' link-preview-thumb-loading' : '')}>
+          {showThumb && (
+            <img
+              src={meta.thumb}
+              alt=""
+              onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
+            />
+          )}
         </div>
       )}
       {meta.type === 'image' ? (
