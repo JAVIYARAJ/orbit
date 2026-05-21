@@ -282,9 +282,6 @@ export const Topbar = ({ onOpenCmdK, timer, onTimerJump, theme = 'dark', onTheme
         <Icon name="bell" size={14} />
         <span className="badge"></span>
       </button>
-      <button className="tb-icon-btn" title="Settings">
-        <Icon name="settings" size={14} />
-      </button>
     </header>
   );
 };
