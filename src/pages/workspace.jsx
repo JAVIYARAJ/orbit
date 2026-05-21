@@ -561,11 +561,11 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
             </div>
             <div className="card-body-scroll">
               {notes.filter(n => n.pinned).length === 0 ? (
-                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>No pinned notes</div>
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>No starred notes</div>
               ) : notes.filter(n => n.pinned).map(n => (
                 <div key={n.id} className="home-note-row" onClick={() => onNav('notes')}>
                   <div className="home-note-title">
-                    <Icon name="pin" size={11} /> {n.title}
+                    <Icon name="star" size={11} /> {n.title}
                   </div>
                   <div className="stack" style={{ marginTop: 2 }}>
                     {n.tags.slice(0, 3).map(t => <span key={t} className="tag">{t}</span>)}
@@ -1706,11 +1706,11 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart,
       </div>
       <div className="title">{t.title}</div>
       <div className="proj">→ {proj?.name || t.proj}</div>
-      {subs.length > 0 && (
-        <div className="foot">
+      <div className="foot">
+        {subs.length > 0 && (
           <div className="subs"><Icon name="list" size={10} /> {subsDone}/{subs.length}</div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
