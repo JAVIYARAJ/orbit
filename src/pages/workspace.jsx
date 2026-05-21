@@ -5,10 +5,13 @@ import { createPortal } from 'react-dom';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
   createProject, updateProject, softDeleteProject, createTask, updateTask, createVaultItem, createLearningItem, createTag,
-  linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs,
+  linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats,
 } from '../lib/db.js';
 import { renderMd } from './tools.jsx';
 import { ghGetRepos, ghGetLastCommit, ghCreateBranch, ghGetBranches, ghCreateRepo, ghDeleteRepo } from '../lib/github.js';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 const getDueClass = (date) => {
@@ -69,34 +72,135 @@ const fmtDate = (d) => (!d || d === '—') ? '—' : d;
 // ═══════════════════════════════════════════════════════════════════
 //  1. HOME — Command Center
 // ═══════════════════════════════════════════════════════════════════
-export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, onToggle, statuses = [] }) => {
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="wc-tooltip">
+      <div className="wc-tooltip-label">{label}</div>
+      <div className="wc-tooltip-val">{payload[0].value.toFixed(1)}h</div>
+    </div>
+  );
+};
+
+const CustomDot = ({ cx, cy, index, todayIdx, payload }) => {
+  if (payload.h === 0) return null;
+  const isToday = index === todayIdx;
+  return (
+    <circle
+      cx={cx} cy={cy} r={isToday ? 5 : 3.5}
+      fill={isToday ? 'var(--accent)' : 'var(--bg-1)'}
+      stroke="var(--accent)"
+      strokeWidth={isToday ? 0 : 2}
+    />
+  );
+};
+
+const WeekLineChart = ({ data, todayIdx }) => {
+  const chartData = data.map((d, i) => ({
+    day: DAY_LABELS[i],
+    h:   i > todayIdx ? null : d.h,
+    raw: d,
+  }));
+
+  return (
+    <div className="wc-recharts">
+      <ResponsiveContainer width="100%" height={150}>
+        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -28, bottom: 0 }}>
+          <defs>
+            <linearGradient id="wcGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor="var(--accent)" stopOpacity={0.25} />
+              <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="var(--border)"
+            vertical={false}
+          />
+          <XAxis
+            dataKey="day"
+            tick={{ fill: 'var(--text-3)', fontSize: 10, fontFamily: 'var(--f-mono)', fontWeight: 600 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            tick={{ fill: 'var(--text-3)', fontSize: 10, fontFamily: 'var(--f-mono)' }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={v => `${v}h`}
+          />
+          <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'var(--accent)', strokeWidth: 1, strokeDasharray: '4 2' }} />
+          <Area
+            type="monotone"
+            dataKey="h"
+            stroke="var(--accent)"
+            strokeWidth={2}
+            fill="url(#wcGrad)"
+            connectNulls={false}
+            dot={<CustomDot todayIdx={todayIdx} />}
+            activeDot={{ r: 5, fill: 'var(--accent)', stroke: 'var(--bg-1)', strokeWidth: 2 }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
+export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, onToggle, statuses = [], workstationId }) => {
   const today   = new Date();
   const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const isoStr  = today.toISOString().slice(0, 10);
 
   // ISO week number
-  const startOfYear  = new Date(today.getFullYear(), 0, 1);
-  const weekNum      = Math.ceil(((today - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7);
+  const startOfYear = new Date(today.getFullYear(), 0, 1);
+  const weekNum     = Math.ceil(((today - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7);
 
   const hour      = today.getHours();
   const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = user?.name?.split(' ')[0] || 'Dev';
 
-  const todayTasks          = tasks.filter(t => ['progress', 'todo', 'review'].includes(t.col)).slice(0, 6);
+  const doneStatusId        = statuses.find(s => s.isDone)?.id;
+  const todayTasks          = tasks.filter(t => t.col !== doneStatusId).slice(0, 6);
   const dueTodayTasks       = tasks.filter(t => t.due === isoStr);
   const activeProjects      = projects.filter(p => p.status === 'progress' || p.status === 'review');
-  const doneStatusId        = statuses.find(s => s.isDone)?.id;
   const openTasksCount      = tasks.filter(t => t.col !== doneStatusId).length;
   const activeProjectsCount = projects.filter(p => p.status === 'progress').length;
-  const templatePreview     = (emailTemplates || []).slice(0, 3);
+  const planningCount       = projects.filter(p => p.status === 'planning').length;
+  const overdueCount        = tasks.filter(t => t.due && t.due !== '—' && t.due < isoStr && t.col !== doneStatusId).length;
 
-  const week = [
-    { d: 'M', h: 6.4 }, { d: 'T', h: 7.8 }, { d: 'W', h: 5.2 },
-    { d: 'T', h: 8.1 }, { d: 'F', h: 6.9 }, { d: 'S', h: 2.1 }, { d: 'S', h: 0 },
-  ];
-  const todayIdx  = (today.getDay() + 6) % 7; // 0 = Mon
-  const maxH      = 9;
-  const weekTotal = week.reduce((a, b) => a + b.h, 0).toFixed(1);
+  // Priority counts across non-done tasks
+  const nonDoneTasks = tasks.filter(t => t.col !== doneStatusId);
+  const p1Count        = nonDoneTasks.filter(t => t.p === 1).length;
+  const p2Count        = nonDoneTasks.filter(t => t.p === 2).length;
+  const p3Count        = nonDoneTasks.filter(t => t.p === 3).length;
+  const templatePreview = (emailTemplates || []).slice(0, 3);
+
+  const todayIdx = (today.getDay() + 6) % 7; // 0 = Mon
+
+  // ── Remote stats (timer-based) ────────────────────────────────────
+  const [stats, setStats] = useStateA(null);
+  useEffectA(() => {
+    if (!workstationId) return;
+    getHomeStats(workstationId).then(setStats).catch(() => {});
+  }, [workstationId]);
+
+  // Build full 7-day chart array from RPC sparse result
+  const week = DAY_LABELS.map((d, i) => {
+    const entry = stats?.weekChart?.find(e => e.dow === i);
+    return { d, h: entry ? entry.hours : 0 };
+  });
+  const maxH      = Math.max(...week.map(d => d.h), 1);
+  const weekTotal = (stats?.hoursThisWeek ?? 0).toFixed(1);
+
+  const hoursThisWeek = stats?.hoursThisWeek ?? null;
+  const hoursLastWeek = stats?.hoursLastWeek ?? null;
+  const hoursDelta    = hoursThisWeek !== null && hoursLastWeek !== null
+    ? (hoursThisWeek - hoursLastWeek).toFixed(1)
+    : null;
+  const streakCurrent = stats?.streakCurrent ?? null;
+  const streakBest    = stats?.streakBest    ?? null;
 
   return (
     <div className="page page-wide">
@@ -157,25 +261,31 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
         <div className="stat-grid">
           <div className="cell">
             <div className="l">Hours this week</div>
-            <div className="v">36.5</div>
-            <div className="d up">↑ 4.2 vs last week</div>
+            <div className="v">{hoursThisWeek !== null ? hoursThisWeek.toFixed(1) : '—'}</div>
+            <div className={hoursDelta !== null ? (Number(hoursDelta) >= 0 ? 'd up' : 'd dn') : 'd'}>
+              {hoursDelta !== null
+                ? (Number(hoursDelta) >= 0 ? `↑ ${hoursDelta}` : `↓ ${Math.abs(hoursDelta)}`) + ' vs last week'
+                : 'Loading…'}
+            </div>
           </div>
           <div className="cell">
             <div className="l">Day streak</div>
             <div className="v" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="flame" size={20} /> 47
+              <Icon name="flame" size={20} /> {streakCurrent !== null ? streakCurrent : '—'}
             </div>
-            <div className="d">Personal best: 64</div>
+            <div className="d">{streakBest !== null ? `Personal best: ${streakBest}` : 'Loading…'}</div>
           </div>
           <div className="cell">
             <div className="l">Active projects</div>
             <div className="v">{activeProjectsCount}</div>
-            <div className="d">+1 in planning</div>
+            <div className="d">{planningCount > 0 ? `+${planningCount} in planning` : 'None in planning'}</div>
           </div>
           <div className="cell">
             <div className="l">Open tasks</div>
             <div className="v">{openTasksCount}</div>
-            <div className="d dn">3 overdue</div>
+            <div className={overdueCount > 0 ? 'd dn' : 'd'}>
+              {overdueCount > 0 ? `${overdueCount} overdue` : 'None overdue'}
+            </div>
           </div>
         </div>
       </div>
@@ -186,9 +296,9 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
             <div className="card-h">
               <div className="t">Today · {todayTasks.length} tasks</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <span className="lbl">P1 · 2</span>
-                <span className="lbl">P2 · 3</span>
-                <span className="lbl">P3 · 1</span>
+                {p1Count > 0 && <span className="lbl">P1 · {p1Count}</span>}
+                {p2Count > 0 && <span className="lbl">P2 · {p2Count}</span>}
+                {p3Count > 0 && <span className="lbl">P3 · {p3Count}</span>}
                 <button className="btn sm" onClick={() => onNav('tasks')}>All <Icon name="chev" size={10}/></button>
               </div>
             </div>
@@ -207,21 +317,19 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
             </div>
           </div>
 
-          <div className="card">
+          <div className="card wc-card">
             <div className="card-h">
-              <div className="t">This week</div>
-              <div className="lbl">{weekTotal}h LOGGED · TARGET 40h</div>
+              <div>
+                <div className="t">This week</div>
+                <div className="wc-subtitle">{weekTotal}h logged</div>
+              </div>
+              {hoursDelta !== null && (
+                <span className={'wc-delta ' + (Number(hoursDelta) >= 0 ? 'up' : 'dn')}>
+                  {Number(hoursDelta) >= 0 ? '↑' : '↓'} {Math.abs(Number(hoursDelta))}h vs last week
+                </span>
+              )}
             </div>
-            <div className="week-chart">
-              {week.map((d, i) => (
-                <div key={i} className="day">
-                  <div className="v">{d.h ? d.h.toFixed(1) : '·'}</div>
-                  <div className={'bar ' + (i === todayIdx ? 'today' : (d.h === 0 ? 'dim' : ''))}
-                       style={{ height: `${(d.h / maxH) * 100}%` }}></div>
-                  <div className="lbl">{d.d}</div>
-                </div>
-              ))}
-            </div>
+            <WeekLineChart data={week} todayIdx={todayIdx} />
           </div>
         </div>
 

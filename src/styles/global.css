@@ -3296,60 +3296,65 @@ body.texture-grid::before {
 }
 
 /* week bar chart */
-.week-chart {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 10px;
-  align-items: end;
-  padding: 20px;
-  height: 180px;
-}
-
-.week-chart .day {
+/* ── Week line chart (Recharts) ──────────────────────────────────── */
+.wc-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  height: 100%;
 }
 
-.week-chart .day .bar {
-  width: 18px;
-  background: linear-gradient(180deg, var(--accent), var(--accent-hi));
-  flex: 1;
-  max-height: 100%;
-  align-self: end;
-  min-height: 3px;
-  border-radius: 3px 3px 0 0;
-  transition: all 0.2s;
-}
-
-.week-chart .day:hover .bar {
-  box-shadow: 0 4px 12px rgba(0, 153, 255, 0.3);
-}
-
-.week-chart .day .bar.dim {
-  background: var(--bg-4);
-}
-
-.week-chart .day .bar.today {
-  background: linear-gradient(180deg, var(--accent-hi), #0099ff);
-  box-shadow: 0 0 14px rgba(0, 212, 255, 0.5);
-}
-
-.week-chart .day .lbl {
-  font-family: var(--f-mono);
-  font-size: 9px;
+.wc-subtitle {
+  font-size: 11px;
   color: var(--text-3);
-  letter-spacing: 0.05em;
-  font-weight: 600;
+  margin-top: 2px;
+  font-family: var(--f-mono);
 }
 
-.week-chart .day .v {
+.wc-delta {
+  font-size: 11px;
   font-family: var(--f-mono);
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  align-self: center;
+}
+
+.wc-delta.up {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.wc-delta.dn {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.wc-recharts {
+  padding: 4px 0 0;
+}
+
+.wc-tooltip {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+
+.wc-tooltip-label {
   font-size: 10px;
-  color: var(--text-2);
-  font-weight: 500;
+  font-family: var(--f-mono);
+  color: var(--text-3);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.wc-tooltip-val {
+  font-size: 18px;
+  font-family: var(--f-mono);
+  font-weight: 700;
+  color: var(--accent);
 }
 
 /* ───── PROJECTS ───── */

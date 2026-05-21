@@ -688,6 +688,20 @@ export const getActiveTimeEntry = async (workstationId) => {
   return data ? fromTimeEntry(data) : null
 }
 
+export const getHomeStats = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_home_stats', {
+    p_workstation_id: workstationId,
+  })
+  if (error) throw error
+  return {
+    hoursThisWeek: Number(data.hours_this_week) || 0,
+    hoursLastWeek: Number(data.hours_last_week) || 0,
+    weekChart:     (data.week_chart || []).map(d => ({ dow: d.dow, hours: Number(d.hours) || 0 })),
+    streakCurrent: Number(data.streak_current) || 0,
+    streakBest:    Number(data.streak_best)    || 0,
+  }
+}
+
 export const getTaskStatusLogs = async (taskDbId) => {
   const { data, error } = await supabase.rpc('get_task_status_logs', {
     p_task_id: taskDbId,
