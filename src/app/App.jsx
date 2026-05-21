@@ -1,4 +1,4 @@
-import { useState as useStateApp, useEffect as useEffectApp } from 'react';
+import { useState as useStateApp, useEffect as useEffectApp, useRef } from 'react';
 import { Sidebar, Topbar, CmdPalette } from '../components/shell.jsx';
 import {
   TweaksPanel, TweakSection, TweakColor, TweakRadio,
@@ -30,7 +30,8 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "headingFont": "Syne",
   "surface": "true-black",
   "texture": false,
-  "scanlines": false
+  "scanlines": false,
+  "theme": "dark"
 }/*EDITMODE-END*/;
 
 const FORMAT_TIME = (sec) => {
@@ -83,6 +84,9 @@ export default function App() {
   const [activeWorkstation, setActiveWorkstation] = useStateApp(null);
   const [wsLoading,         setWsLoading]         = useStateApp(false);
   const [showWsSetup,       setShowWsSetup]       = useStateApp(false);
+  // Tracks whether workstations are loaded for the current user.
+  // Used to guard against TOKEN_REFRESHED re-triggering the wsLoading spinner.
+  const wsReadyRef = useRef(false);
 
   // Resolve Supabase session on mount.
   // onAuthStateChange fires INITIAL_SESSION synchronously, making getSession() redundant.
@@ -122,7 +126,14 @@ export default function App() {
         }
       }
 
-      setAuthUser(session?.user ? buildUser(session.user) : null);
+      const hasUser = !!session?.user;
+      setAuthUser(hasUser ? buildUser(session.user) : null);
+      // Pre-set wsLoading only when workstations aren't loaded yet (new login / page load).
+      // Skips TOKEN_REFRESHED and similar events that fire on tab focus — those must NOT
+      // set wsLoading=true because the workstation effect won't re-run (same user id),
+      // which would leave the spinner stuck permanently.
+      if (hasUser && !wsReadyRef.current) setWsLoading(true);
+      if (!hasUser) wsReadyRef.current = false;
       setAuthLoading(false);
     });
     return () => subscription.unsubscribe();
@@ -136,6 +147,7 @@ export default function App() {
   const handleAuth       = (user) => setAuthUser(user);
   const handleUserUpdate = (updates) => setAuthUser(prev => ({ ...prev, ...updates }));
   const handleLogout = async () => {
+    wsReadyRef.current = false;
     await supabase.auth.signOut();
     // onAuthStateChange SIGNED_OUT will clear authUser; also reset workstation state
     setWorkstations([]);
@@ -177,18 +189,23 @@ export default function App() {
         const list = ctx.workstations;
         setWorkstations(list);
 
+        wsReadyRef.current = true;
         if (list.length === 0) {
           setShowWsSetup(true);
+          setWsLoading(false);
         } else {
           // Prefer the workstation Supabase has as active, fall back to localStorage
           const savedId  = localStorage.getItem('devos:activeWs');
           const byServer = list.find(w => w.id === ctx.active_workstation_id);
           const byLocal  = list.find(w => w.id === savedId);
+          // Pre-set dataLoading and clear wsLoading in the same batch as setActiveWorkstation
+          // so the gate (wsLoading || dataLoading) stays true with no gap render.
+          setDataLoading(true);
+          setWsLoading(false);
           setActiveWorkstation(byServer || byLocal || list[0]);
         }
       })
-      .catch(console.error)
-      .finally(() => setWsLoading(false));
+      .catch(e => { console.error(e); setWsLoading(false); });
   }, [authUser?.id]);
 
   // ── Load data when active workstation changes ───────────────────
@@ -207,7 +224,6 @@ export default function App() {
         setNotes(d.notes);
         setVault(d.vault);
         setLearning(d.learning);
-        setSessions(d.sessions);
         setEmailTemplates(d.emailTemplates);
         setGanttTasks(d.ganttTasks);
         loadTaskNoteLinks(activeWorkstation.id).then(setTaskNoteLinks).catch(console.error);
@@ -272,7 +288,6 @@ export default function App() {
   const [noteFolders,    setNoteFolders]    = useStateApp([]);
   const [vault,          setVault]          = useStateApp([]);
   const [learning,       setLearning]       = useStateApp({ toLearn: [], inProgress: [], completed: [] });
-  const [sessions,       setSessions]       = useStateApp([]);
   const [emailTemplates, setEmailTemplates] = useStateApp([]);
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
@@ -314,30 +329,78 @@ export default function App() {
   // Apply tweaks via CSS vars
   useEffectApp(() => {
     const root = document.documentElement;
-    root.style.setProperty('--accent', t.accent);
+    const isLight = (t.theme || 'dark') === 'light';
+
+    root.setAttribute('data-theme', isLight ? 'light' : 'dark');
+
     const hexToRgba = (hex, alpha) => {
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
       if (!m) return '';
       return `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${alpha})`;
     };
-    root.style.setProperty('--accent-tint',   hexToRgba(t.accent, 0.12));
-    root.style.setProperty('--accent-tint-2', hexToRgba(t.accent, 0.22));
+
+    // Accent (same in both themes)
+    root.style.setProperty('--accent',       t.accent);
+    root.style.setProperty('--accent-tint',  hexToRgba(t.accent, 0.12));
+    root.style.setProperty('--accent-tint-2',hexToRgba(t.accent, 0.22));
+
+    // Fonts (same in both themes)
     root.style.setProperty('--f-mono',    `'${t.monoFont}', ui-monospace, monospace`);
     root.style.setProperty('--f-display', `'${t.headingFont}', ui-sans-serif, sans-serif`);
-    if (t.surface === 'charcoal') {
-      root.style.setProperty('--bg-0', '#15151a');
-      root.style.setProperty('--bg-1', '#1a1a20');
-      root.style.setProperty('--bg-2', '#1f1f26');
-      root.style.setProperty('--bg-3', '#252530');
+
+    if (isLight) {
+      // ── Light surfaces ──────────────────────────────────────────
+      // bg-0 = page canvas (slightly gray so cards lift off it)
+      // bg-1 = elevated surface: cards, panels, sidebar (white)
+      // bg-2 = secondary surface inside cards: inputs, nested content
+      // bg-3 = hover/active tint, tag backgrounds
+      // bg-4 = strong divider or active chip background
+      root.style.setProperty('--bg-0',  '#f0f0f5');   // page background
+      root.style.setProperty('--bg-1',  '#ffffff');   // cards, panels, sidebar
+      root.style.setProperty('--bg-2',  '#f5f5f8');   // inner content, inputs
+      root.style.setProperty('--bg-3',  '#eaeaef');   // hover, nested bg
+      root.style.setProperty('--bg-4',  '#dfdfe8');   // active chip, strong divider
+      // Borders — visible but not harsh
+      root.style.setProperty('--border',   '#e2e2ec');
+      root.style.setProperty('--border-2', '#d0d0dc');
+      root.style.setProperty('--border-3', '#bcbccc');
+      // Text — proper contrast hierarchy on white
+      root.style.setProperty('--text',   '#111118');  // primary — near-black
+      root.style.setProperty('--text-2', '#44445a');  // secondary
+      root.style.setProperty('--text-3', '#7a7a8e');  // muted labels
+      root.style.setProperty('--text-4', '#aaaabb');  // placeholders, disabled
+      // Glass — just solid in light mode, no blur effect
+      root.style.setProperty('--glass-bg',     '#ffffff');
+      root.style.setProperty('--glass-border', '#e2e2ec');
     } else {
-      root.style.setProperty('--bg-0', '#0a0a0a');
-      root.style.setProperty('--bg-1', '#0e0e0e');
-      root.style.setProperty('--bg-2', '#121212');
-      root.style.setProperty('--bg-3', '#181818');
+      // ── Dark surfaces ───────────────────────────────────────────
+      if (t.surface === 'charcoal') {
+        root.style.setProperty('--bg-0', '#15151a');
+        root.style.setProperty('--bg-1', '#1a1a20');
+        root.style.setProperty('--bg-2', '#1f1f26');
+        root.style.setProperty('--bg-3', '#252530');
+        root.style.setProperty('--bg-4', '#2b2b38');
+      } else {
+        root.style.setProperty('--bg-0', '#09090b');
+        root.style.setProperty('--bg-1', '#0f0f14');
+        root.style.setProperty('--bg-2', '#14141b');
+        root.style.setProperty('--bg-3', '#1a1a23');
+        root.style.setProperty('--bg-4', '#212129');
+      }
+      root.style.setProperty('--border',   '#242430');
+      root.style.setProperty('--border-2', '#2d2d3a');
+      root.style.setProperty('--border-3', '#35353f');
+      root.style.setProperty('--text',   '#f0f0f2');
+      root.style.setProperty('--text-2', '#a0a0a8');
+      root.style.setProperty('--text-3', '#6a6a78');
+      root.style.setProperty('--text-4', '#45454f');
+      root.style.setProperty('--glass-bg',     'rgba(15,15,20,0.75)');
+      root.style.setProperty('--glass-border', 'rgba(36,36,48,0.5)');
     }
-    document.body.classList.toggle('texture-grid', !!t.texture);
-    document.body.classList.toggle('scanlines', !!t.scanlines);
-  }, [t.accent, t.monoFont, t.headingFont, t.surface, t.texture, t.scanlines]);
+
+    document.body.classList.toggle('texture-grid', !!t.texture && !isLight);
+    document.body.classList.toggle('scanlines',    !!t.scanlines && !isLight);
+  }, [t.accent, t.monoFont, t.headingFont, t.surface, t.texture, t.scanlines, t.theme]);
 
   // ── Gates ───────────────────────────────────────────────────────
   if (authLoading || wsLoading || dataLoading) return <Loading />;
@@ -446,7 +509,13 @@ export default function App() {
         onNewWs={handleNewWs}
       />
       <div className="main">
-        <Topbar onOpenCmdK={() => setCmdkOpen(true)} timer={timer} onTimerJump={() => setCurrent('timer')} />
+        <Topbar
+          onOpenCmdK={() => setCmdkOpen(true)}
+          timer={timer}
+          onTimerJump={() => setCurrent('timer')}
+          theme={t.theme || 'dark'}
+          onThemeToggle={() => setTweak('theme', t.theme === 'light' ? 'dark' : 'light')}
+        />
         <div className="content" key={current}>
           <PageRouter
             current={current}
@@ -474,7 +543,7 @@ export default function App() {
             onTimerDiscard={handleTimerDiscard}
             onLogTime={handleLogManualTime}
             emailTemplates={emailTemplates} setEmailTemplates={setEmailTemplates}
-            ganttTasks={ganttTasks}
+            ganttTasks={ganttTasks}        setGanttTasks={setGanttTasks}
             githubToken={githubToken}
           />
         </div>
@@ -483,6 +552,9 @@ export default function App() {
 
       <TweaksPanel>
         <TweakSection label="Theme" />
+        <TweakRadio label="Mode" value={t.theme || 'dark'}
+          options={[{value:'dark',label:'Dark'},{value:'light',label:'Light'}]}
+          onChange={v => setTweak('theme', v)} />
         <TweakColor label="Accent" value={t.accent}
           options={['#0099ff','#0175C2','#7C3AED','#16A34A','#D97706','#EF4444']}
           onChange={v => setTweak('accent', v)} />

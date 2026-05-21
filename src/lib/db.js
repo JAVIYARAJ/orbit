@@ -187,11 +187,8 @@ const transformData = (raw) => ({
     id: r.template_id, cat: r.cat, name: r.name, body: r.body,
   })),
   ganttTasks: (raw.gantt_tasks || []).map(r => ({
+    id: r.id, projectId: r.project_id,
     name: r.name, sub: r.sub, start: r.start_week, end: r.end_week, status: r.status,
-  })),
-  sessions: (raw.timer_sessions || []).map(r => ({
-    proj: r.project_name, task: r.task_name,
-    start: r.start_time, end: r.end_time, dur: r.duration,
   })),
 })
 
@@ -301,6 +298,20 @@ export const updateTask = async (t) => {
 export const deleteTask = async (taskId) => {
   const { error } = await supabase.rpc('delete_task', { p_task_id: taskId })
   if (error) throw error
+}
+
+export const softDeleteTask = async (taskId) => {
+  const { error } = await supabase.rpc('soft_delete_task', { p_task_id: taskId })
+  if (error) throw error
+}
+
+export const getProjectTasks = async (workstationId, projectShortId) => {
+  const { data, error } = await supabase.rpc('get_project_tasks', {
+    p_workstation_id:   workstationId,
+    p_project_short_id: projectShortId,
+  })
+  if (error) throw error
+  return (data || []).map(fromDbTask)
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -421,6 +432,37 @@ export const updateVaultItem = async (item) => {
 
 export const deleteVaultItem = async (id) => {
   const { error } = await supabase.rpc('delete_vault_item', { p_item_id: id })
+  if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRUD — Gantt Tasks
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbGantt = (r) => ({
+  id: r.id, projectId: r.project_id,
+  name: r.name, sub: r.sub || '', start: r.start_week, end: r.end_week, status: r.status,
+})
+
+export const createGanttTask = async (workstationId, projectDbId, name, sub, startWeek, endWeek, status) => {
+  const { data, error } = await supabase.rpc('create_gantt_task', {
+    p_workstation_id: workstationId, p_project_id: projectDbId,
+    p_name: name, p_sub: sub, p_start_week: startWeek, p_end_week: endWeek, p_status: status,
+  })
+  if (error) throw error
+  return fromDbGantt(data)
+}
+
+export const updateGanttTask = async (id, name, sub, startWeek, endWeek, status) => {
+  const { data, error } = await supabase.rpc('update_gantt_task', {
+    p_id: id, p_name: name, p_sub: sub, p_start_week: startWeek, p_end_week: endWeek, p_status: status,
+  })
+  if (error) throw error
+  return fromDbGantt(data)
+}
+
+export const deleteGanttTask = async (id) => {
+  const { error } = await supabase.rpc('delete_gantt_task', { p_id: id })
   if (error) throw error
 }
 

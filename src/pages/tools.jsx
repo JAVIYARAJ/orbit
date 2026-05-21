@@ -10,15 +10,192 @@ import {
   createNoteFolder as dbCreateNoteFolder, renameNoteFolder as dbRenameNoteFolder,
   deleteNoteFolder as dbDeleteNoteFolder, reorderNoteFolders as dbReorderNoteFolders,
   createEmailTemplate,
+  createGanttTask, updateGanttTask, deleteGanttTask,
 } from '../lib/db.js';
 
 // ═══════════════════════════════════════════════════════════════════
-//  6. PROJECT MANAGEMENT — Gantt + Health
+//  6. PROJECT MANAGEMENT — Gantt + Health + Tasks
 // ═══════════════════════════════════════════════════════════════════
-export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
-  const [selId, setSelId] = useStateB(projects[0]?.id || '');
-  const proj = projects.find(p => p.id === selId) || projects[0] || null;
-  const WEEKS = ['W1','W2','W3','W4','W5','W6','W7','W8','W9','W10','W11','W12'];
+
+const GANTT_STATUSES = ['planning', 'active', 'review', 'done', 'milestone'];
+const P_COLORS = ['', 'rgba(22,163,74,0.8)', 'rgba(59,130,246,0.8)', 'rgba(217,119,6,0.9)', 'rgba(239,68,68,0.9)'];
+const fmtHrsPm = (h) => {
+  const n = Number(h) || 0;
+  if (n < 0.017) return '0m';
+  const totalMins = Math.round(n * 60);
+  if (totalMins < 60) return `${totalMins}m`;
+  const hrs = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  return mins === 0 ? `${hrs}h` : `${hrs}h ${mins}m`;
+};
+
+const GanttModal = ({ task, onClose, onSave, saving, err }) => {
+  const [form, setForm] = useStateB(task);
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      onClick={onClose}>
+      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 460, borderRadius: 4 }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+          <span style={{ fontWeight: 600, fontSize: 14, userSelect: 'none' }}>{task.id ? 'Edit timeline task' : 'Add timeline task'}</span>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'var(--text-3)', padding: '4px', borderRadius: 4, display: 'flex', alignItems: 'center',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-3)'; e.currentTarget.style.color = 'var(--text)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-3)'; }}>
+            <Icon name="x" size={14}/>
+          </button>
+        </div>
+        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="fld">
+            <label>Task name</label>
+            <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Backend API" autoFocus />
+          </div>
+          <div className="fld">
+            <label>Subtitle <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>optional</span></label>
+            <input value={form.sub} onChange={e => set('sub', e.target.value)} placeholder="e.g. REST endpoints" />
+          </div>
+          <div className="fld-row">
+            <div className="fld">
+              <label>Start week</label>
+              <input type="number" min={1} max={12} value={form.startWeek}
+                onChange={e => set('startWeek', Math.max(1, Math.min(12, +e.target.value)))} />
+            </div>
+            <div className="fld">
+              <label>End week</label>
+              <input type="number" min={1} max={12} value={form.endWeek}
+                onChange={e => set('endWeek', Math.max(1, Math.min(12, +e.target.value)))} />
+            </div>
+          </div>
+          <div className="fld">
+            <label>Status</label>
+            <select value={form.status} onChange={e => set('status', e.target.value)}>
+              {GANTT_STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+            </select>
+          </div>
+          {err && <div style={{ color: '#ef4444', fontSize: 12 }}>{err}</div>}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--border)' }}>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={() => onSave(form)} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, statuses, onNav, workstationId }) => {
+  const [selId,      setSelId]      = useStateB(projects[0]?.id || '');
+  const [editGantt,  setEditGantt]  = useStateB(null);
+  const [confirmDel, setConfirmDel] = useStateB(null);
+  const [saving,     setSaving]     = useStateB(false);
+  const [err,        setErr]        = useStateB('');
+  const [taskFilter, setTaskFilter] = useStateB('open');
+
+  const proj       = projects.find(p => p.id === selId) || projects[0] || null;
+  const statusMap  = Object.fromEntries((statuses || []).map(s => [s.id, s]));
+  const projGantt  = (ganttTasks || []).filter(t => t.projectId === proj?._dbId);
+  const allTasks   = (tasks || []).filter(t => t.proj === proj?.id);
+  const shownTasks = taskFilter === 'all'  ? allTasks
+                   : taskFilter === 'open' ? allTasks.filter(t => !statusMap[t.col]?.isDone)
+                   : allTasks.filter(t => statusMap[t.col]?.isDone);
+
+  const openCount  = allTasks.filter(t => !statusMap[t.col]?.isDone).length;
+  const burnPct    = proj?.hoursEst > 0 ? Math.round((proj.hoursLogged / proj.hoursEst) * 100) : 0;
+  const remaining  = Math.max(0, (proj?.hoursEst || 0) - (proj?.hoursLogged || 0));
+  const WEEKS      = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  // ── Gantt drag-to-resize / move ──────────────────────────────────
+  const ganttRef       = useRefB(null);
+  const dragStateRef   = useRefB(null);   // { taskId, type, startX, origStart, origEnd, task }
+  const dragPreviewRef = useRefB(null);   // { taskId, start, end }
+  const [dragPreview,  setDragPreview]  = useStateB(null);
+
+  const startGanttDrag = (e, task, type) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragStateRef.current   = { taskId: task.id, type, startX: e.clientX, origStart: task.start, origEnd: task.end, task };
+    dragPreviewRef.current = { taskId: task.id, start: task.start, end: task.end };
+    setDragPreview({ taskId: task.id, start: task.start, end: task.end });
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor     = type === 'move' ? 'grabbing' : 'ew-resize';
+  };
+
+  useEffectB(() => {
+    const onMove = (e) => {
+      if (!dragStateRef.current || !ganttRef.current) return;
+      const { taskId, type, startX, origStart, origEnd } = dragStateRef.current;
+      const totalWidth = ganttRef.current.offsetWidth;
+      const colWidth   = (totalWidth - 200) / 12;
+      const delta      = Math.round((e.clientX - startX) / colWidth);
+      const duration   = origEnd - origStart;
+      let newStart = origStart, newEnd = origEnd;
+      if (type === 'move') {
+        newStart = Math.max(1, Math.min(12 - duration, origStart + delta));
+        newEnd   = newStart + duration;
+      } else if (type === 'left') {
+        newStart = Math.max(1, Math.min(origEnd, origStart + delta));
+      } else {
+        newEnd = Math.max(origStart, Math.min(12, origEnd + delta));
+      }
+      const preview = { taskId, start: newStart, end: newEnd };
+      dragPreviewRef.current = preview;
+      setDragPreview(preview);
+    };
+
+    const onUp = async () => {
+      if (!dragStateRef.current) return;
+      const { task }   = dragStateRef.current;
+      const preview    = dragPreviewRef.current;
+      dragStateRef.current   = null;
+      dragPreviewRef.current = null;
+      setDragPreview(null);
+      document.body.style.userSelect = '';
+      document.body.style.cursor     = '';
+      if (preview && (preview.start !== task.start || preview.end !== task.end)) {
+        try {
+          const updated = await updateGanttTask(task.id, task.name, task.sub || '', preview.start, preview.end, task.status);
+          setGanttTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+        } catch (e) { console.error('Gantt drag save failed:', e); }
+      }
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+    };
+  }, []);
+
+  const handleSave = async (form) => {
+    if (!form.name?.trim()) { setErr('Task name is required'); return; }
+    if (form.startWeek > form.endWeek) { setErr('Start week must be ≤ end week'); return; }
+    setSaving(true); setErr('');
+    try {
+      if (form.id) {
+        const updated = await updateGanttTask(form.id, form.name, form.sub || '', form.startWeek, form.endWeek, form.status);
+        setGanttTasks(prev => prev.map(t => t.id === form.id ? updated : t));
+      } else {
+        const created = await createGanttTask(workstationId, proj._dbId, form.name, form.sub || '', form.startWeek, form.endWeek, form.status);
+        setGanttTasks(prev => [...prev, created]);
+      }
+      setEditGantt(null);
+    } catch (e) { setErr(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    try {
+      await deleteGanttTask(confirmDel);
+      setGanttTasks(prev => prev.filter(t => t.id !== confirmDel));
+      setConfirmDel(null);
+    } catch (e) { console.error(e); }
+  };
 
   if (!proj) {
     return (
@@ -41,9 +218,6 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
     );
   }
 
-  const remaining = Math.max(0, proj.hoursEst - proj.hoursLogged);
-  const burnPct   = proj.hoursEst > 0 ? Math.round((proj.hoursLogged / proj.hoursEst) * 100) : 0;
-
   return (
     <div className="page page-wide">
       <div className="page-head">
@@ -53,77 +227,195 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
             {proj.name}
             <span className="num" style={{ fontSize: 14, color: 'var(--text-3)' }}>{proj.id}</span>
           </h1>
-          <div className="sub">{proj.client} · {proj.type} · {proj.start || '—'} → {proj.end || '—'}</div>
+          <div className="sub">{[proj.client, proj.type, proj.start && `${proj.start} → ${proj.end || '—'}`].filter(Boolean).join(' · ')}</div>
         </div>
         <div className="actions">
           {projects.length > 1 && (
-            <select value={selId} onChange={e => setSelId(e.target.value)} style={{ fontFamily: 'var(--f-mono)', fontSize: 11, background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text)', padding: '6px 10px' }}>
+            <select value={selId} onChange={e => setSelId(e.target.value)}
+              style={{ fontFamily: 'var(--f-mono)', fontSize: 11, background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text)', padding: '6px 10px' }}>
               {projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
             </select>
           )}
-          <button className="btn"><Icon name="download" size={12}/> Export PDF</button>
         </div>
       </div>
 
       <div className="pm-layout">
         <div>
+          {/* ── Timeline / Gantt ── */}
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="card-h">
-              <div className="t">Timeline · {WEEKS.length} weeks</div>
-              <span className="lbl" style={{ display:'flex', gap: 8 }}>
-                <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'var(--accent)'}}></span>ACTIVE</span>
-                <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'rgba(22,163,74,0.6)'}}></span>DONE</span>
-                <span style={{ display:'flex',alignItems:'center',gap:4 }}><span style={{width:8,height:8,background:'rgba(217,119,6,0.6)'}}></span>REVIEW</span>
-              </span>
+              <div className="t">Timeline · 12 weeks</div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span className="lbl" style={{ display: 'flex', gap: 8 }}>
+                  {[['var(--accent)','ACTIVE'],['rgba(22,163,74,0.6)','DONE'],['rgba(217,119,6,0.6)','REVIEW']].map(([c,l]) => (
+                    <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ width: 8, height: 8, background: c }}></span>{l}
+                    </span>
+                  ))}
+                </span>
+                <button className="btn" style={{ fontSize: 11 }}
+                  onClick={() => { setErr(''); setEditGantt({ name: '', sub: '', startWeek: 1, endWeek: 4, status: 'planning' }); }}>
+                  <Icon name="plus" size={11}/> Add task
+                </button>
+              </div>
             </div>
-            <div className="gantt">
+            <div className="gantt" ref={ganttRef}>
               <div className="gantt-h">
                 <div className="cell">TASK</div>
-                {WEEKS.map(w => <div key={w} className="cell">{w}</div>)}
+                {WEEKS.map(w => <div key={w} className="cell">W{w}</div>)}
               </div>
-              {ganttTasks.length === 0 ? (
-                <div style={{ padding: '24px 16px', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)' }}>
-                  No timeline tasks yet.
+              {projGantt.length === 0 ? (
+                <div style={{ padding: '28px 16px', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)', textAlign: 'center' }}>
+                  No timeline tasks for this project yet — click "Add task" to create one.
                 </div>
-              ) : ganttTasks.map((t, idx) => {
+              ) : projGantt.map((t, idx) => {
                 const startPct = ((t.start - 1) / 12) * 100;
-                const widthPct = ((t.end - t.start) / 12) * 100;
-                if (t.status === 'milestone') {
-                  return (
-                    <div key={idx} className="gantt-row">
-                      <div className="name">
-                        <div style={{fontWeight:600,color:'var(--accent-hi)'}}>◆ {t.name}</div>
-                        <div className="sub">{t.sub}</div>
+                const widthPct = ((t.end - t.start + 1) / 12) * 100;
+                const btnBase = {
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  padding: '3px 4px', borderRadius: 3, display: 'flex', alignItems: 'center',
+                  color: 'var(--text-3)', opacity: 0.5, transition: 'opacity 0.15s, color 0.15s',
+                };
+                const actions = (
+                  <div style={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+                    <button title="Edit" style={btnBase}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--text)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-3)'; }}
+                      onClick={() => { setErr(''); setEditGantt({ id: t.id, name: t.name, sub: t.sub || '', startWeek: t.start, endWeek: t.end, status: t.status }); }}>
+                      <Icon name="edit" size={11}/>
+                    </button>
+                    <button title="Delete" style={btnBase}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = '#ef4444'; }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--text-3)'; }}
+                      onClick={() => setConfirmDel(t.id)}>
+                      <Icon name="trash" size={11}/>
+                    </button>
+                  </div>
+                );
+                const clamp2 = {
+                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden', wordBreak: 'break-word',
+                };
+                if (t.status === 'milestone') return (
+                  <div key={t.id || idx} className="gantt-row">
+                    <div className="name" style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent-hi)', ...clamp2 }}>◆ {t.name}</div>
+                        {t.sub && <div className="sub">{t.sub}</div>}
                       </div>
-                      {WEEKS.map(w => <div key={w} className="week"></div>)}
-                      <div className="gantt-bar milestone" style={{ left: `calc(200px + ${startPct}% * (100% - 200px) / 100% - 11px)` }} title={t.name}>
-                        <Icon name="flame" size={12} />
-                      </div>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={idx} className="gantt-row">
-                    <div className="name">
-                      <div>{t.name}</div>
-                      <div className="sub">{t.sub}</div>
+                      {actions}
                     </div>
                     {WEEKS.map(w => <div key={w} className="week"></div>)}
-                    <div className={'gantt-bar ' + t.status}
-                      style={{
-                        left: `calc(200px + ${startPct} * (100% - 200px) / 100)`,
-                        width: `calc(${widthPct} * (100% - 200px) / 100)`,
-                      }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                    <div className="gantt-bar milestone"
+                      style={{ left: `calc(200px + ${startPct} * (100% - 200px) / 100 - 11px)` }} title={t.name}>
+                      <Icon name="flame" size={12} />
+                    </div>
+                  </div>
+                );
+                const isDragging = dragPreview?.taskId === t.id;
+                const effStart   = isDragging ? dragPreview.start : t.start;
+                const effEnd     = isDragging ? dragPreview.end   : t.end;
+                const barLeft    = ((effStart - 1) / 12) * 100;
+                const barWidth   = ((effEnd - effStart + 1) / 12) * 100;
+                const handle = (type) => (
+                  <div
+                    onMouseDown={(e) => startGanttDrag(e, t, type)}
+                    style={{ width: 8, height: '100%', cursor: 'ew-resize', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <div style={{ width: 2, height: 10, background: 'rgba(255,255,255,0.35)', borderRadius: 1 }} />
+                  </div>
+                );
+                return (
+                  <div key={t.id || idx} className="gantt-row">
+                    <div className="name" style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={clamp2}>{t.name}</div>
+                        {t.sub && <div className="sub">{t.sub}</div>}
+                      </div>
+                      {actions}
+                    </div>
+                    {WEEKS.map(w => <div key={w} className="week"></div>)}
+                    <div className={'gantt-bar ' + t.status} style={{
+                      left:    `calc(200px + ${barLeft} * (100% - 200px) / 100)`,
+                      width:   `calc(${barWidth} * (100% - 200px) / 100)`,
+                      overflow: 'hidden',
+                      padding:  0,
+                      display:  'flex',
+                      opacity:  isDragging ? 0.8 : 1,
+                      boxShadow: isDragging ? '0 0 0 2px var(--accent-hi)' : undefined,
+                    }} title={t.name}>
+                      {handle('left')}
+                      <div
+                        onMouseDown={(e) => startGanttDrag(e, t, 'move')}
+                        style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', cursor: isDragging ? 'grabbing' : 'grab', minWidth: 0, padding: '0 4px' }}
+                      >
+                        <span style={{ whiteSpace: 'nowrap', fontSize: 11 }}>{t.name}</span>
+                      </div>
+                      {handle('right')}
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
+
+          {/* ── Project Tasks ── */}
+          <div className="card">
+            <div className="card-h">
+              <div className="t">
+                Tasks
+                <span className="num" style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 6 }}>{allTasks.length}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 2 }}>
+                  {['all','open','done'].map(f => (
+                    <button key={f} className={'btn' + (taskFilter === f ? ' primary' : '')}
+                      style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => setTaskFilter(f)}>
+                      {f.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <button className="btn" style={{ fontSize: 11 }} onClick={() => onNav('tasks')}>
+                  <Icon name="plus" size={11}/> New task
+                </button>
+              </div>
+            </div>
+            {shownTasks.length === 0 ? (
+              <div style={{ padding: '24px 16px', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)', textAlign: 'center' }}>
+                {allTasks.length === 0 ? 'No tasks in this project yet.' : `No ${taskFilter} tasks.`}
+              </div>
+            ) : shownTasks.map(t => {
+              const st = statusMap[t.col];
+              return (
+                <div key={t._dbId} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '9px 16px', borderBottom: '1px solid var(--border)',
+                  fontSize: 13, cursor: 'pointer', transition: 'background 0.1s',
+                }}
+                  onClick={() => onNav('tasks')}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-2)'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: P_COLORS[t.p] || 'var(--text-3)', flexShrink: 0 }}></span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                  <span className="num" style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>{t.id}</span>
+                  {st && (
+                    <span style={{
+                      fontSize: 10, padding: '2px 7px', borderRadius: 2, flexShrink: 0,
+                      background: st.color + '22', color: st.color, border: `1px solid ${st.color}44`,
+                      fontFamily: 'var(--f-mono)', letterSpacing: '0.04em',
+                    }}>{st.label}</span>
+                  )}
+                  {t.due && t.due !== '—' && (
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', flexShrink: 0 }}>{t.due}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <div className="pm-side">
+          {/* ── Health ── */}
           <div className="card">
             <div className="card-h">
               <div className="t">Health</div>
@@ -131,28 +423,39 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
             </div>
             <div className="health-grid">
               <div className="cell"><div className="l">Progress</div><div className="v ok">{proj.progress}%</div></div>
-              <div className="cell"><div className="l">Open tasks</div><div className="v">{proj.openTasks}</div></div>
-              <div className="cell"><div className="l">Burned</div><div className="v">{proj.hoursLogged}h</div></div>
-              <div className="cell"><div className="l">Remaining</div><div className="v">{remaining}h</div></div>
+              <div className="cell"><div className="l">Open tasks</div><div className="v">{openCount}</div></div>
+              <div className="cell"><div className="l">Burned</div><div className="v">{fmtHrsPm(proj.hoursLogged)}</div></div>
+              <div className="cell"><div className="l">Remaining</div><div className="v">{fmtHrsPm(remaining)}</div></div>
             </div>
-            <div style={{ padding: '14px 16px' }}>
-              <div className="label-mono" style={{ marginBottom: 6 }}>HOURS — {proj.hoursLogged}/{proj.hoursEst}h</div>
-              <div className="prog" style={{ height: 8 }}><div className="fill" style={{ width: burnPct + '%' }}></div></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-2)' }}>
-                <span>{proj.hoursLogged}h burned</span><span>{burnPct}%</span>
+            {proj.hoursEst > 0 && (
+              <div style={{ padding: '14px 16px' }}>
+                <div className="label-mono" style={{ marginBottom: 6 }}>
+                  HOURS — {fmtHrsPm(proj.hoursLogged)} / {fmtHrsPm(proj.hoursEst)}
+                </div>
+                <div className="prog" style={{ height: 8 }}>
+                  <div className="fill" style={{
+                    width: Math.min(100, burnPct) + '%',
+                    background: burnPct > 90 ? '#ef4444' : burnPct > 70 ? '#d97706' : 'var(--accent)',
+                  }}></div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-2)' }}>
+                  <span>{fmtHrsPm(proj.hoursLogged)} burned</span>
+                  <span style={{ color: burnPct > 90 ? '#ef4444' : burnPct > 70 ? '#d97706' : 'var(--text-2)' }}>{burnPct}%</span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
+          {/* ── Details ── */}
           <div className="card">
             <div className="card-h"><div className="t">Details</div></div>
             <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
               {[
-                ['Client',  proj.client || '—'],
-                ['Type',    proj.type   || '—'],
-                ['Start',   proj.start  || '—'],
-                ['End',     proj.end    || '—'],
-                ['Budget',  proj.budget || '—'],
+                ['Client', proj.client || '—'],
+                ['Type',   proj.type   || '—'],
+                ['Start',  proj.start  || '—'],
+                ['End',    proj.end    || '—'],
+                ['Budget', proj.budget || '—'],
               ].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                   <span style={{ color: 'var(--text-3)', flexShrink: 0 }}>{l}</span>
@@ -162,14 +465,15 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
             </div>
           </div>
 
-          {(proj.stack?.length > 0 || proj.repo) && (
+          {/* ── Tech ── */}
+          {(proj.stack?.length > 0 || (proj.repo && proj.repo !== '—')) && (
             <div className="card">
               <div className="card-h"><div className="t">Tech</div></div>
               <div style={{ padding: '12px 16px' }}>
                 {proj.stack?.length > 0 && (
                   <>
                     <div className="label-mono" style={{ marginBottom: 6 }}>STACK</div>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: proj.repo ? 10 : 0 }}>
                       {proj.stack.map(s => <span key={s} className="tag">{s}</span>)}
                     </div>
                   </>
@@ -177,7 +481,10 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
                 {proj.repo && proj.repo !== '—' && (
                   <>
                     <div className="label-mono" style={{ marginBottom: 6 }}>REPO</div>
-                    <div style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', wordBreak: 'break-all' }}>↗ {proj.repo}</div>
+                    <a href={`https://github.com/${proj.repo}`} target="_blank" rel="noreferrer"
+                      style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', wordBreak: 'break-all', textDecoration: 'none' }}>
+                      ↗ {proj.repo}
+                    </a>
                   </>
                 )}
               </div>
@@ -185,6 +492,33 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, onNav }) => {
           )}
         </div>
       </div>
+
+      {/* ── Add / Edit modal ── */}
+      {editGantt && (
+        <GanttModal
+          task={editGantt}
+          onClose={() => setEditGantt(null)}
+          onSave={handleSave}
+          saving={saving}
+          err={err}
+        />
+      )}
+
+      {/* ── Delete confirm ── */}
+      {confirmDel && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => setConfirmDel(null)}>
+          <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 360, borderRadius: 4 }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 14 }}>Delete timeline task?</div>
+            <div style={{ padding: '14px 20px', fontSize: 13, color: 'var(--text-2)' }}>This will permanently remove the task from the timeline.</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--border)' }}>
+              <button className="btn" onClick={() => setConfirmDel(null)}>Cancel</button>
+              <button className="btn danger" onClick={handleDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1460,6 +1794,37 @@ export const TimerPage = ({
   const [err,            setErr]            = useStateB('');
   const [expandedEntry,  setExpandedEntry]  = useStateB(null);
 
+  // Group entries by date
+  const groupedEntries = React.useMemo(() => {
+    const completed = timeEntries.filter(e => e.status === 'completed');
+    const groups = {};
+    completed.forEach(e => {
+      const dateStr = e.startedAt ? e.startedAt.slice(0, 10) : 'unknown';
+      if (!groups[dateStr]) {
+        groups[dateStr] = {
+          dateStr,
+          entries: [],
+          totalSeconds: 0
+        };
+      }
+      groups[dateStr].entries.push(e);
+      groups[dateStr].totalSeconds += e.totalSeconds;
+    });
+    return Object.values(groups).sort((a, b) => b.dateStr.localeCompare(a.dateStr));
+  }, [timeEntries]);
+
+  const getGroupTitle = (dateStr) => {
+    if (dateStr === 'unknown') return 'Unknown Date';
+    const todayStr = todayIso();
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const yesterdayStr = d.toISOString().slice(0, 10);
+    if (dateStr === todayStr) return 'Today';
+    if (dateStr === yesterdayStr) return 'Yesterday';
+    return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+
   // Seed selector with first project on mount
   useEffectB(() => {
     if (projects.length > 0 && !selProjDbId) setSelProjDbId(projects[0]._dbId || '');
@@ -1755,79 +2120,107 @@ export const TimerPage = ({
           <span className="lbl">{timeEntries.filter(e => e.status === 'completed').length} COMPLETED</span>
         </div>
         <div className="session-log">
-          {timeEntries.filter(e => e.status === 'completed').length === 0 ? (
+          {groupedEntries.length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)' }}>
               No entries yet — start the timer to log time.
             </div>
-          ) : timeEntries.filter(e => e.status === 'completed').map(e => {
-            const isOpen = expandedEntry === e.id;
-            return (
-              <div key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                {/* Main row — click to toggle events */}
-                <div
-                  className="session-row"
-                  style={{ gap: 12, cursor: 'pointer', borderBottom: 'none' }}
-                  onClick={() => setExpandedEntry(isOpen ? null : e.id)}
-                >
-                  {/* Chevron + event count */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, width: 36 }}>
-                    <svg width="10" height="10" viewBox="0 0 10 10" style={{ color: 'var(--text-3)', transition: 'transform 0.15s', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', flexShrink: 0 }}>
-                      <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    <span style={{ fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--text-3)' }}>
-                      {e.events.length}
-                    </span>
-                  </div>
+          ) : groupedEntries.map(group => (
+            <div key={group.dateStr} className="session-group">
+              <div className="session-group-header">
+                <div className="date-title">{getGroupTitle(group.dateStr)}</div>
+                <div className="total-pill">{fmtDur(group.totalSeconds)}</div>
+              </div>
+              <div>
+                {group.entries.map(e => {
+                  const isOpen = expandedEntry === e.id;
+                  const projInfo = projects.find(p => p.id === e.projectShort);
+                  const badgeColor = projInfo?.color || 'var(--text-3)';
+                  return (
+                    <div key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      {/* Refined main row */}
+                      <div
+                        className={`session-row-refined${isOpen ? ' open' : ''}`}
+                        onClick={() => setExpandedEntry(isOpen ? null : e.id)}
+                      >
+                        {/* Project Badge */}
+                        <div
+                          className="session-proj-badge"
+                          style={{
+                            border: `1px solid ${badgeColor}33`,
+                            background: `${badgeColor}10`,
+                            color: badgeColor
+                          }}
+                        >
+                          {e.projectShort}
+                        </div>
 
-                  <div className="name" style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {e.taskTitle || <span style={{ color: 'var(--text-3)' }}>No task</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 2 }}>
-                      {e.projectShort}{e.taskShort ? ' / ' + e.taskShort : ''}
-                    </div>
-                    {e.notes && (
-                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {e.notes}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-2)' }}>
-                      {fmtTime(e.startedAt)} → {fmtTime(e.endedAt)}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{fmtDate(e.startedAt)}</div>
-                  </div>
-
-                  <span className="dur" style={{ flexShrink: 0, minWidth: 48, textAlign: 'right', fontFamily: 'var(--f-mono)', fontSize: 13, color: 'var(--accent-hi)' }}>
-                    {fmtDur(e.totalSeconds)}
-                  </span>
-                </div>
-
-                {/* Expandable events */}
-                {isOpen && (
-                  <div style={{ padding: '0 16px 12px 52px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {e.events.slice().reverse().map((ev, i) => {
-                      const meta = EVENT_META[ev.event] || { color: 'var(--text-3)', label: ev.event };
-                      return (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
-                          <span style={{ fontSize: 11, color: 'var(--text-2)', minWidth: 70 }}>{meta.label}</span>
-                          <span style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-3)' }}>{fmtTime(ev.at)}</span>
-                          {ev.elapsed > 0 && (
-                            <span style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--accent-hi)', marginLeft: 'auto' }}>
-                              +{fmtDur(ev.elapsed)}
+                        {/* Task & Notes Details */}
+                        <div className="session-info">
+                          <div className="session-title-row">
+                            <span className="session-task-title">
+                              {e.taskTitle || <span style={{ color: 'var(--text-3)', fontStyle: 'italic', fontWeight: 400 }}>General Project Work</span>}
                             </span>
+                            {e.taskShort && (
+                              <span className="session-task-badge">
+                                <Icon name="tag" size={10} style={{ color: 'var(--text-3)' }} />
+                                {e.taskShort}
+                              </span>
+                            )}
+                          </div>
+                          {e.notes && (
+                            <div className="session-notes">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-4)' }}>
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                              </svg>
+                              {e.notes}
+                            </div>
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+
+                        {/* Started/Ended time range */}
+                        <div className="session-time-range">
+                          {fmtTime(e.startedAt)} — {fmtTime(e.endedAt)}
+                        </div>
+
+                        {/* Duration logged */}
+                        <div className="session-dur-col">
+                          {fmtDur(e.totalSeconds)}
+                        </div>
+
+                        {/* Chevron expansion trigger */}
+                        <div className="exp-chev">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        </div>
+                      </div>
+
+                      {/* Expandable events timeline */}
+                      {isOpen && (
+                        <div className="session-events-timeline">
+                          {e.events.slice().reverse().map((ev, i) => {
+                            const meta = EVENT_META[ev.event] || { color: 'var(--text-3)', label: ev.event };
+                            return (
+                              <div key={i} className="timeline-event-item">
+                                <div className="timeline-event-dot" style={{ background: meta.color }} />
+                                <span className="timeline-event-label">{meta.label}</span>
+                                <span className="timeline-event-time">{fmtTime(ev.at)}</span>
+                                {ev.elapsed > 0 && (
+                                  <span className="timeline-event-elapsed">
+                                    +{fmtDur(ev.elapsed)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       </div>
     </div>

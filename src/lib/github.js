@@ -75,6 +75,13 @@ export async function ghCreateBranch(token, fullName, branchName) {
 export const ghGetUser     = (token) =>
   cached(`user:${token}`, GITHUB_CACHE_TTL.USER, () => ghFetch(token, '/user'));
 
+export async function ghGetTokenScopes(token) {
+  const res = await fetch(`${BASE}/user`, { headers: GH_HEADERS(token) });
+  if (!res.ok) return [];
+  const raw = res.headers.get('X-OAuth-Scopes') || '';
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
 export const ghGetRepos    = (token, page = 1) =>
   cached(`repos:${token}:${page}`, GITHUB_CACHE_TTL.REPOS, () =>
     ghFetch(token, '/user/repos', { sort: 'updated', direction: 'desc', per_page: GITHUB_API.PER_PAGE_REPOS, page, affiliation: 'owner,collaborator,organization_member' }));
@@ -140,6 +147,17 @@ export async function ghCreateRepo(token, name, isPrivate = false, description =
     private: isPrivate,
     auto_init: true,
   });
+}
+
+export async function ghDeleteBranch(token, fullName, branchName) {
+  const res = await fetch(`${BASE}/repos/${fullName}/git/refs/heads/${encodeURIComponent(branchName)}`, {
+    method: 'DELETE',
+    headers: GH_HEADERS(token),
+  });
+  if (res.status === 204) return;
+  if (res.status === 404) throw new Error(`Branch "${branchName}" not found or already deleted.`);
+  const body = await res.json().catch(() => ({}));
+  throw new Error(body.message || `GitHub ${res.status}`);
 }
 
 export async function ghDeleteRepo(token, fullName) {

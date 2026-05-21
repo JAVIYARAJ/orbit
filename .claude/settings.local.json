@@ -10,7 +10,10 @@
       "mcp__claude_ai_Supabase__get_advisors",
       "mcp__claude_ai_Supabase__search_docs",
       "Bash(google-chrome --headless --disable-gpu --no-sandbox --screenshot=/tmp/fi_toolkit.png --window-size=1400,900 \"http://localhost:5174\")",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(npx tsc *)",
+      "Bash(grep -nB2 \"background:\\\\s*#0[0-9a-fA-F]\\\\|background:\\\\s*#1[0-9a-fA-F]\\\\|background:\\\\s*#2[0-4][0-9a-fA-F]\\\\|background:\\\\s*rgba\\(15,\\\\|background:\\\\s*rgba\\(0,\\\\s*0,\\\\s*0,\" /home/raj-javiya/Documents/dev_os_dashboard/src/styles/global.css)",
+      "Bash(grep -nB2 \"background-color:\\\\s*#0\\\\|background-color:\\\\s*#1\\\\|background-color:\\\\s*#2[0-4]\\\\|color:\\\\s*#f0f0f2\\\\|color:\\\\s*#a0a0a8\\\\|color:\\\\s*#6a6a78\\\\|color:\\\\s*#45454f\\\\|border.*#0[0-9a-fA-F]\\\\|border.*#1[0-9a-fA-F]\\\\|border.*#2[0-4][0-9a-fA-F]\" /home/raj-javiya/Documents/dev_os_dashboard/src/styles/global.css)"
     ]
   }
 }
