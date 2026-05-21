@@ -231,8 +231,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
         </div>
         <div className="actions">
           {projects.length > 1 && (
-            <select value={selId} onChange={e => setSelId(e.target.value)}
-              style={{ fontFamily: 'var(--f-mono)', fontSize: 11, background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text)', padding: '6px 10px' }}>
+            <select className="pm-proj-select" value={selId} onChange={e => setSelId(e.target.value)}>
               {projects.map(p => <option key={p.id} value={p.id}>{p.id} — {p.name}</option>)}
             </select>
           )}
@@ -240,19 +239,17 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
       </div>
 
       <div className="pm-layout">
-        <div>
+        <div style={{ minWidth: 0 }}>
           {/* ── Timeline / Gantt ── */}
           <div className="card" style={{ marginBottom: 14 }}>
             <div className="card-h">
               <div className="t">Timeline · 12 weeks</div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span className="lbl" style={{ display: 'flex', gap: 8 }}>
-                  {[['var(--accent)','ACTIVE'],['rgba(22,163,74,0.6)','DONE'],['rgba(217,119,6,0.6)','REVIEW']].map(([c,l]) => (
-                    <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ width: 8, height: 8, background: c }}></span>{l}
-                    </span>
-                  ))}
-                </span>
+              <div className="pm-gantt-legend">
+                {[['var(--accent)','ACTIVE'],['rgba(22,163,74,0.6)','DONE'],['rgba(217,119,6,0.6)','REVIEW']].map(([c,l]) => (
+                  <span key={l} className="pm-gantt-legend-item">
+                    <span className="pm-gantt-legend-dot" style={{ background: c }}></span>{l}
+                  </span>
+                ))}
                 <button className="btn" style={{ fontSize: 11 }}
                   onClick={() => { setErr(''); setEditGantt({ name: '', sub: '', startWeek: 1, endWeek: 4, status: 'planning' }); }}>
                   <Icon name="plus" size={11}/> Add task
@@ -265,9 +262,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
                 {WEEKS.map(w => <div key={w} className="cell">W{w}</div>)}
               </div>
               {projGantt.length === 0 ? (
-                <div style={{ padding: '28px 16px', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)', textAlign: 'center' }}>
-                  No timeline tasks for this project yet — click "Add task" to create one.
-                </div>
+                <div className="pm-empty">No timeline tasks yet — click "Add task" to create one.</div>
               ) : projGantt.map((t, idx) => {
                 const startPct = ((t.start - 1) / 12) * 100;
                 const widthPct = ((t.end - t.start + 1) / 12) * 100;
@@ -366,8 +361,8 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
                 Tasks
                 <span className="num" style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 6 }}>{allTasks.length}</span>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: 2 }}>
+              <div className="pm-task-actions">
+                <div className="pm-task-filters">
                   {['all','open','done'].map(f => (
                     <button key={f} className={'btn' + (taskFilter === f ? ' primary' : '')}
                       style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => setTaskFilter(f)}>
@@ -381,32 +376,23 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
               </div>
             </div>
             {shownTasks.length === 0 ? (
-              <div style={{ padding: '24px 16px', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--f-mono)', textAlign: 'center' }}>
+              <div className="pm-empty">
                 {allTasks.length === 0 ? 'No tasks in this project yet.' : `No ${taskFilter} tasks.`}
               </div>
             ) : shownTasks.map(t => {
               const st = statusMap[t.col];
               return (
-                <div key={t._dbId} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '9px 16px', borderBottom: '1px solid var(--border)',
-                  fontSize: 13, cursor: 'pointer', transition: 'background 0.1s',
-                }}
-                  onClick={() => onNav('tasks')}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-2)'}
-                  onMouseLeave={e => e.currentTarget.style.background = ''}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: P_COLORS[t.p] || 'var(--text-3)', flexShrink: 0 }}></span>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                  <span className="num" style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>{t.id}</span>
+                <div key={t._dbId} className="pm-task-row" onClick={() => onNav('tasks')}>
+                  <span className="pm-task-dot" style={{ background: P_COLORS[t.p] || 'var(--text-3)' }}></span>
+                  <span className="pm-task-title">{t.title}</span>
+                  <span className="pm-task-id">{t.id}</span>
                   {st && (
-                    <span style={{
-                      fontSize: 10, padding: '2px 7px', borderRadius: 2, flexShrink: 0,
-                      background: st.color + '22', color: st.color, border: `1px solid ${st.color}44`,
-                      fontFamily: 'var(--f-mono)', letterSpacing: '0.04em',
-                    }}>{st.label}</span>
+                    <span className="pm-task-status" style={{ background: st.color + '22', color: st.color, border: `1px solid ${st.color}44` }}>
+                      {st.label}
+                    </span>
                   )}
                   {t.due && t.due !== '—' && (
-                    <span style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', flexShrink: 0 }}>{t.due}</span>
+                    <span className="pm-task-due">{t.due}</span>
                   )}
                 </div>
               );
@@ -428,8 +414,8 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
               <div className="cell"><div className="l">Remaining</div><div className="v">{fmtHrsPm(remaining)}</div></div>
             </div>
             {proj.hoursEst > 0 && (
-              <div style={{ padding: '14px 16px' }}>
-                <div className="label-mono" style={{ marginBottom: 6 }}>
+              <div className="pm-hours">
+                <div className="pm-hours-label">
                   HOURS — {fmtHrsPm(proj.hoursLogged)} / {fmtHrsPm(proj.hoursEst)}
                 </div>
                 <div className="prog" style={{ height: 8 }}>
@@ -438,7 +424,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
                     background: burnPct > 90 ? '#ef4444' : burnPct > 70 ? '#d97706' : 'var(--accent)',
                   }}></div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-2)' }}>
+                <div className="pm-hours-meta">
                   <span>{fmtHrsPm(proj.hoursLogged)} burned</span>
                   <span style={{ color: burnPct > 90 ? '#ef4444' : burnPct > 70 ? '#d97706' : 'var(--text-2)' }}>{burnPct}%</span>
                 </div>
@@ -449,7 +435,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
           {/* ── Details ── */}
           <div className="card">
             <div className="card-h"><div className="t">Details</div></div>
-            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
+            <div className="pm-detail-body">
               {[
                 ['Client', proj.client || '—'],
                 ['Type',   proj.type   || '—'],
@@ -457,9 +443,9 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
                 ['End',    proj.end    || '—'],
                 ['Budget', proj.budget || '—'],
               ].map(([l, v]) => (
-                <div key={l} style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ color: 'var(--text-3)', flexShrink: 0 }}>{l}</span>
-                  <span className="num" style={{ textAlign: 'right' }}>{v}</span>
+                <div key={l} className="pm-detail-row">
+                  <span className="pm-detail-label">{l}</span>
+                  <span className="pm-detail-value">{v}</span>
                 </div>
               ))}
             </div>
@@ -469,23 +455,23 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
           {(proj.stack?.length > 0 || (proj.repo && proj.repo !== '—')) && (
             <div className="card">
               <div className="card-h"><div className="t">Tech</div></div>
-              <div style={{ padding: '12px 16px' }}>
+              <div className="pm-detail-body">
                 {proj.stack?.length > 0 && (
-                  <>
-                    <div className="label-mono" style={{ marginBottom: 6 }}>STACK</div>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: proj.repo ? 10 : 0 }}>
+                  <div className="pm-detail-row" style={{ alignItems: 'flex-start' }}>
+                    <span className="pm-detail-label">Stack</span>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       {proj.stack.map(s => <span key={s} className="tag">{s}</span>)}
                     </div>
-                  </>
+                  </div>
                 )}
                 {proj.repo && proj.repo !== '—' && (
-                  <>
-                    <div className="label-mono" style={{ marginBottom: 6 }}>REPO</div>
+                  <div className="pm-detail-row">
+                    <span className="pm-detail-label">Repo</span>
                     <a href={`https://github.com/${proj.repo}`} target="_blank" rel="noreferrer"
-                      style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', wordBreak: 'break-all', textDecoration: 'none' }}>
+                      style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', wordBreak: 'break-all', textDecoration: 'none', textAlign: 'right' }}>
                       ↗ {proj.repo}
                     </a>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
@@ -1586,51 +1572,42 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
           </div>
         , document.body)}
 
-        {note && (
+        {!note ? (
+          <div className="note-empty-state">
+            <Icon name="note" size={28}/>
+            <span>Select a note to start editing</span>
+          </div>
+        ) : (
           <div className="note-editor">
             <div className="note-eh">
               <input className="title" value={title} onChange={e => handleTitleChange(e.target.value)} />
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div className="note-eh-actions">
                 {!saved && <span className="note-unsaved-dot" title="Auto-saving…">●</span>}
                 {confirmDelete ? (
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <>
                     <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)' }}>Delete?</span>
-                    <button className="btn sm btn-danger" onClick={deleteNote}>
-                      <Icon name="check" size={10}/> Yes
-                    </button>
-                    <button className="btn sm" onClick={() => setConfirmDelete(false)}>
-                      <Icon name="x" size={10}/> No
-                    </button>
-                  </div>
+                    <button className="btn sm btn-danger" onClick={deleteNote}><Icon name="check" size={10}/> Yes</button>
+                    <button className="btn sm" onClick={() => setConfirmDelete(false)}><Icon name="x" size={10}/> No</button>
+                  </>
                 ) : (
                   <button className="btn sm btn-danger-ghost" onClick={() => setConfirmDelete(true)} title="Delete note">
                     <Icon name="trash" size={10}/>
                   </button>
                 )}
                 <div className="note-reader-actions">
-                  <button className="btn sm" onClick={exportNote} title="Download as .md file">
-                    <Icon name="download" size={10}/> .md
-                  </button>
-                  <button className="btn sm" onClick={copyNote} title="Copy markdown (⌘C when focused)">
+                  <button className="btn sm" onClick={exportNote} title="Download as .md file"><Icon name="download" size={10}/> .md</button>
+                  <button className="btn sm" onClick={copyNote} title="Copy markdown">
                     {copied ? <><Icon name="check" size={10}/> Copied!</> : <><Icon name="copy" size={10}/> Copy</>}
                   </button>
                   {(tab === 'preview' || tab === 'split') && (
-                    <button
-                      className={'btn sm' + (autoScrolling ? ' primary' : '')}
-                      onClick={autoScrolling ? stopAutoScroll : startAutoScroll}
-                      title={`Auto-scroll over about ${readLabel}`}>
+                    <button className={'btn sm' + (autoScrolling ? ' primary' : '')} onClick={autoScrolling ? stopAutoScroll : startAutoScroll}>
                       <Icon name={autoScrolling ? 'pause' : 'arrow'} size={10}/>
-                      {autoScrolling ? 'Stop' : `Auto scroll · ${readLabel}`}
+                      {autoScrolling ? 'Stop' : `Scroll · ${readLabel}`}
                     </button>
                   )}
                   <button className="btn sm" onClick={() => { setTab('preview'); setFocusMode(true); setFocusProgress(0); }} title="Focus mode">
                     <Icon name="eye" size={10}/> Focus
                   </button>
-                  <div className="note-tabs">
-                    <button className={tab==='edit' ? 'active' : ''} onClick={() => setTab('edit')}>EDIT</button>
-                    <button className={tab==='preview' ? 'active' : ''} onClick={() => setTab('preview')}>PREVIEW</button>
-                    <button className={tab==='split' ? 'active' : ''} onClick={() => setTab('split')}>SPLIT</button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1662,7 +1639,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
               <span>·</span>
               <span>EDITED {(note.edited || '').toUpperCase()}</span><span>·</span>
               <span>{body.length} chars · {body.split(/\s+/).filter(Boolean).length} words</span>
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div className="note-meta-right">
                 {note.tags.map(t => <span key={t} className="tag" style={{ color: 'var(--accent-hi)', borderColor: 'var(--accent-tint-2)' }}>{t}</span>)}
                 <button
                   className={'note-pin-toggle' + (note.pinned ? ' active' : '')}
@@ -1672,7 +1649,12 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
                   <Icon name="star" size={9}/>
                   {note.pinned ? 'Favourited' : 'Favourite'}
                 </button>
-              </span>
+                <div className="note-tabs">
+                  <button className={tab==='edit' ? 'active' : ''} onClick={() => setTab('edit')}>EDIT</button>
+                  <button className={tab==='preview' ? 'active' : ''} onClick={() => setTab('preview')}>PREV</button>
+                  <button className={tab==='split' ? 'active' : ''} onClick={() => setTab('split')}>SPLIT</button>
+                </div>
+              </div>
             </div>
             {tab !== 'preview' && (
               <div className="md-toolbar">
@@ -1695,7 +1677,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
               </div>
             )}
             {tab === 'split' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flex: 1, minHeight: 0 }}>
+              <div className="note-split">
                 <div
                   className={'note-body' + (editorDragOver ? ' note-body-drop' : '')}
                   style={{ borderRight: '1px solid var(--border)', position: 'relative' }}

@@ -1483,17 +1483,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
           ) : (
             <div className="proj-grid">
               {filtered.map(p => (
-                <div key={p.id} className="proj-card" style={{ cursor: 'pointer' }} onClick={() => setViewing(p)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                    <div>
-                      <div className="client">{projectTypes.find(pt => pt.id === p.typeId)?.label || '—'}</div>
-                      <div className="name" style={{ marginTop: 4 }}>{p.name}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <StatusPill key={p.status} status={p.status} />
+                <div key={p.id} className={`proj-card st-${p.status}`} onClick={() => setViewing(p)}>
+                  <div className="pc-head">
+                    <span className="pc-type">{projectTypes.find(pt => pt.id === p.typeId)?.label || '—'}</span>
+                    <div className="pc-actions">
+                      <StatusPill status={p.status} />
                       <button
-                        className="btn sm ghost"
-                        style={{ padding: '3px 6px' }}
+                        className="btn sm ghost pc-edit"
                         onClick={e => { e.stopPropagation(); setEditing(p); }}
                         title="Edit project"
                       >
@@ -1501,23 +1497,20 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                       </button>
                     </div>
                   </div>
-                  <div style={{ color: 'var(--text-2)', fontSize: 12 }}>{p.client}</div>
-                  {p.description && (
-                    <div style={{
-                      color: 'var(--text-3)', fontSize: 12, lineHeight: 1.5, marginTop: 6,
-                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
-                    }}>
-                      {p.description}
+                  <div className="pc-name">{p.name}</div>
+                  {p.client && <div className="pc-client">{p.client}</div>}
+                  {p.description && <div className="pc-desc">{p.description}</div>}
+                  {(p.stack || []).length > 0 && (
+                    <div className="pc-stack">
+                      {(p.stack || []).map(s => <span key={s} className="tag">{s}</span>)}
                     </div>
                   )}
-                  <div className="stack">{(p.stack || []).map(s => <span key={s} className="tag">{s}</span>)}</div>
-                  <div className="dates">
-                    <span>START {fmtDate(p.start)}</span>
-                    <span>END {fmtDate(p.end)}</span>
-                  </div>
-                  <div className="row-end">
-                    <span className="pct">{p.tasks} tasks ({p.openTasks} open)</span>
-                    <span className="pct">{fmtHours(p.hoursLogged)} logged</span>
+                  <div className="pc-footer">
+                    <span className="pc-dates">{fmtDate(p.start)} → {fmtDate(p.end)}</span>
+                    <div className="pc-stats">
+                      <span>{p.openTasks}/{p.tasks} tasks</span>
+                      <span>{fmtHours(p.hoursLogged)}</span>
+                    </div>
                   </div>
                 </div>
               ))}
