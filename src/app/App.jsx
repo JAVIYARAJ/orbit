@@ -100,10 +100,10 @@ export default function App() {
       }
 
       // GitHub OAuth callback — save provider_token to user_integrations
-      if (event === 'SIGNED_IN' && session?.provider_token && localStorage.getItem('devos:gh_link') === '1') {
-        const storedUid = localStorage.getItem('devos:pre_gh_uid');
-        localStorage.removeItem('devos:gh_link');
-        localStorage.removeItem('devos:pre_gh_uid');
+      if (event === 'SIGNED_IN' && session?.provider_token && localStorage.getItem('orbit:gh_link') === '1') {
+        const storedUid = localStorage.getItem('orbit:pre_gh_uid');
+        localStorage.removeItem('orbit:gh_link');
+        localStorage.removeItem('orbit:pre_gh_uid');
         // Use stored UID so we always write to the original user's row
         const targetUid = storedUid || session.user.id;
         try {
@@ -196,7 +196,7 @@ export default function App() {
           setWsLoading(false);
         } else {
           // Prefer the workstation Supabase has as active, fall back to localStorage
-          const savedId  = localStorage.getItem('devos:activeWs');
+          const savedId  = localStorage.getItem('orbit:activeWs');
           const byServer = list.find(w => w.id === ctx.active_workstation_id);
           const byLocal  = list.find(w => w.id === savedId);
           // Pre-set dataLoading and clear wsLoading in the same batch as setActiveWorkstation
@@ -212,7 +212,7 @@ export default function App() {
   // ── Load data when active workstation changes ───────────────────
   useEffectApp(() => {
     if (!activeWorkstation?.id) return;
-    localStorage.setItem('devos:activeWs', activeWorkstation.id);
+    localStorage.setItem('orbit:activeWs', activeWorkstation.id);
     setDataLoading(true);
     loadUserData(activeWorkstation.id)
       .then(d => {
@@ -269,7 +269,7 @@ export default function App() {
       window.history.replaceState({}, '', window.location.pathname);
       return 'settings';
     }
-    return localStorage.getItem('devos:nav') || 'home';
+    return localStorage.getItem('orbit:nav') || 'home';
   });
   const [collapsed, setCollapsed] = useStateApp(t.sidebarStart === 'collapsed');
   const [cmdkOpen,  setCmdkOpen]  = useStateApp(false);
@@ -297,7 +297,7 @@ export default function App() {
   const [githubToken,    setGithubToken]    = useStateApp(null);
 
   // Persist nav
-  useEffectApp(() => { localStorage.setItem('devos:nav', current); }, [current]);
+  useEffectApp(() => { localStorage.setItem('orbit:nav', current); }, [current]);
 
   // Timer tick
   useEffectApp(() => {

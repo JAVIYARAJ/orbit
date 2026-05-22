@@ -1998,12 +1998,13 @@ const TaskDetailModal = ({
 
   // Manual time log state
   const [showLogTime, setShowLogTime] = useStateA(false);
-  const [logMin, setLogMin] = useStateA('');
+  const [logH, setLogH] = useStateA('');
+  const [logM, setLogM] = useStateA('');
   const [logNote, setLogNote] = useStateA('');
   const [logSaving, setLogSaving] = useStateA(false);
 
   const handleLogTime = async () => {
-    const minutes = parseInt(logMin) || 0;
+    const minutes = (parseInt(logH) || 0) * 60 + (parseInt(logM) || 0);
     if (minutes <= 0) return;
     const projDbId = projects.find(p => p.id === task.proj)?._dbId;
     if (!projDbId) return;
@@ -2011,11 +2012,21 @@ const TaskDetailModal = ({
     try {
       await onLogTime(task._dbId, projDbId, minutes, logNote);
       setShowLogTime(false);
-      setLogMin(''); setLogNote('');
+      setLogH(''); setLogM(''); setLogNote('');
     } catch (e) {
       console.error('Failed to log time:', e);
     } finally {
       setLogSaving(false);
+    }
+  };
+
+  const handleQuickLog = async (minutes) => {
+    const projDbId = projects.find(p => p.id === task.proj)?._dbId;
+    if (!projDbId) return;
+    try {
+      await onLogTime(task._dbId, projDbId, minutes, 'Quick log');
+    } catch (e) {
+      console.error('Failed to log quick time:', e);
     }
   };
 
@@ -2178,7 +2189,7 @@ const TaskDetailModal = ({
 
   useEffectA(() => {
     setForm(toForm(task)); setErr(''); setShowSubForm(false);
-    setShowLogTime(false); setLogMin(''); setLogNote('');
+    setShowLogTime(false); setLogH(''); setLogM(''); setLogNote('');
     setLogsVisible(10);
     setGhBranch(task.ghBranch || '');
     setBranchMode('none'); setBranchOpen(false); setBranchErr(''); setNewBranchName('');
@@ -2706,79 +2717,142 @@ const TaskDetailModal = ({
 
             {/* Time tracking */}
             <div className="tpanel-prop">
-              <div className="tpanel-prop-label">Time</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', flexShrink: 0 }}>EST</span>
-                <input
-                  type="number" min="0"
-                  value={form.estH}
-                  onChange={e => set('estH', e.target.value)}
-                  placeholder="0"
-                  style={{ width: 44, fontSize: 11, fontFamily: 'var(--f-mono)', background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4, padding: '2px 5px', textAlign: 'center' }}
-                />
-                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>h</span>
-                <input
-                  type="number" min="0" max="59"
-                  value={form.estM}
-                  onChange={e => set('estM', e.target.value)}
-                  placeholder="0"
-                  style={{ width: 44, fontSize: 11, fontFamily: 'var(--f-mono)', background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4, padding: '2px 5px', textAlign: 'center' }}
-                />
-                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>m</span>
-                <span style={{ marginLeft: 'auto', fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--text-3)' }}>
-                  LOG <span style={{ color: 'var(--text-2)' }}>{fmtMin(task.loggedMinutes)}</span>
-                </span>
-              </div>
-              {(() => { const est = (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0); return est > 0 ? (
-                <div style={{ height: 3, borderRadius: 2, background: 'var(--bg-3)', marginTop: 2 }}>
-                  <div style={{
-                    height: '100%', borderRadius: 2,
-                    background: task.loggedMinutes > est ? '#ef4444' : 'var(--accent-hi)',
-                    width: `${Math.min(100, Math.round((task.loggedMinutes / est) * 100))}%`,
-                    transition: 'width 0.3s',
-                  }} />
+              <div className="tpanel-prop-label">Time & Progress</div>
+              <div className="time-tracker-card">
+                <div className="tt-header">
+                  <div className="tt-label-group">
+                    <Icon name="timer" size={12} />
+                    <span className="tt-main-title">Tracking Progress</span>
+                  </div>
+                  {(() => {
+                    const est = (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0);
+                    const logged = task.loggedMinutes || 0;
+                    const pct = est > 0 ? Math.min(100, Math.round((logged / est) * 100)) : 0;
+                    return est > 0 ? (
+                      <span className={`tt-badge ${logged > est ? 'overtime' : ''}`}>{pct}%</span>
+                    ) : (
+                      <span className="tt-badge no-estimate">No Est</span>
+                    );
+                  })()}
                 </div>
-              ) : null; })()}
-              <button
-                className="btn sm ghost"
-                style={{ marginTop: 8, width: '100%', fontSize: 10, letterSpacing: '0.06em' }}
-                onClick={() => setShowLogTime(s => !s)}
-              >
-                <Icon name="plus" size={10} /> Log time
-              </button>
-              {showLogTime && (
-                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3 }}>MINUTES</div>
-                    <input
-                      type="number" min="1" placeholder="e.g. 25" value={logMin}
-                      onChange={e => setLogMin(e.target.value)}
-                      className="tpanel-input" style={{ width: '100%' }}
-                      autoFocus
-                    />
-                    {(parseInt(logMin) || 0) >= 60 && (
-                      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 3 }}>
-                        = {Math.floor((parseInt(logMin) || 0) / 60)}h {(parseInt(logMin) || 0) % 60}m
+
+                {(() => {
+                  const est = (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0);
+                  const logged = task.loggedMinutes || 0;
+                  return est > 0 ? (
+                    <div className="tt-progress-track">
+                      <div className={`tt-progress-bar ${logged > est ? 'overtime' : ''}`} style={{ width: `${Math.min(100, (logged / est) * 100)}%` }} />
+                    </div>
+                  ) : (
+                    <div className="tt-progress-track empty">
+                      <div className="tt-progress-bar" style={{ width: '0%' }} />
+                    </div>
+                  );
+                })()}
+
+                <div className="tt-stats-grid">
+                  <div className="tt-stat-box">
+                    <span className="tt-stat-label">Logged</span>
+                    <span className="tt-stat-value">{fmtMin(task.loggedMinutes)}</span>
+                  </div>
+                  <div className="tt-stat-box">
+                    <span className="tt-stat-label">Estimate</span>
+                    <div className="tt-est-editor">
+                      <input
+                        type="number" min="0"
+                        value={form.estH}
+                        onChange={e => set('estH', e.target.value)}
+                        placeholder="0"
+                        className="tt-num-input"
+                      />
+                      <span className="tt-unit">h</span>
+                      <input
+                        type="number" min="0" max="59"
+                        value={form.estM}
+                        onChange={e => set('estM', e.target.value)}
+                        placeholder="0"
+                        className="tt-num-input"
+                      />
+                      <span className="tt-unit">m</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="tt-footer-actions">
+                  <button
+                    className={`tt-action-btn ${showLogTime ? 'active' : ''}`}
+                    onClick={() => setShowLogTime(s => !s)}
+                  >
+                    <Icon name={showLogTime ? 'x' : 'plus'} size={10} />
+                    {showLogTime ? 'Close Log' : 'Log Time'}
+                  </button>
+                  
+                  {!showLogTime && (
+                    <div className="tt-presets">
+                      <button className="tt-preset-btn" onClick={() => handleQuickLog(15)}>+15m</button>
+                      <button className="tt-preset-btn" onClick={() => handleQuickLog(30)}>+30m</button>
+                      <button className="tt-preset-btn" onClick={() => handleQuickLog(60)}>+1h</button>
+                    </div>
+                  )}
+                </div>
+
+                {showLogTime && (
+                  <div className="tt-log-form animate-slide-down">
+                    <div className="tt-log-inputs">
+                      <div className="tt-log-field">
+                        <label className="tt-log-label">Time to Log</label>
+                        <div className="add-task-est-container" style={{ marginTop: 4 }}>
+                          <div className="add-task-est-field">
+                            <input
+                              type="number" min="0"
+                              value={logH}
+                              onChange={e => setLogH(e.target.value)}
+                              placeholder="0"
+                              className="add-task-est-input"
+                              autoFocus
+                            />
+                            <span className="add-task-est-unit">hours</span>
+                          </div>
+                          <div className="add-task-est-field">
+                            <input
+                              type="number" min="0" max="59"
+                              value={logM}
+                              onChange={e => setLogM(e.target.value)}
+                              placeholder="0"
+                              className="add-task-est-input"
+                            />
+                            <span className="add-task-est-unit">minutes</span>
+                          </div>
+                        </div>
                       </div>
-                    )}
+                      <div className="tt-log-field">
+                        <label className="tt-log-label">Notes (optional)</label>
+                        <input
+                          placeholder="What did you do?"
+                          value={logNote}
+                          onChange={e => setLogNote(e.target.value)}
+                          className="tt-log-notes-input"
+                        />
+                      </div>
+                    </div>
+                    <div className="tt-log-buttons">
+                      <button
+                        className="tt-log-btn cancel"
+                        onClick={() => { setShowLogTime(false); setLogH(''); setLogM(''); setLogNote(''); }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="tt-log-btn submit"
+                        onClick={handleLogTime}
+                        disabled={logSaving || ((parseInt(logH) || 0) * 60 + (parseInt(logM) || 0)) <= 0}
+                      >
+                        {logSaving ? '…' : 'Add time'}
+                      </button>
+                    </div>
                   </div>
-                  <input placeholder="Notes (optional)" value={logNote}
-                    onChange={e => setLogNote(e.target.value)} className="tpanel-input" />
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn sm ghost" style={{ flex: 1, fontSize: 10 }}
-                      onClick={() => { setShowLogTime(false); setLogMin(''); setLogNote(''); }}>
-                      Cancel
-                    </button>
-                    <button
-                      className="btn sm primary" style={{ flex: 1, fontSize: 10 }}
-                      onClick={handleLogTime}
-                      disabled={logSaving || (parseInt(logMin) || 0) <= 0}
-                    >
-                      {logSaving ? '…' : 'Add time'}
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Created */}
@@ -3058,7 +3132,7 @@ const TaskDetailModal = ({
 const toBranchName = (title) =>
   'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuses = [], priorities = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
   const empty = { title: '', proj: projects[0]?.id || '', p: priorities[0]?.id || null, col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
@@ -3120,6 +3194,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
       due: form.due || '—',
       tags: form.tagIds,
       estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
+      ...(defaultParentId ? { parentId: defaultParentId } : {}),
     };
     setSaving(true);
     setBranchErr('');
@@ -3198,14 +3273,29 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
             <input type="date" value={form.due} onChange={e => set('due', e.target.value)} />
           </div>
         </div>
-        <div className="fld-row">
-          <div className="fld">
-            <label>Est. hours</label>
-            <input type="number" min="0" value={form.estH} onChange={e => set('estH', e.target.value)} placeholder="0" />
-          </div>
-          <div className="fld">
-            <label>Est. minutes</label>
-            <input type="number" min="0" max="59" value={form.estM} onChange={e => set('estM', e.target.value)} placeholder="0" />
+        <div className="fld">
+          <label>Estimated Duration</label>
+          <div className="add-task-est-container">
+            <div className="add-task-est-field">
+              <input
+                type="number" min="0"
+                value={form.estH}
+                onChange={e => set('estH', e.target.value)}
+                placeholder="0"
+                className="add-task-est-input"
+              />
+              <span className="add-task-est-unit">hours</span>
+            </div>
+            <div className="add-task-est-field">
+              <input
+                type="number" min="0" max="59"
+                value={form.estM}
+                onChange={e => set('estM', e.target.value)}
+                placeholder="0"
+                className="add-task-est-input"
+              />
+              <span className="add-task-est-unit">minutes</span>
+            </div>
           </div>
         </div>
         <div className="fld">
@@ -3379,6 +3469,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   const [localErr, setLocalErr] = useStateA('');
   const [showAdd, setShowAdd] = useStateA(false);
   const [addCol, setAddCol] = useStateA(cols[0]?.id || '');
+  const [addParentId, setAddParentId] = useStateA(null);
   const [branchToast, setBranchToast] = useStateA(null);
   const [dragOver, setDragOver] = useStateA(null);   // col id being hovered
   const [draggingFromKey, setDraggingFromKey] = useStateA(null);  // source col during drag
@@ -3497,7 +3588,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     }));
   };
 
-  const openAdd = (col = cols[0]?.id || '') => { setAddCol(col); setShowAdd(true); };
+  const openAdd = (col = cols[0]?.id || '', parentId = null) => { setAddCol(col); setAddParentId(parentId); setShowAdd(true); };
 
   // ── Drag handlers ─────────────────────────────────────────────────
   const handleDragStart = (e, task) => {
@@ -3865,6 +3956,12 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                               onClick={() => setViewingTask(t)} />
                           ))}
                           {items.length === 0 && <div className="sg-col-empty" />}
+                          <button
+                            className="btn ghost"
+                            style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed', margin: '4px 0' }}
+                            onClick={() => openAdd(col.id, parentId)}>
+                            <Icon name="plus" size={10} /> Add task
+                          </button>
                         </div>
                       );
                     })}
@@ -3949,7 +4046,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                         </div>
                       </td>
                     </tr>,
-                    ...(!isCollapsed ? subtasks.map(t => {
+                    ...(!isCollapsed ? [
+                      ...subtasks.map(t => {
                       const isRowDone = doneStatusId && t.col === doneStatusId;
                       const taskProj = projects.find(p => p.id === t.proj);
                       const branchUrl = t.ghBranch && taskProj?.repo
@@ -3978,7 +4076,18 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                           </td>
                         </tr>
                       );
-                    }) : [])
+                      }),
+                      <tr key={`add-${parentId}`}>
+                        <td colSpan={7} style={{ paddingLeft: 32, paddingTop: 4, paddingBottom: 4 }}>
+                          <button
+                            className="btn ghost"
+                            style={{ fontSize: 11, padding: '4px 10px', color: 'var(--text-3)', borderStyle: 'dashed' }}
+                            onClick={() => openAdd(cols[0]?.id, parentId)}>
+                            <Icon name="plus" size={10} /> Add task
+                          </button>
+                        </td>
+                      </tr>,
+                    ] : [])
                   ];
                 })
               ) : filtered.map(t => {
@@ -4020,8 +4129,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       )}
 
       <AddTaskPanel
-        open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd}
-        projects={projects} defaultCol={addCol} statuses={cols} priorities={priorities}
+        open={showAdd} onClose={() => { setShowAdd(false); setAddParentId(null); }} onAdd={handleAdd}
+        projects={projects} defaultCol={addCol} defaultParentId={addParentId} statuses={cols} priorities={priorities}
         allTags={tags} onCreateTag={handleCreateTag} githubToken={githubToken}
         onBranchCreated={({ branchName, url, task }) => {
           // Update local task state with the saved branch

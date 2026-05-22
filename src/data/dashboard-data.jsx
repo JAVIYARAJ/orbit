@@ -1,4 +1,4 @@
-// data.jsx — All mock data for DevOS dashboard
+// data.jsx — All mock data for Orbit dashboard
 // Realistic flutter freelancer + indie builder workload.
 
 export const PROJECTS = [

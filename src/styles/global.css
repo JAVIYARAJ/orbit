@@ -1,5 +1,5 @@
 /* ───────────────────────────────────────────────────────────────
-   DevOS — Personal Dashboard (Redesigned)
+   Orbit — Developer Dashboard
    Premium dark theme with refined colors, spacing, and typography.
    ─────────────────────────────────────────────────────────────── */
 
@@ -4383,7 +4383,7 @@ body.texture-grid::before {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .proj-card {
@@ -4495,6 +4495,7 @@ body.texture-grid::before {
   padding-top: 10px;
   border-top: 1px solid var(--border);
   gap: 8px;
+  margin-top: auto;
 }
 
 .pc-dates {
@@ -5384,41 +5385,421 @@ body.texture-grid::before {
   border-color: var(--accent);
 }
 
-/* Hours row */
-.tpanel-hours {
-  display: flex;
-  gap: 8px;
+/* Hide default spinners */
+.tt-num-input::-webkit-outer-spin-button,
+.tt-num-input::-webkit-inner-spin-button,
+.tt-log-minutes-input::-webkit-outer-spin-button,
+.tt-log-minutes-input::-webkit-inner-spin-button,
+.add-task-est-input::-webkit-outer-spin-button,
+.add-task-est-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.tt-num-input,
+.tt-log-minutes-input,
+.add-task-est-input {
+  -moz-appearance: textfield;
 }
 
-.tpanel-hr {
-  flex: 1;
+/* Time Tracker Card */
+.time-tracker-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
 }
 
-.tpanel-hr label {
-  font-family: var(--f-mono);
-  font-size: 9px;
-  color: var(--text-3);
+.time-tracker-card:hover {
+  border-color: var(--border-3);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+
+.tt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tt-label-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.tt-main-title {
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
-.tpanel-num-input {
+.tt-badge {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 153, 255, 0.15);
+  color: var(--accent-hi);
+  border: 1px solid rgba(0, 153, 255, 0.25);
+}
+
+.tt-badge.overtime {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ff5c5c;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.tt-badge.no-estimate {
+  background: var(--bg-3);
+  color: var(--text-3);
+  border-color: var(--border);
+}
+
+/* Progress bar container */
+.tt-progress-track {
+  height: 6px;
   width: 100%;
+  background: var(--bg-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tt-progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hi));
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tt-progress-bar.overtime {
+  background: linear-gradient(90deg, #ef4444, #ff5c5c);
+}
+
+/* Stats grids */
+.tt-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.tt-stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tt-stat-box:first-child {
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+}
+
+.tt-stat-label {
+  font-family: var(--f-mono);
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+}
+
+.tt-stat-value {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Estimate editor */
+.tt-est-editor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tt-num-input {
+  width: 32px;
   background: var(--bg-2);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 12px;
   font-family: var(--f-mono);
-  padding: 5px 7px;
-  transition: border-color 0.15s;
+  padding: 2px 4px;
+  border-radius: 4px;
+  text-align: center;
+  transition: all 0.15s ease;
 }
 
-.tpanel-num-input:focus {
+.tt-num-input:focus {
   outline: none;
   border-color: var(--accent);
+  background: var(--bg-3);
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+
+.tt-num-input::placeholder {
+  color: var(--text-4);
+}
+
+.tt-unit {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  color: var(--text-3);
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+/* Footer & preset actions */
+.tt-footer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.tt-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tt-action-btn:hover {
+  background: var(--bg-4);
+  color: var(--text);
+  border-color: var(--border-3);
+}
+
+.tt-action-btn.active {
+  background: var(--accent-tint-2);
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+.tt-presets {
+  display: flex;
+  gap: 4px;
+}
+
+.tt-preset-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tt-preset-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+  background: var(--accent-tint);
+}
+
+/* Add time form inline */
+.tt-log-form {
+  margin-top: 4px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tt-log-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tt-log-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tt-log-label {
+  font-family: var(--f-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+}
+
+.tt-log-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tt-log-minutes-input {
+  width: 90px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--f-mono);
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.tt-log-minutes-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+
+.tt-log-converted {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.tt-log-notes-input {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--f-body);
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.tt-log-notes-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+
+.tt-log-buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.tt-log-btn {
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.tt-log-btn.cancel {
+  background: transparent;
+  color: var(--text-3);
+}
+
+.tt-log-btn.cancel:hover {
+  color: var(--text-2);
+  background: var(--bg-3);
+}
+
+.tt-log-btn.submit {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tt-log-btn.submit:hover:not(:disabled) {
+  background: var(--accent-hi);
+  box-shadow: 0 2px 8px rgba(0, 153, 255, 0.4);
+}
+
+.tt-log-btn.submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Slide animation */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-down {
+  animation: slideDown 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Add Task Panel Estimation Section styling */
+.add-task-est-container {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.add-task-est-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  transition: all 0.15s ease;
+}
+
+.add-task-est-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+
+.add-task-est-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  padding: 4px 0;
+  outline: none;
+}
+
+.add-task-est-unit {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-left: 6px;
+  pointer-events: none;
 }
 
 /* ── Subtasks ─────────────────────────────────────────────────────── */
