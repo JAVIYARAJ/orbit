@@ -26,7 +26,7 @@ export const Icon = ({ name, size = 16 }) => {
     chev: <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     chevD: <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     chevU: <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
-    trash: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M3 5H13M6 5V3H10V5M5 5L6 13H10L11 5" strokeLinecap="round" strokeLinejoin="round" /></g>,
+    trash: <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 3h3"/><path d="M2.5 5.5h11"/><path d="M5 5.5l.8 7.5h4.4l.8-7.5"/></g>,
     git: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="4" cy="4" r="1.5" /><circle cx="4" cy="12" r="1.5" /><circle cx="12" cy="8" r="1.5" /><path d="M4 5.5V10.5M5.5 12H10.5C10.5 9.5 4 11 4 6" /></g>,
     pin: <path d="M8 2L11 5L10 6L11 7L9 9L8 14L7 9L5 7L6 6L5 5L8 2Z" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />,
     tag: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M2 7L7 2H13V8L8 13L2 7Z" /><circle cx="10" cy="6" r="0.8" fill="currentColor" /></g>,
@@ -67,6 +67,7 @@ export const Icon = ({ name, size = 16 }) => {
     'git-commit': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="8" cy="8" r="2.5" /><path d="M2 8H5.5M10.5 8H14" strokeLinecap="round" /></g>,
     'alert-circle': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="8" cy="8" r="6" /><path d="M8 5V8.5" strokeLinecap="round" /><circle cx="8" cy="11" r="0.6" fill="currentColor" /></g>,
     'external-link': <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M7 3H3V13H13V9M9 2H14V7M14 2L8 8" strokeLinecap="round" strokeLinejoin="round" /></g>,
+    upload: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M8 11V2M4 6L8 2L12 6M2 14H14" strokeLinecap="round" strokeLinejoin="round" /></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
@@ -77,33 +78,46 @@ export const Icon = ({ name, size = 16 }) => {
 
 // ─── Nav definition ────────────────────────────────────────────────
 export const NAV = [
-  { section: 'WORKSPACE', items: [
-    { id: 'home',     label: 'Command Center',  icon: 'home',   kbd: 'G H' },
-    { id: 'projects', label: 'Projects',         icon: 'folder', kbd: 'G P' },
-    { id: 'tasks',    label: 'Tasks',            icon: 'list',   kbd: 'G T' },
-    { id: 'pm',       label: 'Project Mgmt',     icon: 'chart',  kbd: 'G M' },
-  ]},
-  { section: 'INSIGHTS', items: [
-    { id: 'analytics', label: 'Analytics',       icon: 'chart',  kbd: 'G A' },
-    { id: 'collab',   label: 'Team Collab',      icon: 'hash',   kbd: 'G C' },
-  ]},
-  { section: 'TOOLS', items: [
-    { id: 'timer',    label: 'Time Tracker',     icon: 'timer',  kbd: 'G I' },
-    { id: 'notes',    label: 'Notes',            icon: 'note',   kbd: 'G N' },
-    { id: 'email',    label: 'Email Hub',        icon: 'mail',   kbd: 'G E' },
-    { id: 'toolkit',      label: 'Dev Toolkit',      icon: 'tool',   kbd: 'G D' },
-    { id: 'flutter-init', label: 'Flutter Init',     icon: 'flame',  kbd: 'G F' },
-  ]},
-  { section: 'GITHUB', items: [
-    { id: 'github', label: 'GitHub Hub', icon: 'github', kbd: 'G G' },
-  ]},
-  { section: 'PERSONAL', items: [
-    { id: 'learning', label: 'Learning Path',    icon: 'book',   kbd: 'G L' },
-    { id: 'vault',    label: 'Vault',            icon: 'lock',   kbd: 'G V' },
-  ]},
-  { section: 'ADMIN', items: [
-    { id: 'settings', label: 'Settings',         icon: 'settings', kbd: 'G S' },
-  ]},
+  {
+    section: 'WORKSPACE', items: [
+      { id: 'home', label: 'Command Center', icon: 'home', kbd: 'G H' },
+      { id: 'projects', label: 'Projects', icon: 'folder', kbd: 'G P' },
+      { id: 'tasks', label: 'Tasks', icon: 'list', kbd: 'G T' },
+      { id: 'pm', label: 'Project Mgmt', icon: 'chart', kbd: 'G M' },
+    ]
+  },
+  {
+    section: 'INSIGHTS', items: [
+      { id: 'analytics', label: 'Analytics', icon: 'chart', kbd: 'G A' },
+      { id: 'collab', label: 'Team Collab', icon: 'hash', kbd: 'G C' },
+    ]
+  },
+  {
+    section: 'TOOLS', items: [
+      { id: 'timer', label: 'Time Tracker', icon: 'timer', kbd: 'G I' },
+      { id: 'notes', label: 'Notes', icon: 'note', kbd: 'G N' },
+      { id: 'email', label: 'Email Hub', icon: 'mail', kbd: 'G E' },
+      { id: 'toolkit', label: 'Dev Toolkit', icon: 'tool', kbd: 'G D' },
+      { id: 'flutter-init', label: 'Flutter Init', icon: 'flame', kbd: 'G F' },
+    ]
+  },
+  {
+    section: 'PLATFORMS', items: [
+      { id: 'github', label: 'GitHub Hub', icon: 'github', kbd: 'G G' },
+      { id: 'vercel', label: 'Vercel', icon: 'triangle', kbd: 'G K' },
+    ]
+  },
+  {
+    section: 'PERSONAL', items: [
+      { id: 'learning', label: 'Learning Path', icon: 'book', kbd: 'G L' },
+      { id: 'vault', label: 'Vault', icon: 'lock', kbd: 'G V' },
+    ]
+  },
+  {
+    section: 'ADMIN', items: [
+      { id: 'settings', label: 'Settings', icon: 'settings', kbd: 'G S' },
+    ]
+  },
 ];
 
 // Flat list (for cmd palette + lookup)
@@ -130,11 +144,11 @@ const WorkstationPanel = ({ open, onClose, workstations = [], active, onSwitch, 
           </div>
           <button className="ws-panel-close" onClick={onClose}><Icon name="x" size={16} /></button>
         </div>
-        
+
         <div className="ws-panel-list">
           {workstations.map(ws => (
-            <div 
-              key={ws.id} 
+            <div
+              key={ws.id}
               className={'ws-item' + (ws.id === active?.id ? ' active' : '')}
               onClick={() => { onSwitch(ws); onClose(); }}
             >
@@ -149,7 +163,7 @@ const WorkstationPanel = ({ open, onClose, workstations = [], active, onSwitch, 
               )}
             </div>
           ))}
-          
+
           <button className="ws-panel-add" onClick={() => { onNew(); onClose(); }}>
             <div className="ic"><Icon name="plus" size={14} /></div>
             <span>Create new workspace</span>
@@ -184,7 +198,7 @@ export const Sidebar = ({
         <span className="label">Orbit</span>
         <span className="v">v1.0</span>
       </div>
-      
+
       <div className="sb-scroll">
         {NAV.map(g => (
           <div key={g.section}>
@@ -206,8 +220,8 @@ export const Sidebar = ({
       </div>
 
       <div className="sb-foot">
-        <div 
-          className="sb-user" 
+        <div
+          className="sb-user"
           onClick={() => setPanelOpen(true)}
           style={{ cursor: 'pointer' }}
           title="Switch workspace"
@@ -217,11 +231,11 @@ export const Sidebar = ({
             <div className="ava-dot" style={{ background: activeWorkstation?.color || 'var(--accent)' }} />
           </div>
           <div className="meta">
-            <div className="n">{user?.name  || 'User'}</div>
+            <div className="n">{user?.name || 'User'}</div>
             <div className="e">{activeWorkstation?.name || 'Workspace'}</div>
           </div>
         </div>
-        
+
         <div className="sb-collapse-row">
           <button className="sb-collapse-btn" onClick={onToggleCollapsed}>
             <span className="label">{collapsed ? 'EXPAND' : 'COLLAPSE'}</span>
@@ -237,8 +251,8 @@ export const Sidebar = ({
         </div>
       </div>
 
-      <WorkstationPanel 
-        open={panelOpen} 
+      <WorkstationPanel
+        open={panelOpen}
         onClose={() => setPanelOpen(false)}
         workstations={workstations}
         active={activeWorkstation}
@@ -271,14 +285,14 @@ export const Topbar = ({ onOpenCmdK, timer, onTimerJump, theme = 'dark', onTheme
       <button className="tb-icon-btn" title={isLight ? 'Switch to dark mode' : 'Switch to light mode'} onClick={onThemeToggle}>
         {isLight ? (
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         ) : (
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-            <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+            <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
           </svg>
         )}
       </button>
@@ -325,7 +339,7 @@ export const CmdPalette = ({ open, onClose, onNav }) => {
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
 
-  useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(()=>inputRef.current?.focus(), 50);} }, [open]);
+  useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => inputRef.current?.focus(), 50); } }, [open]);
 
   const ACTIONS = [
     { type: 'action', label: 'Start new timer', hint: 'T S', icon: 'play', do: () => { onNav('timer'); onClose(); } },
@@ -345,13 +359,13 @@ export const CmdPalette = ({ open, onClose, onNav }) => {
   const onKey = (e) => {
     if (e.key === 'Escape') { onClose(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setSel(s => Math.min(filtered.length - 1, s + 1)); }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); setSel(s => Math.max(0, s - 1)); }
-    if (e.key === 'Enter')     { e.preventDefault(); filtered[sel]?.do(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSel(s => Math.max(0, s - 1)); }
+    if (e.key === 'Enter') { e.preventDefault(); filtered[sel]?.do(); }
   };
 
   if (!open) return null;
   const actions = filtered.filter(a => a.type === 'action');
-  const navs    = filtered.filter(a => a.type === 'nav');
+  const navs = filtered.filter(a => a.type === 'nav');
 
   let idx = -1;
   const renderRow = (a) => {
@@ -359,7 +373,7 @@ export const CmdPalette = ({ open, onClose, onNav }) => {
     const i = idx;
     return (
       <div key={a.label} className={'cmdk-row' + (i === sel ? ' sel' : '')}
-           onMouseEnter={()=>setSel(i)} onClick={a.do}>
+        onMouseEnter={() => setSel(i)} onClick={a.do}>
         <span className="ic"><Icon name={a.icon} size={14} /></span>
         <span className="t">{a.label}</span>
         {a.hint && <span className="h">{a.hint}</span>}
@@ -369,10 +383,10 @@ export const CmdPalette = ({ open, onClose, onNav }) => {
 
   return (
     <div className="cmdk-back" onClick={onClose}>
-      <div className="cmdk" onClick={e=>e.stopPropagation()}>
+      <div className="cmdk" onClick={e => e.stopPropagation()}>
         <input ref={inputRef} className="cmdk-input"
           placeholder="Search or run a command…"
-          value={q} onChange={e=>setQ(e.target.value)} onKeyDown={onKey} />
+          value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey} />
         <div className="cmdk-list">
           {actions.length > 0 && <div className="cmdk-sec">Actions</div>}
           {actions.map(renderRow)}

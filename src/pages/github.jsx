@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
+import { renderMd } from './tools.jsx';
 import { ghGetUser, ghGetRepos, ghGetPRs, ghGetIssues, ghGetActivity, ghGetActivityAll, ghGetBranches, ghGetRepoCommits, ghGetRepoLanguages, ghGetRepoContributors } from '../lib/github.js';
 
 const LANG_COLORS = {
@@ -34,7 +35,7 @@ function NotConnected({ onGoSettings }) {
 }
 
 // ── Repo detail panel ─────────────────────────────────────────────────
-function RepoDetailPanel({ repo, token, onClose }) {
+function RepoDetailPanel({ repo, onClose }) {
   const [branches,     setBranches]     = useState([]);
   const [commits,      setCommits]      = useState([]);
   const [langs,        setLangs]        = useState({});
@@ -46,14 +47,14 @@ function RepoDetailPanel({ repo, token, onClose }) {
     setLoading(true);
     setBranches([]); setCommits([]); setLangs({}); setContributors([]);
     Promise.all([
-      ghGetBranches(token, repo.full_name).catch(() => []),
-      ghGetRepoCommits(token, repo.full_name).catch(() => []),
-      ghGetRepoLanguages(token, repo.full_name).catch(() => ({})),
-      ghGetRepoContributors(token, repo.full_name).catch(() => []),
+      ghGetBranches(repo.full_name).catch(() => []),
+      ghGetRepoCommits(repo.full_name).catch(() => []),
+      ghGetRepoLanguages(repo.full_name).catch(() => ({})),
+      ghGetRepoContributors(repo.full_name).catch(() => []),
     ]).then(([b, c, l, co]) => {
       setBranches(b); setCommits(c); setLangs(l); setContributors(co);
     }).finally(() => setLoading(false));
-  }, [repo?.full_name, token]);
+  }, [repo?.full_name]);
 
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };
@@ -233,7 +234,7 @@ function RepoDetailPanel({ repo, token, onClose }) {
 }
 
 // ── Repos tab ─────────────────────────────────────────────────────────
-function ReposTab({ token }) {
+function ReposTab() {
   const [repos,       setRepos]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState('');
@@ -242,8 +243,8 @@ function ReposTab({ token }) {
   const [selectedRepo, setSelectedRepo] = useState(null);
 
   useEffect(() => {
-    ghGetRepos(token).then(setRepos).catch(console.error).finally(() => setLoading(false));
-  }, [token]);
+    ghGetRepos().then(setRepos).catch(console.error).finally(() => setLoading(false));
+  }, []);
 
   const langs = useMemo(() => ['all', ...new Set(repos.map(r => r.language).filter(Boolean))], [repos]);
 
@@ -315,23 +316,23 @@ function ReposTab({ token }) {
         {filtered.length === 0 && <div className="gh-empty-msg">No repositories match your filters.</div>}
       </div>
 
-      <RepoDetailPanel repo={selectedRepo} token={token} onClose={() => setSelectedRepo(null)} />
+      <RepoDetailPanel repo={selectedRepo} onClose={() => setSelectedRepo(null)} />
     </div>
   );
 }
 
 // ── Pull Requests tab ─────────────────────────────────────────────────
-function PRsTab({ token }) {
+function PRsTab() {
   const [prs,     setPrs]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    ghGetPRs(token)
+    ghGetPRs()
       .then(d => setPrs(d.items || []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, []);
 
   if (loading) return <div className="gh-spin-wrap"><div className="gh-spin" /></div>;
   if (error)   return <div className="gh-error">{error}</div>;
@@ -368,18 +369,138 @@ function PRsTab({ token }) {
   );
 }
 
+// ── Issue detail panel ────────────────────────────────────────────────
+function IssueDetailPanel({ issue, onClose }) {
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (!issue) return null;
+
+  const repo = issue.repository_url.replace('https://api.github.com/repos/', '');
+  const isOpen = issue.state === 'open';
+
+  return (
+    <>
+      <div className="rd-backdrop" onClick={onClose} />
+      <div className="rd-panel">
+
+        {/* Header */}
+        <div className="rd-header">
+          <div className="rd-title">
+            <Icon name="flag" size={14} />
+            <span className="rd-owner">{repo}</span>
+            <span className="rd-name">#{issue.number}</span>
+          </div>
+          <div className="rd-header-actions">
+            <a href={issue.html_url} target="_blank" rel="noreferrer" className="btn ghost xs">
+              <Icon name="external-link" size={12} />Open on GitHub
+            </a>
+            <button className="btn ghost xs icon-btn" onClick={onClose} title="Close (Esc)">
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        </div>
+
+        <div className="rd-body">
+
+          {/* Title + state */}
+          <div className="issue-dp-title">{issue.title}</div>
+          <div className="issue-dp-meta-row">
+            <span className={`issue-dp-state ${isOpen ? 'issue-dp-open' : 'issue-dp-closed'}`}>
+              <Icon name={isOpen ? 'alert-circle' : 'check-circle'} size={11} />
+              {isOpen ? 'Open' : 'Closed'}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              opened {timeAgo(issue.created_at)} by <strong style={{ color: 'var(--text-2)' }}>{issue.user?.login}</strong>
+            </span>
+          </div>
+
+          {/* Labels */}
+          {issue.labels?.length > 0 && (
+            <div className="rd-section">
+              <div className="rd-section-label">Labels</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {issue.labels.map(l => (
+                  <span key={l.id} className="gh-label-chip"
+                    style={{ background: `#${l.color}22`, color: `#${l.color}`, borderColor: `#${l.color}44` }}>
+                    {l.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Assignees */}
+          {issue.assignees?.length > 0 && (
+            <div className="rd-section">
+              <div className="rd-section-label"><Icon name="user" size={12} />Assignees</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {issue.assignees.map(a => (
+                  <div key={a.id} className="rd-contrib-row">
+                    <img src={a.avatar_url} alt={a.login} className="rd-contrib-avatar" />
+                    <span className="rd-contrib-login">{a.login}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Milestone */}
+          {issue.milestone && (
+            <div className="rd-section">
+              <div className="rd-meta-item">
+                <span className="rd-meta-label">Milestone</span>
+                <span className="rd-meta-val">{issue.milestone.title}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Summary / Body */}
+          <div className="rd-section">
+            <div className="rd-section-label"><Icon name="file-text" size={12} />Summary</div>
+            {issue.body?.trim() ? (
+              <div
+                className="issue-dp-body note-preview"
+                dangerouslySetInnerHTML={{ __html: renderMd(issue.body.trim()) }}
+              />
+            ) : (
+              <div className="rd-empty">No description provided.</div>
+            )}
+          </div>
+
+          {/* Comments footer */}
+          {issue.comments > 0 && (
+            <div className="issue-dp-comments">
+              <Icon name="message-square" size={13} />
+              <span>{issue.comments} comment{issue.comments !== 1 ? 's' : ''}</span>
+              <a href={issue.html_url} target="_blank" rel="noreferrer" className="btn ghost xs" style={{ marginLeft: 'auto' }}>
+                View comments on GitHub
+              </a>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Issues tab ────────────────────────────────────────────────────────
-function IssuesTab({ token }) {
-  const [issues,  setIssues]  = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+function IssuesTab() {
+  const [issues,        setIssues]        = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [selectedIssue, setSelectedIssue] = useState(null);
 
   useEffect(() => {
-    ghGetIssues(token)
+    ghGetIssues()
       .then(d => setIssues(d.filter(i => !i.pull_request)))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, []);
 
   if (loading) return <div className="gh-spin-wrap"><div className="gh-spin" /></div>;
   if (error)   return <div className="gh-error">{error}</div>;
@@ -389,8 +510,14 @@ function IssuesTab({ token }) {
       {issues.length === 0 && <div className="gh-empty-msg">No open issues assigned to you.</div>}
       {issues.map(issue => {
         const repo = issue.repository_url.replace('https://api.github.com/repos/', '');
+        const isActive = selectedIssue?.id === issue.id;
         return (
-          <a key={issue.id} className="gh-list-row" href={issue.html_url} target="_blank" rel="noreferrer">
+          <div
+            key={issue.id}
+            className={`gh-list-row${isActive ? ' gh-repo-card-active' : ''}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => setSelectedIssue(i => i?.id === issue.id ? null : issue)}
+          >
             <div className="gh-list-ic gh-ic-issue"><Icon name="flag" size={13} /></div>
             <div className="gh-list-body">
               <div className="gh-list-title">{issue.title}</div>
@@ -409,9 +536,11 @@ function IssuesTab({ token }) {
             {issue.comments > 0 && (
               <div className="gh-list-cmt"><Icon name="message-square" size={12} />{issue.comments}</div>
             )}
-          </a>
+          </div>
         );
       })}
+
+      <IssueDetailPanel issue={selectedIssue} onClose={() => setSelectedIssue(null)} />
     </div>
   );
 }
@@ -714,7 +843,7 @@ function buildMonths(events, repoLangMap) {
 
 const MONTHS_PER_PAGE = 2;
 
-function ActivityTab({ token, username }) {
+function ActivityTab({ username }) {
   const [events,    setEvents]    = useState([]);
   const [repos,     setRepos]     = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -724,13 +853,13 @@ function ActivityTab({ token, username }) {
   useEffect(() => {
     if (!username) return;
     Promise.all([
-      ghGetActivityAll(token, username),
-      ghGetRepos(token).catch(() => []),
+      ghGetActivityAll(username),
+      ghGetRepos().catch(() => []),
     ])
       .then(([evs, rps]) => { setEvents(evs); setRepos(rps); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token, username]);
+  }, [username]);
 
   const repoLangMap = useMemo(() => {
     const m = {};
@@ -908,13 +1037,13 @@ export function GitHubPage({ onNav }) {
       if (!user) { setLoading(false); return; }
       const { data } = await supabase
         .from('user_integrations')
-        .select('*')
+        .select('username, display_name, avatar_url, email, metadata, connected_at')
         .eq('user_id', user.id)
         .eq('provider', 'github')
         .maybeSingle();
       if (data) {
         setInteg(data);
-        ghGetUser(data.access_token).then(setGhUser).catch(() => {});
+        ghGetUser().then(setGhUser).catch(() => {});
       }
     }).finally(() => setLoading(false));
   }, []);
@@ -922,7 +1051,6 @@ export function GitHubPage({ onNav }) {
   if (loading) return <div className="gh-page"><div className="gh-spin-wrap full"><div className="gh-spin" /></div></div>;
   if (!integ)  return <div className="gh-page"><NotConnected onGoSettings={onNav} /></div>;
 
-  const token    = integ.access_token;
   const username = ghUser?.login || integ.username;
   const avatar   = ghUser?.avatar_url || integ.avatar_url;
 
@@ -969,10 +1097,10 @@ export function GitHubPage({ onNav }) {
           ))}
         </div>
         <div className="gh-tab-content">
-          {tab === 'repos'    && <ReposTab    token={token} />}
-          {tab === 'prs'      && <PRsTab      token={token} />}
-          {tab === 'issues'   && <IssuesTab   token={token} />}
-          {tab === 'activity' && <ActivityTab token={token} username={username} />}
+          {tab === 'repos'    && <ReposTab    />}
+          {tab === 'prs'      && <PRsTab      />}
+          {tab === 'issues'   && <IssuesTab   />}
+          {tab === 'activity' && <ActivityTab username={username} />}
         </div>
       </div>
     </div>

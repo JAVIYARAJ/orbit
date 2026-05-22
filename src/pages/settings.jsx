@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
 import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities } from '../lib/db.js';
+import { vcClearCache } from '../lib/vercel.js';
 
 const INTEGRATION_ICON = {
   GitHub: 'github',
@@ -346,8 +347,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   useEffect(() => {
     if (!user?.id) return;
 
-    // Edge function already saved the token — just read from DB
-    supabase.from('user_integrations').select('*').eq('user_id', user.id).eq('provider', 'github').maybeSingle()
+    supabase.from('user_integrations').select('username, display_name, avatar_url, email, scopes, connected_at').eq('user_id', user.id).eq('provider', 'github').maybeSingle()
       .then(({ data }) => setGithubInteg(data || null))
       .catch(() => setGithubInteg(null))
       .finally(() => setGhLoading(false));
@@ -355,7 +355,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
 
   const connectGitHub = () => {
     setGhError('');
-    const EDGE_FN = 'https://sbogupxrurpsybzivrpk.supabase.co/functions/v1/github-oauth';
+    const EDGE_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-oauth`;
     const params = new URLSearchParams({
       client_id:    'Ov23li4xj01qD2wkGOPk',
       scope:        'repo delete_repo read:user user:email',
@@ -374,6 +374,63 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
       setGhError(e.message);
     } finally {
       setGhDisconnecting(false);
+    }
+  };
+
+  // ── Vercel integration ──────────────────────────────────────────────
+  const [vercelInteg,     setVercelInteg]     = useState(null);
+  const [vcLoading,       setVcLoading]       = useState(true);
+  const [vcDisconnecting, setVcDisconnecting] = useState(false);
+  const [vcError,         setVcError]         = useState('');
+  const [vcPATOpen,       setVcPATOpen]       = useState(false);
+  const [vcToken,         setVcToken]         = useState('');
+  const [vcSaving,        setVcSaving]        = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase.from('user_integrations').select('username, display_name, email, connected_at').eq('user_id', user.id).eq('provider', 'vercel').maybeSingle()
+      .then(({ data }) => setVercelInteg(data || null))
+      .catch(() => setVercelInteg(null))
+      .finally(() => setVcLoading(false));
+  }, [user?.id]);
+
+  const connectVercel = () => {
+    setVcError('');
+    setVcToken('');
+    setVcPATOpen(true);
+  };
+
+  const saveVercelToken = async () => {
+    const token = vcToken.trim();
+    if (!token) { setVcError('Paste your Vercel token first.'); return; }
+    setVcSaving(true);
+    setVcError('');
+    try {
+      const { data, error } = await supabase.functions.invoke('save-vercel-token', {
+        body: { token },
+      });
+      if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to connect Vercel.');
+      vcClearCache();
+      setVercelInteg({ username: data.username, display_name: data.display_name, connected_at: data.connected_at });
+      setVcPATOpen(false);
+      setVcToken('');
+    } catch (e) {
+      setVcError(e.message || 'Failed to connect Vercel.');
+    } finally {
+      setVcSaving(false);
+    }
+  };
+
+  const disconnectVercel = async () => {
+    setVcDisconnecting(true);
+    try {
+      await supabase.from('user_integrations').delete().eq('user_id', user.id).eq('provider', 'vercel');
+      vcClearCache();
+      setVercelInteg(null);
+    } catch (e) {
+      setVcError(e.message);
+    } finally {
+      setVcDisconnecting(false);
     }
   };
 
@@ -693,7 +750,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
 
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('gh_callback') === '1' ? 'integrations' : 'profile';
+    return (params.get('gh_callback') === '1' || params.get('vc_callback') === '1')
+      ? 'integrations'
+      : 'profile';
   });
   const [activeSubTab, setActiveSubTab] = useState('kanban-cols'); // for nested navigation
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, label: '' });
@@ -1214,7 +1273,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     <p>Sync your external developer accounts. Your tokens are stored securely per user.</p>
                   </div>
 
-                  {ghError && <div className="form-error" style={{ marginBottom: 12 }}>{ghError}</div>}
+                  {ghError && (
+                    <div className="form-error" style={{ marginBottom: 12 }}>{ghError}</div>
+                  )}
 
                   {/* GitHub card */}
                   <div className={`intg-real-card ${githubInteg ? 'connected' : ''}`}>
@@ -1234,7 +1295,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                             Connected
                             {githubInteg.connected_at && (
                               <span className="intg-connected-time" style={{ marginLeft: 4 }}>
-                                · connected {new Date(githubInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                · {new Date(githubInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                               </span>
                             )}
                           </div>
@@ -1256,11 +1317,55 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     </div>
                   </div>
 
+                  {/* Vercel card */}
+                  <div className={`intg-real-card ${vercelInteg ? 'connected' : ''}`}>
+                    <div className="intg-real-left">
+                      <div className="intg-real-icon">
+                        <Icon name="triangle" size={22} />
+                      </div>
+                      <div className="intg-real-info">
+                        <div className="intg-real-name">Vercel</div>
+                        {vcLoading ? (
+                          <div className="intg-real-sub">Checking…</div>
+                        ) : vercelInteg ? (
+                          <div className="intg-real-sub connected">
+                            <span>@{vercelInteg.username}</span>
+                            <span className="intg-connected-dot" />
+                            Connected
+                            {vercelInteg.connected_at && (
+                              <span className="intg-connected-time" style={{ marginLeft: 4 }}>
+                                · {new Date(vercelInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="intg-real-sub">View projects, deployments and domains</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="intg-real-right">
+                      {vercelInteg ? (
+                        <button className="intg-btn-disconnect" onClick={disconnectVercel} disabled={vcDisconnecting}>
+                          <Icon name="x" size={13} /> {vcDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      ) : (
+                        <button className="intg-btn-connect" onClick={connectVercel} disabled={vcLoading}>
+                          <Icon name="triangle" size={13} /> Connect Vercel
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {vcError && (
+                    <div className="form-error" style={{ marginBottom: 4 }}>
+                      <Icon name="alert-circle" size={12} /> {vcError}
+                    </div>
+                  )}
+
                   <div className="intg-coming-soon-grid">
                     {[
                       { name: 'Slack',  icon: 'message-square', color: '#4A154B' },
                       { name: 'Linear', icon: 'layers',          color: '#5E6AD2' },
-                      { name: 'Vercel', icon: 'triangle',        color: '#888'    },
                       { name: 'Stripe', icon: 'credit-card',     color: '#0070BA' },
                     ].map(p => (
                       <div key={p.name} className="intg-soon-card">
@@ -1315,6 +1420,49 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
             <div className="modal-ft">
               <button className="btn ghost" onClick={() => setTagDeleteConfirm({ isOpen: false, id: null, name: '' })}>Cancel</button>
               <button className="btn primary danger" onClick={handleConfirmDeleteTag}>Delete Tag</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vercel PAT Modal */}
+      {vcPATOpen && (
+        <div className="modal-overlay" onClick={() => { setVcPATOpen(false); setVcError(''); }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-hd">
+              <h3>Connect Vercel</h3>
+              <button className="modal-close" onClick={() => { setVcPATOpen(false); setVcError(''); }}>
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 12, color: 'var(--text-3)', fontSize: 13 }}>
+                Generate a token at{' '}
+                <a href="https://vercel.com/account/tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
+                  vercel.com/account/tokens
+                </a>
+                , then paste it below.
+              </p>
+              <input
+                type="password"
+                className="input-premium"
+                placeholder="Paste your Vercel token…"
+                value={vcToken}
+                onChange={e => { setVcToken(e.target.value); setVcError(''); }}
+                onKeyDown={e => e.key === 'Enter' && saveVercelToken()}
+                autoFocus
+              />
+              {vcError && (
+                <div className="form-error" style={{ marginTop: 8 }}>
+                  <Icon name="alert-circle" size={12} /> {vcError}
+                </div>
+              )}
+            </div>
+            <div className="modal-ft">
+              <button className="btn ghost" onClick={() => { setVcPATOpen(false); setVcError(''); }}>Cancel</button>
+              <button className="btn primary" onClick={saveVercelToken} disabled={vcSaving || !vcToken.trim()}>
+                {vcSaving ? 'Connecting…' : 'Connect'}
+              </button>
             </div>
           </div>
         </div>
