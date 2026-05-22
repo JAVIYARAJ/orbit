@@ -103,6 +103,20 @@ const EmptyState = ({ icon, title, desc }) => (
   </div>
 );
 
+// ─── Custom X-axis tick with optional week label below ────────────
+const CustomXTick = ({ x, y, payload, index, showWeek }) => (
+  <g transform={`translate(${x},${y})`}>
+    <text x={0} y={0} dy={12} textAnchor="middle" fontSize={9} fontFamily="var(--f-mono)" fill="var(--text-3)">
+      {payload.value}
+    </text>
+    {showWeek && (
+      <text x={0} y={0} dy={24} textAnchor="middle" fontSize={8} fontFamily="var(--f-mono)" fill="var(--text-3)" opacity={0.55}>
+        W{index + 1}
+      </text>
+    )}
+  </g>
+);
+
 // ─── Custom bar tooltip ───────────────────────────────────────────
 const BarTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -371,10 +385,10 @@ export const Analytics = ({
                 />
               ) : (
                 <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={activityData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barCategoryGap="30%">
+                  <BarChart data={activityData} margin={{ top: 4, right: 4, left: -20, bottom: (period === 'month' || period === 'quarter') ? 10 : 0 }} barCategoryGap="30%">
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 9, fontFamily: 'var(--f-mono)', fill: 'var(--text-3)' }} tickLine={false} axisLine={false} interval={period === 'quarter' ? 2 : 0} />
-                    <YAxis tick={{ fontSize: 9, fontFamily: 'var(--f-mono)', fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
+                    <XAxis dataKey="label" tick={<CustomXTick showWeek={period === 'month' || period === 'quarter'} />} tickLine={false} axisLine={false} interval={period === 'quarter' ? 2 : 0} />
+                    <YAxis tick={{ fontSize: 9, fontFamily: 'var(--f-mono)', fill: 'var(--text-3)' }} tickLine={false} axisLine={false} tickFormatter={(v) => v === 0 ? '0' : `${v}h`} />
                     <Tooltip content={<BarTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                     <Bar dataKey="hours" radius={[3, 3, 0, 0]} maxBarSize={28}>
                       {activityData.map((d, i) => (

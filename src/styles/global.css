@@ -2091,19 +2091,7 @@ body.texture-grid::before {
   transition: all 0.2s;
 }
 
-.dot-p.p1 {
-  background: var(--p1);
-  box-shadow: 0 0 8px rgba(255, 61, 61, 0.5);
-}
-
-.dot-p.p2 {
-  background: var(--p2);
-  box-shadow: 0 0 8px rgba(255, 149, 0, 0.3);
-}
-
-.dot-p.p3 {
-  background: var(--p3);
-}
+/* Priority dots now use inline style background color set dynamically from DB */
 
 /* Section/cards */
 .card {

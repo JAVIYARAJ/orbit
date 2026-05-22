@@ -178,7 +178,7 @@ const WeekLineChart = ({ data, todayIdx }) => {
   );
 };
 
-export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, statuses = [], setTasks, workstationId, onTimerPause, onTimerResume, onTimerStop }) => {
+export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, statuses = [], priorities = [], setTasks, workstationId, onTimerPause, onTimerResume, onTimerStop }) => {
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const isoStr = today.toISOString().slice(0, 10);
@@ -209,11 +209,13 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
   const planningCount = projects.filter(p => p.status === 'planning').length;
   const overdueCount = tasks.filter(t => t.due && t.due !== '—' && t.due < isoStr && t.col !== doneStatusId).length;
 
-  // Priority counts across non-done tasks
+  // Priority counts across non-done tasks (dynamic, keyed by priority ID)
   const nonDoneTasks = tasks.filter(t => t.col !== doneStatusId);
-  const p1Count = nonDoneTasks.filter(t => t.p === 1).length;
-  const p2Count = nonDoneTasks.filter(t => t.p === 2).length;
-  const p3Count = nonDoneTasks.filter(t => t.p === 3).length;
+  const sortedPriorities = [...priorities].sort((a, b) => a.order - b.order);
+  const prioCounts = sortedPriorities.map(pr => ({
+    ...pr,
+    count: nonDoneTasks.filter(t => t.p === pr.id).length,
+  })).filter(pr => pr.count > 0);
   const templatePreview = (emailTemplates || []).slice(0, 3);
 
   const todayIdx = (today.getDay() + 6) % 7; // 0 = Mon
@@ -457,9 +459,13 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
                 <span className="t">Sprint Radar</span>
                 <span className="cc-title-badge">{todayTasks.length} {todayTasks.length === 1 ? 'task' : 'tasks'}</span>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                {p1Count > 0 && <span className="cc-task-row p-badge p1" style={{ border: 0, padding: '2px 6px' }}>P1 · {p1Count}</span>}
-                {p2Count > 0 && <span className="cc-task-row p-badge p2" style={{ border: 0, padding: '2px 6px' }}>P2 · {p2Count}</span>}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {prioCounts.map(pr => (
+                  <span key={pr.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono)', fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: pr.color + '22', color: pr.color, border: `1px solid ${pr.color}44` }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: pr.color, flexShrink: 0 }} />
+                    {pr.label} · {pr.count}
+                  </span>
+                ))}
                 <button className="btn sm" onClick={() => onNav('tasks')} style={{ padding: '4px 10px', fontSize: 10 }}>View All <Icon name="chev" size={8} /></button>
               </div>
             </div>
@@ -475,8 +481,8 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
                     <div className={`cc-checkbox ${t.col === doneStatusId ? 'checked' : ''}`}>
                       <Icon name="check" size={10} />
                     </div>
-                    <span className={`p-badge p${t.p}`}>{t.p === 1 ? 'P1' : t.p === 2 ? 'P2' : 'P3'}</span>
                     <div className="title">{t.title}</div>
+                    {(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'var(--f-mono)', fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: pr.color + '22', color: pr.color, border: `1px solid ${pr.color}44`, flexShrink: 0 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: pr.color }} />{pr.label}</span> : null; })()}
                     <div className="meta" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t.due ? formatDate(t.due) : '—'}</span>
                       <span className="tag accent" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={projName}>
@@ -1673,11 +1679,12 @@ const TagPicker = ({ selectedIds = [], onChange, allTags = [], onCreateTag }) =>
   );
 };
 
-const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart, onDragEnd, onClick }) => {
+const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities = [], onDragStart, onDragEnd, onClick }) => {
   const proj = projects.find(p => p.id === t.proj);
   const subs = tasks ? tasks.filter(s => s.parentId === t._dbId) : [];
   const subsDone = doneStatusId ? subs.filter(s => s.col === doneStatusId).length : 0;
   const isDone = doneStatusId && t.col === doneStatusId;
+  const prioObj = priorities.find(pr => pr.id === t.p);
   return (
     <div
       className={'tcard' + (isDone ? ' tcard-done' : getDueClass(t.due).includes('overdue') ? ' overdue' : '')}
@@ -1687,7 +1694,7 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart,
       onClick={onClick}
     >
       <div className="top">
-        <span key={t.p} className={'dot-p p' + t.p}></span>
+        {prioObj && <span className="dot-p" style={{ background: prioObj.color }} title={prioObj.label}></span>}
         <span className="id">{t.id}</span>
         {(t.tags || []).slice(0, 2).map(id => {
           const tag = allTags.find(x => x.id === id);
@@ -1937,7 +1944,6 @@ const DescriptionField = ({ value, onChange }) => {
 };
 
 // ── Task Detail Panel (Jira-style right drawer) ────────────────────
-const P_DOT_COLOR = { 1: '#ef4444', 2: 'var(--accent)', 3: 'var(--text-3)' };
 
 const fmtMin = (min) => {
   if (!min || min < 1) return '—';
@@ -1949,7 +1955,7 @@ const fmtMin = (min) => {
 };
 
 const TaskDetailModal = ({
-  task, projects, statuses = [], subtasks = [], allTasks = [], onClose, onSave, onStatusChange,
+  task, projects, statuses = [], priorities = [], subtasks = [], allTasks = [], onClose, onSave, onStatusChange,
   onAddSubtask, onLinkSubtask, onOpenSubtask, parentTask, onBack,
   allTags = [], onCreateTag,
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
@@ -1958,6 +1964,7 @@ const TaskDetailModal = ({
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
   const COL_LABEL = Object.fromEntries(statuses.map(s => [s.id, s.label]));
+  const PRIO_MAP  = Object.fromEntries(priorities.map(p => [p.id, p]));
   const proj = projects.find(p => p.id === task.proj);
 
   // 'done' status UUID — used for subtask completion percentage
@@ -1970,14 +1977,19 @@ const TaskDetailModal = ({
     return Math.abs(idx - taskColIdx) <= 1;
   };
 
-  const toForm = (t) => ({
-    title: t.title,
-    description: t.description || '',
-    col: t.col,
-    p: String(t.p),
-    due: (!t.due || t.due === '—') ? '' : t.due,
-    tagIds: t.tags || [],
-  });
+  const toForm = (t) => {
+    const totalMin = t.estMinutes || 0;
+    return {
+      title: t.title,
+      description: t.description || '',
+      col: t.col,
+      p: t.p || null,
+      due: (!t.due || t.due === '—') ? '' : t.due,
+      tagIds: t.tags || [],
+      estH: totalMin > 0 ? String(Math.floor(totalMin / 60)) : '',
+      estM: totalMin > 0 ? String(totalMin % 60) : '',
+    };
+  };
 
   const [form, setForm] = useStateA(() => toForm(task));
   const [saving, setSaving] = useStateA(false);
@@ -2190,9 +2202,10 @@ const TaskDetailModal = ({
         title: form.title.trim(),
         description: form.description,
         col: form.col,
-        p: parseInt(form.p),
+        p: form.p || null,
         due: form.due || '—',
         tags: form.tagIds,
+        estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
       });
     } catch (e) {
       setErr(e.message || 'Failed to save.');
@@ -2203,7 +2216,7 @@ const TaskDetailModal = ({
   // ── Subtask add form ────────────────────────────────────────────
   // Default subtask status: the first status in sequence (index 0)
   const defaultStatusId = statuses[0]?.id || '';
-  const subEmpty = { title: '', description: '', p: '2', col: defaultStatusId, due: '', tagIds: [] };
+  const subEmpty = { title: '', description: '', p: priorities[0]?.id || null, col: defaultStatusId, due: '', tagIds: [] };
   const [subForm, setSubForm] = useStateA(subEmpty);
   const [subSaving, setSubSaving] = useStateA(false);
   const [subErr, setSubErr] = useStateA('');
@@ -2248,7 +2261,7 @@ const TaskDetailModal = ({
       await onAddSubtask({
         proj: task.proj,
         col: subForm.col,
-        p: parseInt(subForm.p),
+        p: subForm.p || null,
         title: subForm.title.trim(),
         description: subForm.description,
         due: subForm.due || '—',
@@ -2267,6 +2280,7 @@ const TaskDetailModal = ({
 
   const doneCount = subtasks.filter(s => s.col === doneStatusId).length;
   const subPct = subtasks.length > 0 ? Math.round((doneCount / subtasks.length) * 100) : 0;
+  const subLoggedTotal = subtasks.reduce((sum, s) => sum + (s.loggedMinutes || 0), 0);
 
   const createdStr = task.createdAt
     ? new Date(task.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -2326,6 +2340,12 @@ const TaskDetailModal = ({
                     {subtasks.length > 0 && (
                       <span className="subtasks-count">{doneCount}/{subtasks.length}</span>
                     )}
+                    {subLoggedTotal > 0 && (
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <Icon name="timer" size={10} />
+                        {fmtMin(subLoggedTotal)} logged
+                      </span>
+                    )}
                   </span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button className="btn sm ghost" style={{ fontSize: 11 }}
@@ -2352,12 +2372,17 @@ const TaskDetailModal = ({
                   <div className="subtasks-list">
                     {subtasks.map(sub => (
                       <div key={sub.id} className="subtask-row" onClick={() => onOpenSubtask(sub)}>
-                        <span className={'dot-p p' + sub.p} />
+                        {(() => { const pr = PRIO_MAP[sub.p]; return <span className="dot-p" style={{ background: pr ? pr.color : 'var(--text-4)' }} />; })()}
                         <span className="subtask-title">{sub.title}</span>
                         <span className="subtask-meta">
                           <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: COL_COLOR[sub.col], textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             {COL_LABEL[sub.col]}
                           </span>
+                          {sub.loggedMinutes > 0 && (
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <Icon name="timer" size={9} />{fmtMin(sub.loggedMinutes)}
+                            </span>
+                          )}
                           {sub.due && sub.due !== '—' && (
                             <span className={getDueClass(sub.due)}>
                               {getDueClass(sub.due).includes('overdue') && <Icon name="alert" size={10} />}
@@ -2392,10 +2417,9 @@ const TaskDetailModal = ({
                       </div>
                       <div className="fld">
                         <label>Priority</label>
-                        <select value={subForm.p} onChange={e => setSub('p', e.target.value)}>
-                          <option value="1">P1 — Critical</option>
-                          <option value="2">P2 — Normal</option>
-                          <option value="3">P3 — Low</option>
+                        <select value={subForm.p || ''} onChange={e => setSub('p', e.target.value || null)}>
+                          <option value="">— None —</option>
+                          {priorities.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
                         </select>
                       </div>
                     </div>
@@ -2453,7 +2477,7 @@ const TaskDetailModal = ({
                             onClick={() => handleLinkExisting(t)}
                             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', textAlign: 'left', width: '100%', color: 'var(--text)' }}
                           >
-                            <span className={'dot-p p' + t.p} />
+                            {(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} /> : null; })()}
                             <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>{t.id}</span>
                             <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                           </button>
@@ -2644,11 +2668,10 @@ const TaskDetailModal = ({
             {/* Priority */}
             <div className="tpanel-prop">
               <div className="tpanel-prop-label">Priority</div>
-              <select className="tpanel-sel" value={form.p} onChange={e => set('p', e.target.value)}
-                style={{ borderLeftColor: P_DOT_COLOR[form.p], borderLeftWidth: 3 }}>
-                <option value="1">P1 — Critical</option>
-                <option value="2">P2 — Normal</option>
-                <option value="3">P3 — Low</option>
+              <select className="tpanel-sel" value={form.p || ''} onChange={e => set('p', e.target.value || null)}
+                style={{ borderLeftColor: PRIO_MAP[form.p]?.color || 'var(--border)', borderLeftWidth: 3 }}>
+                <option value="">— None —</option>
+                {priorities.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
               </select>
             </div>
 
@@ -2684,19 +2707,38 @@ const TaskDetailModal = ({
             {/* Time tracking */}
             <div className="tpanel-prop">
               <div className="tpanel-prop-label">Time</div>
-              <div style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-2)', display: 'flex', justifyContent: 'space-between' }}>
-                <span><span style={{ color: 'var(--text-3)' }}>EST </span>{fmtMin(task.estMinutes)}</span>
-                <span><span style={{ color: 'var(--text-3)' }}>LOG </span>{fmtMin(task.loggedMinutes)}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', flexShrink: 0 }}>EST</span>
+                <input
+                  type="number" min="0"
+                  value={form.estH}
+                  onChange={e => set('estH', e.target.value)}
+                  placeholder="0"
+                  style={{ width: 44, fontSize: 11, fontFamily: 'var(--f-mono)', background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4, padding: '2px 5px', textAlign: 'center' }}
+                />
+                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>h</span>
+                <input
+                  type="number" min="0" max="59"
+                  value={form.estM}
+                  onChange={e => set('estM', e.target.value)}
+                  placeholder="0"
+                  style={{ width: 44, fontSize: 11, fontFamily: 'var(--f-mono)', background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4, padding: '2px 5px', textAlign: 'center' }}
+                />
+                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>m</span>
+                <span style={{ marginLeft: 'auto', fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--text-3)' }}>
+                  LOG <span style={{ color: 'var(--text-2)' }}>{fmtMin(task.loggedMinutes)}</span>
+                </span>
               </div>
-              {task.estMinutes > 0 && (
-                <div style={{ height: 3, borderRadius: 2, background: 'var(--bg-3)', marginTop: 5 }}>
+              {(() => { const est = (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0); return est > 0 ? (
+                <div style={{ height: 3, borderRadius: 2, background: 'var(--bg-3)', marginTop: 2 }}>
                   <div style={{
-                    height: '100%', borderRadius: 2, background: task.loggedMinutes > task.estMinutes ? '#ef4444' : 'var(--accent-hi)',
-                    width: `${Math.min(100, Math.round((task.loggedMinutes / task.estMinutes) * 100))}%`,
+                    height: '100%', borderRadius: 2,
+                    background: task.loggedMinutes > est ? '#ef4444' : 'var(--accent-hi)',
+                    width: `${Math.min(100, Math.round((task.loggedMinutes / est) * 100))}%`,
                     transition: 'width 0.3s',
                   }} />
                 </div>
-              )}
+              ) : null; })()}
               <button
                 className="btn sm ghost"
                 style={{ marginTop: 8, width: '100%', fontSize: 10, letterSpacing: '0.06em' }}
@@ -3016,8 +3058,8 @@ const TaskDetailModal = ({
 const toBranchName = (title) =>
   'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuses = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
-  const empty = { title: '', proj: projects[0]?.id || '', p: '2', col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuses = [], priorities = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
+  const empty = { title: '', proj: projects[0]?.id || '', p: priorities[0]?.id || null, col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
   // Reset col when defaultCol (i.e. which column's + button was clicked) changes
@@ -3072,7 +3114,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
     const newTask = {
       proj: form.proj,
       col: form.col,
-      p: parseInt(form.p),
+      p: form.p || null,
       title: form.title.trim(),
       description: form.description,
       due: form.due || '—',
@@ -3138,10 +3180,9 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
           </div>
           <div className="fld">
             <label>Priority</label>
-            <select value={form.p} onChange={e => set('p', e.target.value)}>
-              <option value="1">P1 — Critical</option>
-              <option value="2">P2 — Normal</option>
-              <option value="3">P3 — Low</option>
+            <select value={form.p || ''} onChange={e => set('p', e.target.value || null)}>
+              <option value="">— None —</option>
+              {priorities.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
             </select>
           </div>
         </div>
@@ -3313,7 +3354,7 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, githubToken = null }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, githubToken = null }) => {
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view, setView] = useStateA('board');
@@ -3405,7 +3446,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   const filtered = displayTasks.filter(t =>
     (subFilter === 'subtask' ? !!t.parentId : !t.parentId) &&
     (projFilter === 'all' || t.proj === projFilter) &&
-    (prioFilter === 'all' || t.p === parseInt(prioFilter)) &&
+    (prioFilter === 'all' || t.p === prioFilter) &&
     (!sq || t.title.toLowerCase().includes(sq) || t.id.toLowerCase().includes(sq))
   );
   const byCol = (col) => filtered.filter(t => t.col === col);
@@ -3640,15 +3681,15 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 
           <div className="filter-bar">
             <div className="sliding-indicator" style={{ left: prioInd.left, width: prioInd.width }} />
-            {['all', '1', '2', '3'].map(v => (
+            {[{ id: 'all', label: 'All', color: 'var(--text-4)' }, ...priorities].map(v => (
               <button
-                key={v}
-                ref={el => prioRefs.current[v] = el}
-                className={'chip' + (prioFilter === v ? ' active' : '')}
-                onClick={() => setPrioFilter(v)}
+                key={v.id}
+                ref={el => prioRefs.current[v.id] = el}
+                className={'chip' + (prioFilter === v.id ? ' active' : '')}
+                onClick={() => setPrioFilter(v.id)}
               >
-                <span className="dot-p" style={{ background: v === 'all' ? 'var(--text-4)' : `var(--p${v})` }} />
-                {v === 'all' ? 'All Priorities' : `P${v}`}
+                <span className="dot-p" style={{ background: v.color }} />
+                {v.label}
               </button>
             ))}
           </div>
@@ -3791,7 +3832,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                     style={{ flexShrink: 0, color: 'var(--text-3)', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }}>
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
-                  {parent && <span className="dot-p" style={{ background: `var(--p${parent.p})`, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} />}
+                  {parent && (() => { const pr = priorities.find(p => p.id === parent.p); return pr ? <span className="dot-p" style={{ background: pr.color, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} /> : null; })()}
                   <span className="sg-pid">{parent?.id || '—'}</span>
                   <span className="sg-ptitle">{parent?.title || 'Unknown task'}</span>
                   <span className="sg-pcount">{subtasks.length} subtask{subtasks.length !== 1 ? 's' : ''}</span>
@@ -3820,7 +3861,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                         >
                           {items.map(t => (
                             <TaskCard key={t.id} t={t} tasks={tasks} projects={projects} allTags={tags}
-                              doneStatusId={doneStatusId} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+                              doneStatusId={doneStatusId} priorities={priorities} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
                               onClick={() => setViewingTask(t)} />
                           ))}
                           {items.length === 0 && <div className="sg-col-empty" />}
@@ -3861,6 +3902,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       projects={projects}
                       allTags={tags}
                       doneStatusId={doneStatusId}
+                      priorities={priorities}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       onClick={() => setViewingTask(t)}
@@ -3899,7 +3941,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                             style={{ flexShrink: 0, color: 'var(--text-3)', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }}>
                             <polyline points="6 9 12 15 18 9" />
                           </svg>
-                          {parent && <span className="dot-p" style={{ background: `var(--p${parent.p})`, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} />}
+                          {parent && (() => { const pr = priorities.find(p => p.id === parent.p); return pr ? <span className="dot-p" style={{ background: pr.color, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} /> : null; })()}
                           <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--text-3)' }}>{parent?.id || '—'}</span>
                           <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{parent?.title || 'Unknown task'}</span>
                           <span style={{ fontSize: 11, color: 'var(--text-3)' }}>({subtasks.length})</span>
@@ -3915,7 +3957,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       return (
                         <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
                           <td className="mono" style={{ paddingLeft: 32 }}>{t.id}</td>
-                          <td><span className={'dot-p p' + t.p} /></td>
+                          <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
                           <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
                           <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
                           <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
@@ -3948,7 +3990,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                 return (
                   <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
                     <td className="mono">{t.id}</td>
-                    <td><span key={t.p} className={'dot-p p' + t.p}></span></td>
+                    <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
                     <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
                     <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
                     <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
@@ -3979,7 +4021,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 
       <AddTaskPanel
         open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd}
-        projects={projects} defaultCol={addCol} statuses={cols}
+        projects={projects} defaultCol={addCol} statuses={cols} priorities={priorities}
         allTags={tags} onCreateTag={handleCreateTag} githubToken={githubToken}
         onBranchCreated={({ branchName, url, task }) => {
           // Update local task state with the saved branch
@@ -3994,6 +4036,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           task={viewingTask}
           projects={projects}
           statuses={cols}
+          priorities={priorities}
           subtasks={tasks.filter(t => t.parentId === viewingTask._dbId)}
           allTasks={tasks}
           parentTask={parentTask}

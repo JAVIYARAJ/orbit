@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
-import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag } from '../lib/db.js';
+import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities } from '../lib/db.js';
 
 const INTEGRATION_ICON = {
   GitHub: 'github',
@@ -124,6 +124,74 @@ const ProjectTypeRow = ({ type, index, total, onUpdate, onDelete, onMoveUp, onMo
   );
 };
 
+// ── Priority row — inline label + color editing, drag to reorder ──
+const PriorityRow = ({ priority, index, total, onUpdate, onDelete, onMoveUp, onMoveDown, onDragStart, onDragOver, onDragEnd, isDragging }) => {
+  const [label,  setLabel]  = useState(priority.label);
+  const [color,  setColor]  = useState(priority.color);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setLabel(priority.label); setColor(priority.color); }, [priority.id, priority.label, priority.color]);
+
+  const handleLabelBlur = async () => {
+    const trimmed = label.trim();
+    if (!trimmed || (trimmed === priority.label && color === priority.color)) { setLabel(priority.label); return; }
+    setSaving(true);
+    try { await onUpdate(priority.id, trimmed, color); }
+    finally { setSaving(false); }
+  };
+
+  const handleColorChange = async (newColor) => {
+    setColor(newColor);
+    setSaving(true);
+    try { await onUpdate(priority.id, label, newColor); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div
+      className={`status-row${isDragging ? ' dragging' : ''}`}
+      draggable
+      onDragStart={(e) => onDragStart(e, index)}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDragEnd={onDragEnd}
+    >
+      <div className="status-drag-handle" title="Drag to reorder">
+        <Icon name="drag" size={14} />
+      </div>
+      <div className="status-color-swatch" style={{ background: color }}>
+        <input
+          type="color"
+          value={color}
+          onChange={e => setColor(e.target.value)}
+          onBlur={e => handleColorChange(e.target.value)}
+          className="status-color-input"
+          title="Change color"
+        />
+      </div>
+      <input
+        className="status-label-input"
+        value={label}
+        onChange={e => setLabel(e.target.value)}
+        onBlur={handleLabelBlur}
+        onKeyDown={e => e.key === 'Enter' && e.target.blur()}
+        disabled={saving}
+        style={{ flex: 1 }}
+      />
+      <div className="status-row-actions">
+        <button className="iconbtn" onClick={onMoveUp} disabled={index === 0} title="Move up">
+          <Icon name="chevU" size={12} />
+        </button>
+        <button className="iconbtn" onClick={onMoveDown} disabled={index === total - 1} title="Move down">
+          <Icon name="chevD" size={12} />
+        </button>
+        <button className="iconbtn danger" onClick={() => onDelete(priority.id)} disabled={total <= 1} title="Delete priority">
+          <Icon name="trash" size={12} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ── Status row — inline label/color editing ────────────────────────
 const StatusRow = ({ status, index, total, onUpdate, onDelete, onMoveUp, onMoveDown, onDragStart, onDragOver, onDragEnd, isDragging }) => {
   const [label, setLabel] = useState(status.label);
@@ -222,7 +290,7 @@ const StatusRow = ({ status, index, total, onUpdate, onDelete, onMoveUp, onMoveD
 const genKey = (label) =>
   label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32) || 'status';
 
-export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags }) => {
+export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags, priorities = [], setPriorities }) => {
   const fileRef = useRef(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
@@ -534,6 +602,95 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
     }
   };
 
+  // ── Priority management ───────────────────────────────────────────
+  const sortedPriorities = [...priorities].sort((a, b) => a.order - b.order);
+
+  const [newPriorityLabel, setNewPriorityLabel] = useState('');
+  const [newPriorityColor, setNewPriorityColor] = useState('#888888');
+  const [priorityAddErr,   setPriorityAddErr]   = useState('');
+  const [priorityAddSaving, setPriorityAddSaving] = useState(false);
+  const [priorityDragIdx, setPriorityDragIdx]   = useState(null);
+  const [priorityDeleteConfirm, setPriorityDeleteConfirm] = useState({ isOpen: false, id: null, label: '' });
+
+  const handleUpdatePriority = async (id, label, color) => {
+    const updated = await updateTaskPriority(id, label, color);
+    setPriorities(prev => prev.map(p => p.id === id ? updated : p));
+  };
+
+  const handleDeletePriorityClick = (id) => {
+    const p = priorities.find(p => p.id === id);
+    setPriorityDeleteConfirm({ isOpen: true, id, label: p?.label || 'priority' });
+  };
+
+  const handleConfirmDeletePriority = async () => {
+    const { id } = priorityDeleteConfirm;
+    setPriorityDeleteConfirm({ isOpen: false, id: null, label: '' });
+    try {
+      await deleteTaskPriority(id);
+      setPriorities(prev => prev.filter(p => p.id !== id));
+    } catch (err) {
+      console.error('Delete priority failed', err);
+    }
+  };
+
+  const handlePriorityMove = async (index, dir) => {
+    const list = [...sortedPriorities];
+    const target = index + dir;
+    if (target < 0 || target >= list.length) return;
+    [list[index], list[target]] = [list[target], list[index]];
+    const orderedIds = list.map(p => p.id);
+    setPriorities(prev => prev.map(p => {
+      const pos = orderedIds.indexOf(p.id);
+      return pos !== -1 ? { ...p, order: pos } : p;
+    }));
+    try { await reorderTaskPriorities(activeWorkstation.id, orderedIds); }
+    catch (err) { console.error('Reorder priorities failed', err); }
+  };
+
+  const handleAddPriority = async () => {
+    const label = newPriorityLabel.trim();
+    if (!label) { setPriorityAddErr('Label is required.'); return; }
+    setPriorityAddErr('');
+    setPriorityAddSaving(true);
+    try {
+      const created = await createTaskPriority(activeWorkstation.id, label, newPriorityColor);
+      setPriorities(prev => [...prev, created]);
+      setNewPriorityLabel('');
+      setNewPriorityColor('#888888');
+    } catch (e) {
+      setPriorityAddErr(e.message || 'Failed to create priority.');
+    } finally {
+      setPriorityAddSaving(false);
+    }
+  };
+
+  const handlePriorityDragStart = (e, index) => {
+    setPriorityDragIdx(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handlePriorityDragOver = (e, index) => {
+    e.preventDefault();
+    if (priorityDragIdx === null || priorityDragIdx === index) return;
+    const list = [...sortedPriorities];
+    const dragged = list[priorityDragIdx];
+    list.splice(priorityDragIdx, 1);
+    list.splice(index, 0, dragged);
+    const orderedIds = list.map(p => p.id);
+    setPriorities(prev => prev.map(p => {
+      const pos = orderedIds.indexOf(p.id);
+      return pos !== -1 ? { ...p, order: pos } : p;
+    }));
+    setPriorityDragIdx(index);
+  };
+
+  const handlePriorityDragEnd = async () => {
+    setPriorityDragIdx(null);
+    const orderedIds = sortedPriorities.map(p => p.id);
+    try { await reorderTaskPriorities(activeWorkstation.id, orderedIds); }
+    catch (err) { console.error('Reorder priorities failed', err); }
+  };
+
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('gh_callback') === '1' ? 'integrations' : 'profile';
@@ -565,9 +722,10 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
       label: 'Task Kanban', 
       icon: 'list',
       children: [
-        { id: 'kanban-cols',  label: 'Column Management' },
-        { id: 'kanban-types', label: 'Project Types' },
-        { id: 'kanban-tags',  label: 'Task Tags' },
+        { id: 'kanban-cols',       label: 'Column Management' },
+        { id: 'kanban-types',      label: 'Project Types' },
+        { id: 'kanban-tags',       label: 'Task Tags' },
+        { id: 'kanban-priorities', label: 'Priority Types' },
       ]
     },
     { id: 'integrations', label: 'Integrations', icon: 'link' },
@@ -960,6 +1118,91 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'kanban' && activeSubTab === 'kanban-priorities' && (
+              <div className="settings-section-inner slide-in-up">
+                <div className="section-group">
+                  <div className="section-group-h">
+                    <span>Priority Types</span>
+                    <p>Define priority levels for tasks. Drag to reorder, click the color swatch to change color, rename inline.</p>
+                  </div>
+                  <div className="card">
+                    <div className="card-pad">
+                      <div className="status-hero-premium">
+                        <div className="hero-icon"><Icon name="flag" size={20} /></div>
+                        <div className="hero-content">
+                          <h3>Task Priorities</h3>
+                          <p>These priorities appear in task forms and filters. At least one priority must exist.</p>
+                        </div>
+                      </div>
+
+                      <div className="status-list-premium">
+                        {sortedPriorities.map((pr, i) => (
+                          <PriorityRow
+                            key={pr.id}
+                            priority={pr}
+                            index={i}
+                            total={sortedPriorities.length}
+                            onUpdate={handleUpdatePriority}
+                            onDelete={handleDeletePriorityClick}
+                            onMoveUp={() => handlePriorityMove(i, -1)}
+                            onMoveDown={() => handlePriorityMove(i, 1)}
+                            onDragStart={handlePriorityDragStart}
+                            onDragOver={handlePriorityDragOver}
+                            onDragEnd={handlePriorityDragEnd}
+                            isDragging={priorityDragIdx === i}
+                          />
+                        ))}
+                        {sortedPriorities.length === 0 && (
+                          <div style={{ color: 'var(--text-4)', fontSize: 12, padding: '12px 0', fontFamily: 'var(--f-mono)' }}>
+                            No priorities defined yet.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="status-add-refined">
+                        <div className="add-title">Add New Priority</div>
+                        <div className="add-row-refined">
+                          <div className="color-btn-premium" style={{ background: newPriorityColor }}>
+                            <input
+                              type="color"
+                              value={newPriorityColor}
+                              onChange={e => setNewPriorityColor(e.target.value)}
+                              className="color-input-abs"
+                            />
+                          </div>
+                          <input
+                            className="label-input-refined"
+                            value={newPriorityLabel}
+                            onChange={e => { setNewPriorityLabel(e.target.value); setPriorityAddErr(''); }}
+                            onKeyDown={e => e.key === 'Enter' && handleAddPriority()}
+                            placeholder="e.g. Urgent, Blocker…"
+                          />
+                          <button className="btn primary sm" onClick={handleAddPriority} disabled={priorityAddSaving || !newPriorityLabel.trim()}>
+                            <Icon name="plus" size={12} /> Add
+                          </button>
+                        </div>
+                        {priorityAddErr && <div className="key-hint" style={{ color: 'var(--danger)' }}>{priorityAddErr}</div>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Delete confirmation */}
+                {priorityDeleteConfirm.isOpen && (
+                  <div className="modal-overlay" onClick={() => setPriorityDeleteConfirm({ isOpen: false, id: null, label: '' })}>
+                    <div className="modal-box" onClick={e => e.stopPropagation()}>
+                      <div className="modal-title">Delete Priority</div>
+                      <p className="modal-body">Delete <strong>{priorityDeleteConfirm.label}</strong>? Tasks using this priority will have it cleared.</p>
+                      <div className="modal-actions">
+                        <button className="btn" onClick={() => setPriorityDeleteConfirm({ isOpen: false, id: null, label: '' })}>Cancel</button>
+                        <button className="btn danger" onClick={handleConfirmDeletePriority}>Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

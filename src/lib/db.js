@@ -46,7 +46,7 @@ const fromDbTask = (r) => ({
   _dbId:         r.id,
   proj:          r.project_short_id,
   col:           r.status_id,
-  p:             r.priority,
+  p:             r.priority_id || null,
   title:         r.title,
   description:   r.description || '',
   due:           r.due_date || '—',
@@ -124,7 +124,7 @@ const taskPayload = (t) => ({
   task_id:          t.id,
   project_short_id: t.proj,
   status_id:        t.col,
-  priority:         t.p,
+  priority_id:      t.p || null,
   title:            t.title,
   description:      t.description || '',
   due_date:         (!t.due || t.due === '—') ? null : t.due,
@@ -159,6 +159,13 @@ const fromDbProjectType = (r) => ({
   order: r.sort_order,
 })
 
+const fromDbPriority = (r) => ({
+  id:    r.id,
+  label: r.label,
+  color: r.color || '#888888',
+  order: r.sort_order,
+})
+
 const fromDbStatus = (r) => ({
   id:     r.id,
   key:    r.key,
@@ -170,8 +177,9 @@ const fromDbStatus = (r) => ({
 
 // ─── Transform the jsonb blob from load_workstation_data ──────────
 const transformData = (raw) => ({
-  statuses:     (raw.statuses      || []).map(fromDbStatus),
-  projectTypes: (raw.project_types || []).map(fromDbProjectType),
+  priorities:   (raw.task_priorities || []).map(fromDbPriority),
+  statuses:     (raw.statuses        || []).map(fromDbStatus),
+  projectTypes: (raw.project_types   || []).map(fromDbProjectType),
   tags:         (raw.tags          || []).map(fromDbTag),
   projects: (raw.projects || []).map(fromDbProject).filter(p => !p.deletedAt),
   tasks:    (raw.tasks    || []).map(fromDbTask).filter(t => !t.deletedAt),
@@ -576,6 +584,41 @@ export const reorderProjectTypes = async (workstationId, orderedIds) => {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CRUD — Task Priorities
+// ═══════════════════════════════════════════════════════════════════
+
+export const createTaskPriority = async (workstationId, label, color = '#888888') => {
+  const { data, error } = await supabase.rpc('create_task_priority', {
+    p_workstation_id: workstationId,
+    p_data: { label, color, sort_order: 999 },
+  })
+  if (error) throw error
+  return fromDbPriority(data)
+}
+
+export const updateTaskPriority = async (id, label, color) => {
+  const { data, error } = await supabase.rpc('update_task_priority', {
+    p_priority_id: id,
+    p_data:        { label, color },
+  })
+  if (error) throw error
+  return fromDbPriority(data)
+}
+
+export const deleteTaskPriority = async (id) => {
+  const { error } = await supabase.rpc('delete_task_priority', { p_priority_id: id })
+  if (error) throw error
+}
+
+export const reorderTaskPriorities = async (workstationId, orderedIds) => {
+  const { error } = await supabase.rpc('reorder_task_priorities', {
+    p_workstation_id: workstationId,
+    p_ordered_ids:    orderedIds,
+  })
+  if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // TASK ↔ NOTE LINKS
 // ═══════════════════════════════════════════════════════════════════
 
@@ -649,6 +692,7 @@ const fromTimeEntry = (r) => ({
   notes:        r.notes        || '',
   startedAt:    r.startedAt,
   endedAt:      r.endedAt     || null,
+  isManual:     r.isManual    || false,
   events:       (r.events || []).map(ev => ({
     id:      ev.id,
     event:   ev.event,

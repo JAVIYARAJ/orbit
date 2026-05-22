@@ -18,7 +18,6 @@ import {
 // ═══════════════════════════════════════════════════════════════════
 
 const GANTT_STATUSES = ['planning', 'active', 'review', 'done', 'milestone'];
-const P_COLORS = ['', 'rgba(22,163,74,0.8)', 'rgba(59,130,246,0.8)', 'rgba(217,119,6,0.9)', 'rgba(239,68,68,0.9)'];
 const fmtHrsPm = (h) => {
   const n = Number(h) || 0;
   if (n < 0.017) return '0m';
@@ -88,7 +87,7 @@ const GanttModal = ({ task, onClose, onSave, saving, err }) => {
   );
 };
 
-export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, statuses, onNav, workstationId }) => {
+export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, statuses, priorities = [], onNav, workstationId }) => {
   const [selId,      setSelId]      = useStateB(projects[0]?.id || '');
   const [editGantt,  setEditGantt]  = useStateB(null);
   const [confirmDel, setConfirmDel] = useStateB(null);
@@ -383,7 +382,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
               const st = statusMap[t.col];
               return (
                 <div key={t._dbId} className="pm-task-row" onClick={() => onNav('tasks')}>
-                  <span className="pm-task-dot" style={{ background: P_COLORS[t.p] || 'var(--text-3)' }}></span>
+                  {(() => { const pr = priorities.find(p => p.id === t.p); return <span className="pm-task-dot" style={{ background: pr ? pr.color : 'var(--text-4)' }} />; })()}
                   <span className="pm-task-title">{t.title}</span>
                   <span className="pm-task-id">{t.id}</span>
                   {st && (
@@ -2146,6 +2145,11 @@ export const TimerPage = ({
                               <span className="session-task-badge">
                                 <Icon name="tag" size={10} style={{ color: 'var(--text-3)' }} />
                                 {e.taskShort}
+                              </span>
+                            )}
+                            {e.isManual && (
+                              <span style={{ fontSize: 9, fontFamily: 'var(--f-mono)', fontWeight: 600, letterSpacing: '0.04em', padding: '2px 6px', borderRadius: 4, background: 'rgba(255,149,0,0.12)', color: '#ff9500', border: '1px solid rgba(255,149,0,0.25)', lineHeight: 1, flexShrink: 0 }}>
+                                MANUAL
                               </span>
                             )}
                           </div>

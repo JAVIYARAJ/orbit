@@ -155,6 +155,7 @@ export default function App() {
     setShowWsSetup(false);
     setStatuses([]);
     setProjectTypes([]);
+    setPriorities([]);
     setTags([]);
   };
 
@@ -217,6 +218,7 @@ export default function App() {
       .then(d => {
         setStatuses(d.statuses);
         setProjectTypes(d.projectTypes);
+        setPriorities(d.priorities);
         setTags(d.tags);
         setProjects(d.projects);
         setTasks(d.tasks);
@@ -281,6 +283,7 @@ export default function App() {
   // Application data
   const [statuses,       setStatuses]       = useStateApp([]);
   const [projectTypes,   setProjectTypes]   = useStateApp([]);
+  const [priorities,     setPriorities]     = useStateApp([]);
   const [tags,           setTags]           = useStateApp([]);
   const [projects,       setProjects]       = useStateApp([]);
   const [tasks,          setTasks]          = useStateApp([]);
@@ -527,6 +530,7 @@ export default function App() {
             workstationId={activeWorkstation?.id}
             statuses={statuses}           setStatuses={setStatuses}
             projectTypes={projectTypes}   setProjectTypes={setProjectTypes}
+            priorities={priorities}       setPriorities={setPriorities}
             tags={tags}                   setTags={setTags}
             projects={projects}           setProjects={setProjects}
             tasks={tasks}                 setTasks={setTasks}
