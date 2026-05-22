@@ -178,7 +178,7 @@ const WeekLineChart = ({ data, todayIdx }) => {
   );
 };
 
-export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, statuses = [], setTasks, workstationId, onTimerPause, onTimerResume, onTimerStop }) => {
+export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemplates, statuses = [], priorities = [], setTasks, workstationId, onTimerPause, onTimerResume, onTimerStop }) => {
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const isoStr = today.toISOString().slice(0, 10);
@@ -209,11 +209,13 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
   const planningCount = projects.filter(p => p.status === 'planning').length;
   const overdueCount = tasks.filter(t => t.due && t.due !== '—' && t.due < isoStr && t.col !== doneStatusId).length;
 
-  // Priority counts across non-done tasks
+  // Priority counts across non-done tasks (dynamic, keyed by priority ID)
   const nonDoneTasks = tasks.filter(t => t.col !== doneStatusId);
-  const p1Count = nonDoneTasks.filter(t => t.p === 1).length;
-  const p2Count = nonDoneTasks.filter(t => t.p === 2).length;
-  const p3Count = nonDoneTasks.filter(t => t.p === 3).length;
+  const sortedPriorities = [...priorities].sort((a, b) => a.order - b.order);
+  const prioCounts = sortedPriorities.map(pr => ({
+    ...pr,
+    count: nonDoneTasks.filter(t => t.p === pr.id).length,
+  })).filter(pr => pr.count > 0);
   const templatePreview = (emailTemplates || []).slice(0, 3);
 
   const todayIdx = (today.getDay() + 6) % 7; // 0 = Mon
@@ -457,9 +459,13 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
                 <span className="t">Sprint Radar</span>
                 <span className="cc-title-badge">{todayTasks.length} {todayTasks.length === 1 ? 'task' : 'tasks'}</span>
               </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                {p1Count > 0 && <span className="cc-task-row p-badge p1" style={{ border: 0, padding: '2px 6px' }}>P1 · {p1Count}</span>}
-                {p2Count > 0 && <span className="cc-task-row p-badge p2" style={{ border: 0, padding: '2px 6px' }}>P2 · {p2Count}</span>}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {prioCounts.map(pr => (
+                  <span key={pr.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--f-mono)', fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: pr.color + '22', color: pr.color, border: `1px solid ${pr.color}44` }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: pr.color, flexShrink: 0 }} />
+                    {pr.label} · {pr.count}
+                  </span>
+                ))}
                 <button className="btn sm" onClick={() => onNav('tasks')} style={{ padding: '4px 10px', fontSize: 10 }}>View All <Icon name="chev" size={8} /></button>
               </div>
             </div>
@@ -475,8 +481,8 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
                     <div className={`cc-checkbox ${t.col === doneStatusId ? 'checked' : ''}`}>
                       <Icon name="check" size={10} />
                     </div>
-                    <span className={`p-badge p${t.p}`}>{t.p === 1 ? 'P1' : t.p === 2 ? 'P2' : 'P3'}</span>
                     <div className="title">{t.title}</div>
+                    {(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'var(--f-mono)', fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: pr.color + '22', color: pr.color, border: `1px solid ${pr.color}44`, flexShrink: 0 }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: pr.color }} />{pr.label}</span> : null; })()}
                     <div className="meta" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t.due ? formatDate(t.due) : '—'}</span>
                       <span className="tag accent" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={projName}>
@@ -1483,17 +1489,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
           ) : (
             <div className="proj-grid">
               {filtered.map(p => (
-                <div key={p.id} className="proj-card" style={{ cursor: 'pointer' }} onClick={() => setViewing(p)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                    <div>
-                      <div className="client">{projectTypes.find(pt => pt.id === p.typeId)?.label || '—'}</div>
-                      <div className="name" style={{ marginTop: 4 }}>{p.name}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <StatusPill key={p.status} status={p.status} />
+                <div key={p.id} className={`proj-card st-${p.status}`} onClick={() => setViewing(p)}>
+                  <div className="pc-head">
+                    <span className="pc-type">{projectTypes.find(pt => pt.id === p.typeId)?.label || '—'}</span>
+                    <div className="pc-actions">
+                      <StatusPill status={p.status} />
                       <button
-                        className="btn sm ghost"
-                        style={{ padding: '3px 6px' }}
+                        className="btn sm ghost pc-edit"
                         onClick={e => { e.stopPropagation(); setEditing(p); }}
                         title="Edit project"
                       >
@@ -1501,23 +1503,20 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                       </button>
                     </div>
                   </div>
-                  <div style={{ color: 'var(--text-2)', fontSize: 12 }}>{p.client}</div>
-                  {p.description && (
-                    <div style={{
-                      color: 'var(--text-3)', fontSize: 12, lineHeight: 1.5, marginTop: 6,
-                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
-                    }}>
-                      {p.description}
+                  <div className="pc-name">{p.name}</div>
+                  {p.client && <div className="pc-client">{p.client}</div>}
+                  {p.description && <div className="pc-desc">{p.description}</div>}
+                  {(p.stack || []).length > 0 && (
+                    <div className="pc-stack">
+                      {(p.stack || []).map(s => <span key={s} className="tag">{s}</span>)}
                     </div>
                   )}
-                  <div className="stack">{(p.stack || []).map(s => <span key={s} className="tag">{s}</span>)}</div>
-                  <div className="dates">
-                    <span>START {fmtDate(p.start)}</span>
-                    <span>END {fmtDate(p.end)}</span>
-                  </div>
-                  <div className="row-end">
-                    <span className="pct">{p.tasks} tasks ({p.openTasks} open)</span>
-                    <span className="pct">{fmtHours(p.hoursLogged)} logged</span>
+                  <div className="pc-footer">
+                    <span className="pc-dates">{fmtDate(p.start)} → {fmtDate(p.end)}</span>
+                    <div className="pc-stats">
+                      <span>{p.openTasks}/{p.tasks} tasks</span>
+                      <span>{fmtHours(p.hoursLogged)}</span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1680,11 +1679,12 @@ const TagPicker = ({ selectedIds = [], onChange, allTags = [], onCreateTag }) =>
   );
 };
 
-const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart, onDragEnd, onClick }) => {
+const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities = [], onDragStart, onDragEnd, onClick }) => {
   const proj = projects.find(p => p.id === t.proj);
   const subs = tasks ? tasks.filter(s => s.parentId === t._dbId) : [];
   const subsDone = doneStatusId ? subs.filter(s => s.col === doneStatusId).length : 0;
   const isDone = doneStatusId && t.col === doneStatusId;
+  const prioObj = priorities.find(pr => pr.id === t.p);
   return (
     <div
       className={'tcard' + (isDone ? ' tcard-done' : getDueClass(t.due).includes('overdue') ? ' overdue' : '')}
@@ -1694,7 +1694,7 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, onDragStart,
       onClick={onClick}
     >
       <div className="top">
-        <span key={t.p} className={'dot-p p' + t.p}></span>
+        {prioObj && <span className="dot-p" style={{ background: prioObj.color }} title={prioObj.label}></span>}
         <span className="id">{t.id}</span>
         {(t.tags || []).slice(0, 2).map(id => {
           const tag = allTags.find(x => x.id === id);
@@ -1944,7 +1944,6 @@ const DescriptionField = ({ value, onChange }) => {
 };
 
 // ── Task Detail Panel (Jira-style right drawer) ────────────────────
-const P_DOT_COLOR = { 1: '#ef4444', 2: 'var(--accent)', 3: 'var(--text-3)' };
 
 const fmtMin = (min) => {
   if (!min || min < 1) return '—';
@@ -1956,7 +1955,7 @@ const fmtMin = (min) => {
 };
 
 const TaskDetailModal = ({
-  task, projects, statuses = [], subtasks = [], allTasks = [], onClose, onSave, onStatusChange,
+  task, projects, statuses = [], priorities = [], subtasks = [], allTasks = [], onClose, onSave, onStatusChange,
   onAddSubtask, onLinkSubtask, onOpenSubtask, parentTask, onBack,
   allTags = [], onCreateTag,
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
@@ -1965,6 +1964,7 @@ const TaskDetailModal = ({
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
   const COL_LABEL = Object.fromEntries(statuses.map(s => [s.id, s.label]));
+  const PRIO_MAP  = Object.fromEntries(priorities.map(p => [p.id, p]));
   const proj = projects.find(p => p.id === task.proj);
 
   // 'done' status UUID — used for subtask completion percentage
@@ -1977,14 +1977,19 @@ const TaskDetailModal = ({
     return Math.abs(idx - taskColIdx) <= 1;
   };
 
-  const toForm = (t) => ({
-    title: t.title,
-    description: t.description || '',
-    col: t.col,
-    p: String(t.p),
-    due: (!t.due || t.due === '—') ? '' : t.due,
-    tagIds: t.tags || [],
-  });
+  const toForm = (t) => {
+    const totalMin = t.estMinutes || 0;
+    return {
+      title: t.title,
+      description: t.description || '',
+      col: t.col,
+      p: t.p || null,
+      due: (!t.due || t.due === '—') ? '' : t.due,
+      tagIds: t.tags || [],
+      estH: totalMin > 0 ? String(Math.floor(totalMin / 60)) : '',
+      estM: totalMin > 0 ? String(totalMin % 60) : '',
+    };
+  };
 
   const [form, setForm] = useStateA(() => toForm(task));
   const [saving, setSaving] = useStateA(false);
@@ -1993,12 +1998,13 @@ const TaskDetailModal = ({
 
   // Manual time log state
   const [showLogTime, setShowLogTime] = useStateA(false);
-  const [logMin, setLogMin] = useStateA('');
+  const [logH, setLogH] = useStateA('');
+  const [logM, setLogM] = useStateA('');
   const [logNote, setLogNote] = useStateA('');
   const [logSaving, setLogSaving] = useStateA(false);
 
   const handleLogTime = async () => {
-    const minutes = parseInt(logMin) || 0;
+    const minutes = (parseInt(logH) || 0) * 60 + (parseInt(logM) || 0);
     if (minutes <= 0) return;
     const projDbId = projects.find(p => p.id === task.proj)?._dbId;
     if (!projDbId) return;
@@ -2006,11 +2012,21 @@ const TaskDetailModal = ({
     try {
       await onLogTime(task._dbId, projDbId, minutes, logNote);
       setShowLogTime(false);
-      setLogMin(''); setLogNote('');
+      setLogH(''); setLogM(''); setLogNote('');
     } catch (e) {
       console.error('Failed to log time:', e);
     } finally {
       setLogSaving(false);
+    }
+  };
+
+  const handleQuickLog = async (minutes) => {
+    const projDbId = projects.find(p => p.id === task.proj)?._dbId;
+    if (!projDbId) return;
+    try {
+      await onLogTime(task._dbId, projDbId, minutes, 'Quick log');
+    } catch (e) {
+      console.error('Failed to log quick time:', e);
     }
   };
 
@@ -2173,7 +2189,7 @@ const TaskDetailModal = ({
 
   useEffectA(() => {
     setForm(toForm(task)); setErr(''); setShowSubForm(false);
-    setShowLogTime(false); setLogMin(''); setLogNote('');
+    setShowLogTime(false); setLogH(''); setLogM(''); setLogNote('');
     setLogsVisible(10);
     setGhBranch(task.ghBranch || '');
     setBranchMode('none'); setBranchOpen(false); setBranchErr(''); setNewBranchName('');
@@ -2197,9 +2213,10 @@ const TaskDetailModal = ({
         title: form.title.trim(),
         description: form.description,
         col: form.col,
-        p: parseInt(form.p),
+        p: form.p || null,
         due: form.due || '—',
         tags: form.tagIds,
+        estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
       });
     } catch (e) {
       setErr(e.message || 'Failed to save.');
@@ -2210,7 +2227,7 @@ const TaskDetailModal = ({
   // ── Subtask add form ────────────────────────────────────────────
   // Default subtask status: the first status in sequence (index 0)
   const defaultStatusId = statuses[0]?.id || '';
-  const subEmpty = { title: '', description: '', p: '2', col: defaultStatusId, due: '', tagIds: [] };
+  const subEmpty = { title: '', description: '', p: priorities[0]?.id || null, col: defaultStatusId, due: '', tagIds: [] };
   const [subForm, setSubForm] = useStateA(subEmpty);
   const [subSaving, setSubSaving] = useStateA(false);
   const [subErr, setSubErr] = useStateA('');
@@ -2255,7 +2272,7 @@ const TaskDetailModal = ({
       await onAddSubtask({
         proj: task.proj,
         col: subForm.col,
-        p: parseInt(subForm.p),
+        p: subForm.p || null,
         title: subForm.title.trim(),
         description: subForm.description,
         due: subForm.due || '—',
@@ -2274,6 +2291,7 @@ const TaskDetailModal = ({
 
   const doneCount = subtasks.filter(s => s.col === doneStatusId).length;
   const subPct = subtasks.length > 0 ? Math.round((doneCount / subtasks.length) * 100) : 0;
+  const subLoggedTotal = subtasks.reduce((sum, s) => sum + (s.loggedMinutes || 0), 0);
 
   const createdStr = task.createdAt
     ? new Date(task.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -2333,6 +2351,12 @@ const TaskDetailModal = ({
                     {subtasks.length > 0 && (
                       <span className="subtasks-count">{doneCount}/{subtasks.length}</span>
                     )}
+                    {subLoggedTotal > 0 && (
+                      <span style={{ fontSize: 10, fontFamily: 'var(--f-mono)', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <Icon name="timer" size={10} />
+                        {fmtMin(subLoggedTotal)} logged
+                      </span>
+                    )}
                   </span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button className="btn sm ghost" style={{ fontSize: 11 }}
@@ -2359,12 +2383,17 @@ const TaskDetailModal = ({
                   <div className="subtasks-list">
                     {subtasks.map(sub => (
                       <div key={sub.id} className="subtask-row" onClick={() => onOpenSubtask(sub)}>
-                        <span className={'dot-p p' + sub.p} />
+                        {(() => { const pr = PRIO_MAP[sub.p]; return <span className="dot-p" style={{ background: pr ? pr.color : 'var(--text-4)' }} />; })()}
                         <span className="subtask-title">{sub.title}</span>
                         <span className="subtask-meta">
                           <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: COL_COLOR[sub.col], textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             {COL_LABEL[sub.col]}
                           </span>
+                          {sub.loggedMinutes > 0 && (
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <Icon name="timer" size={9} />{fmtMin(sub.loggedMinutes)}
+                            </span>
+                          )}
                           {sub.due && sub.due !== '—' && (
                             <span className={getDueClass(sub.due)}>
                               {getDueClass(sub.due).includes('overdue') && <Icon name="alert" size={10} />}
@@ -2399,10 +2428,9 @@ const TaskDetailModal = ({
                       </div>
                       <div className="fld">
                         <label>Priority</label>
-                        <select value={subForm.p} onChange={e => setSub('p', e.target.value)}>
-                          <option value="1">P1 — Critical</option>
-                          <option value="2">P2 — Normal</option>
-                          <option value="3">P3 — Low</option>
+                        <select value={subForm.p || ''} onChange={e => setSub('p', e.target.value || null)}>
+                          <option value="">— None —</option>
+                          {priorities.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
                         </select>
                       </div>
                     </div>
@@ -2460,7 +2488,7 @@ const TaskDetailModal = ({
                             onClick={() => handleLinkExisting(t)}
                             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', textAlign: 'left', width: '100%', color: 'var(--text)' }}
                           >
-                            <span className={'dot-p p' + t.p} />
+                            {(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} /> : null; })()}
                             <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>{t.id}</span>
                             <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                           </button>
@@ -2651,11 +2679,10 @@ const TaskDetailModal = ({
             {/* Priority */}
             <div className="tpanel-prop">
               <div className="tpanel-prop-label">Priority</div>
-              <select className="tpanel-sel" value={form.p} onChange={e => set('p', e.target.value)}
-                style={{ borderLeftColor: P_DOT_COLOR[form.p], borderLeftWidth: 3 }}>
-                <option value="1">P1 — Critical</option>
-                <option value="2">P2 — Normal</option>
-                <option value="3">P3 — Low</option>
+              <select className="tpanel-sel" value={form.p || ''} onChange={e => set('p', e.target.value || null)}
+                style={{ borderLeftColor: PRIO_MAP[form.p]?.color || 'var(--border)', borderLeftWidth: 3 }}>
+                <option value="">— None —</option>
+                {priorities.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
               </select>
             </div>
 
@@ -2690,60 +2717,142 @@ const TaskDetailModal = ({
 
             {/* Time tracking */}
             <div className="tpanel-prop">
-              <div className="tpanel-prop-label">Time</div>
-              <div style={{ fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-2)', display: 'flex', justifyContent: 'space-between' }}>
-                <span><span style={{ color: 'var(--text-3)' }}>EST </span>{fmtMin(task.estMinutes)}</span>
-                <span><span style={{ color: 'var(--text-3)' }}>LOG </span>{fmtMin(task.loggedMinutes)}</span>
-              </div>
-              {task.estMinutes > 0 && (
-                <div style={{ height: 3, borderRadius: 2, background: 'var(--bg-3)', marginTop: 5 }}>
-                  <div style={{
-                    height: '100%', borderRadius: 2, background: task.loggedMinutes > task.estMinutes ? '#ef4444' : 'var(--accent-hi)',
-                    width: `${Math.min(100, Math.round((task.loggedMinutes / task.estMinutes) * 100))}%`,
-                    transition: 'width 0.3s',
-                  }} />
+              <div className="tpanel-prop-label">Time & Progress</div>
+              <div className="time-tracker-card">
+                <div className="tt-header">
+                  <div className="tt-label-group">
+                    <Icon name="timer" size={12} />
+                    <span className="tt-main-title">Tracking Progress</span>
+                  </div>
+                  {(() => {
+                    const est = (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0);
+                    const logged = task.loggedMinutes || 0;
+                    const pct = est > 0 ? Math.min(100, Math.round((logged / est) * 100)) : 0;
+                    return est > 0 ? (
+                      <span className={`tt-badge ${logged > est ? 'overtime' : ''}`}>{pct}%</span>
+                    ) : (
+                      <span className="tt-badge no-estimate">No Est</span>
+                    );
+                  })()}
                 </div>
-              )}
-              <button
-                className="btn sm ghost"
-                style={{ marginTop: 8, width: '100%', fontSize: 10, letterSpacing: '0.06em' }}
-                onClick={() => setShowLogTime(s => !s)}
-              >
-                <Icon name="plus" size={10} /> Log time
-              </button>
-              {showLogTime && (
-                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3 }}>MINUTES</div>
-                    <input
-                      type="number" min="1" placeholder="e.g. 25" value={logMin}
-                      onChange={e => setLogMin(e.target.value)}
-                      className="tpanel-input" style={{ width: '100%' }}
-                      autoFocus
-                    />
-                    {(parseInt(logMin) || 0) >= 60 && (
-                      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 3 }}>
-                        = {Math.floor((parseInt(logMin) || 0) / 60)}h {(parseInt(logMin) || 0) % 60}m
+
+                {(() => {
+                  const est = (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0);
+                  const logged = task.loggedMinutes || 0;
+                  return est > 0 ? (
+                    <div className="tt-progress-track">
+                      <div className={`tt-progress-bar ${logged > est ? 'overtime' : ''}`} style={{ width: `${Math.min(100, (logged / est) * 100)}%` }} />
+                    </div>
+                  ) : (
+                    <div className="tt-progress-track empty">
+                      <div className="tt-progress-bar" style={{ width: '0%' }} />
+                    </div>
+                  );
+                })()}
+
+                <div className="tt-stats-grid">
+                  <div className="tt-stat-box">
+                    <span className="tt-stat-label">Logged</span>
+                    <span className="tt-stat-value">{fmtMin(task.loggedMinutes)}</span>
+                  </div>
+                  <div className="tt-stat-box">
+                    <span className="tt-stat-label">Estimate</span>
+                    <div className="tt-est-editor">
+                      <input
+                        type="number" min="0"
+                        value={form.estH}
+                        onChange={e => set('estH', e.target.value)}
+                        placeholder="0"
+                        className="tt-num-input"
+                      />
+                      <span className="tt-unit">h</span>
+                      <input
+                        type="number" min="0" max="59"
+                        value={form.estM}
+                        onChange={e => set('estM', e.target.value)}
+                        placeholder="0"
+                        className="tt-num-input"
+                      />
+                      <span className="tt-unit">m</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="tt-footer-actions">
+                  <button
+                    className={`tt-action-btn ${showLogTime ? 'active' : ''}`}
+                    onClick={() => setShowLogTime(s => !s)}
+                  >
+                    <Icon name={showLogTime ? 'x' : 'plus'} size={10} />
+                    {showLogTime ? 'Close Log' : 'Log Time'}
+                  </button>
+                  
+                  {!showLogTime && (
+                    <div className="tt-presets">
+                      <button className="tt-preset-btn" onClick={() => handleQuickLog(15)}>+15m</button>
+                      <button className="tt-preset-btn" onClick={() => handleQuickLog(30)}>+30m</button>
+                      <button className="tt-preset-btn" onClick={() => handleQuickLog(60)}>+1h</button>
+                    </div>
+                  )}
+                </div>
+
+                {showLogTime && (
+                  <div className="tt-log-form animate-slide-down">
+                    <div className="tt-log-inputs">
+                      <div className="tt-log-field">
+                        <label className="tt-log-label">Time to Log</label>
+                        <div className="add-task-est-container" style={{ marginTop: 4 }}>
+                          <div className="add-task-est-field">
+                            <input
+                              type="number" min="0"
+                              value={logH}
+                              onChange={e => setLogH(e.target.value)}
+                              placeholder="0"
+                              className="add-task-est-input"
+                              autoFocus
+                            />
+                            <span className="add-task-est-unit">hours</span>
+                          </div>
+                          <div className="add-task-est-field">
+                            <input
+                              type="number" min="0" max="59"
+                              value={logM}
+                              onChange={e => setLogM(e.target.value)}
+                              placeholder="0"
+                              className="add-task-est-input"
+                            />
+                            <span className="add-task-est-unit">minutes</span>
+                          </div>
+                        </div>
                       </div>
-                    )}
+                      <div className="tt-log-field">
+                        <label className="tt-log-label">Notes (optional)</label>
+                        <input
+                          placeholder="What did you do?"
+                          value={logNote}
+                          onChange={e => setLogNote(e.target.value)}
+                          className="tt-log-notes-input"
+                        />
+                      </div>
+                    </div>
+                    <div className="tt-log-buttons">
+                      <button
+                        className="tt-log-btn cancel"
+                        onClick={() => { setShowLogTime(false); setLogH(''); setLogM(''); setLogNote(''); }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="tt-log-btn submit"
+                        onClick={handleLogTime}
+                        disabled={logSaving || ((parseInt(logH) || 0) * 60 + (parseInt(logM) || 0)) <= 0}
+                      >
+                        {logSaving ? '…' : 'Add time'}
+                      </button>
+                    </div>
                   </div>
-                  <input placeholder="Notes (optional)" value={logNote}
-                    onChange={e => setLogNote(e.target.value)} className="tpanel-input" />
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn sm ghost" style={{ flex: 1, fontSize: 10 }}
-                      onClick={() => { setShowLogTime(false); setLogMin(''); setLogNote(''); }}>
-                      Cancel
-                    </button>
-                    <button
-                      className="btn sm primary" style={{ flex: 1, fontSize: 10 }}
-                      onClick={handleLogTime}
-                      disabled={logSaving || (parseInt(logMin) || 0) <= 0}
-                    >
-                      {logSaving ? '…' : 'Add time'}
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Created */}
@@ -3023,8 +3132,8 @@ const TaskDetailModal = ({
 const toBranchName = (title) =>
   'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuses = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
-  const empty = { title: '', proj: projects[0]?.id || '', p: '2', col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
+  const empty = { title: '', proj: projects[0]?.id || '', p: priorities[0]?.id || null, col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
   // Reset col when defaultCol (i.e. which column's + button was clicked) changes
@@ -3079,12 +3188,13 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
     const newTask = {
       proj: form.proj,
       col: form.col,
-      p: parseInt(form.p),
+      p: form.p || null,
       title: form.title.trim(),
       description: form.description,
       due: form.due || '—',
       tags: form.tagIds,
       estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
+      ...(defaultParentId ? { parentId: defaultParentId } : {}),
     };
     setSaving(true);
     setBranchErr('');
@@ -3145,10 +3255,9 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
           </div>
           <div className="fld">
             <label>Priority</label>
-            <select value={form.p} onChange={e => set('p', e.target.value)}>
-              <option value="1">P1 — Critical</option>
-              <option value="2">P2 — Normal</option>
-              <option value="3">P3 — Low</option>
+            <select value={form.p || ''} onChange={e => set('p', e.target.value || null)}>
+              <option value="">— None —</option>
+              {priorities.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
             </select>
           </div>
         </div>
@@ -3164,14 +3273,29 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', statuse
             <input type="date" value={form.due} onChange={e => set('due', e.target.value)} />
           </div>
         </div>
-        <div className="fld-row">
-          <div className="fld">
-            <label>Est. hours</label>
-            <input type="number" min="0" value={form.estH} onChange={e => set('estH', e.target.value)} placeholder="0" />
-          </div>
-          <div className="fld">
-            <label>Est. minutes</label>
-            <input type="number" min="0" max="59" value={form.estM} onChange={e => set('estM', e.target.value)} placeholder="0" />
+        <div className="fld">
+          <label>Estimated Duration</label>
+          <div className="add-task-est-container">
+            <div className="add-task-est-field">
+              <input
+                type="number" min="0"
+                value={form.estH}
+                onChange={e => set('estH', e.target.value)}
+                placeholder="0"
+                className="add-task-est-input"
+              />
+              <span className="add-task-est-unit">hours</span>
+            </div>
+            <div className="add-task-est-field">
+              <input
+                type="number" min="0" max="59"
+                value={form.estM}
+                onChange={e => set('estM', e.target.value)}
+                placeholder="0"
+                className="add-task-est-input"
+              />
+              <span className="add-task-est-unit">minutes</span>
+            </div>
           </div>
         </div>
         <div className="fld">
@@ -3320,7 +3444,7 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, githubToken = null }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, githubToken = null }) => {
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view, setView] = useStateA('board');
@@ -3345,6 +3469,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   const [localErr, setLocalErr] = useStateA('');
   const [showAdd, setShowAdd] = useStateA(false);
   const [addCol, setAddCol] = useStateA(cols[0]?.id || '');
+  const [addParentId, setAddParentId] = useStateA(null);
   const [branchToast, setBranchToast] = useStateA(null);
   const [dragOver, setDragOver] = useStateA(null);   // col id being hovered
   const [draggingFromKey, setDraggingFromKey] = useStateA(null);  // source col during drag
@@ -3412,7 +3537,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   const filtered = displayTasks.filter(t =>
     (subFilter === 'subtask' ? !!t.parentId : !t.parentId) &&
     (projFilter === 'all' || t.proj === projFilter) &&
-    (prioFilter === 'all' || t.p === parseInt(prioFilter)) &&
+    (prioFilter === 'all' || t.p === prioFilter) &&
     (!sq || t.title.toLowerCase().includes(sq) || t.id.toLowerCase().includes(sq))
   );
   const byCol = (col) => filtered.filter(t => t.col === col);
@@ -3463,7 +3588,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     }));
   };
 
-  const openAdd = (col = cols[0]?.id || '') => { setAddCol(col); setShowAdd(true); };
+  const openAdd = (col = cols[0]?.id || '', parentId = null) => { setAddCol(col); setAddParentId(parentId); setShowAdd(true); };
 
   // ── Drag handlers ─────────────────────────────────────────────────
   const handleDragStart = (e, task) => {
@@ -3647,15 +3772,15 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 
           <div className="filter-bar">
             <div className="sliding-indicator" style={{ left: prioInd.left, width: prioInd.width }} />
-            {['all', '1', '2', '3'].map(v => (
+            {[{ id: 'all', label: 'All', color: 'var(--text-4)' }, ...priorities].map(v => (
               <button
-                key={v}
-                ref={el => prioRefs.current[v] = el}
-                className={'chip' + (prioFilter === v ? ' active' : '')}
-                onClick={() => setPrioFilter(v)}
+                key={v.id}
+                ref={el => prioRefs.current[v.id] = el}
+                className={'chip' + (prioFilter === v.id ? ' active' : '')}
+                onClick={() => setPrioFilter(v.id)}
               >
-                <span className="dot-p" style={{ background: v === 'all' ? 'var(--text-4)' : `var(--p${v})` }} />
-                {v === 'all' ? 'All Priorities' : `P${v}`}
+                <span className="dot-p" style={{ background: v.color }} />
+                {v.label}
               </button>
             ))}
           </div>
@@ -3798,7 +3923,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                     style={{ flexShrink: 0, color: 'var(--text-3)', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }}>
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
-                  {parent && <span className="dot-p" style={{ background: `var(--p${parent.p})`, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} />}
+                  {parent && (() => { const pr = priorities.find(p => p.id === parent.p); return pr ? <span className="dot-p" style={{ background: pr.color, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} /> : null; })()}
                   <span className="sg-pid">{parent?.id || '—'}</span>
                   <span className="sg-ptitle">{parent?.title || 'Unknown task'}</span>
                   <span className="sg-pcount">{subtasks.length} subtask{subtasks.length !== 1 ? 's' : ''}</span>
@@ -3827,10 +3952,16 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                         >
                           {items.map(t => (
                             <TaskCard key={t.id} t={t} tasks={tasks} projects={projects} allTags={tags}
-                              doneStatusId={doneStatusId} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+                              doneStatusId={doneStatusId} priorities={priorities} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
                               onClick={() => setViewingTask(t)} />
                           ))}
                           {items.length === 0 && <div className="sg-col-empty" />}
+                          <button
+                            className="btn ghost"
+                            style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed', margin: '4px 0' }}
+                            onClick={() => openAdd(col.id, parentId)}>
+                            <Icon name="plus" size={10} /> Add task
+                          </button>
                         </div>
                       );
                     })}
@@ -3868,6 +3999,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       projects={projects}
                       allTags={tags}
                       doneStatusId={doneStatusId}
+                      priorities={priorities}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       onClick={() => setViewingTask(t)}
@@ -3906,7 +4038,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                             style={{ flexShrink: 0, color: 'var(--text-3)', transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }}>
                             <polyline points="6 9 12 15 18 9" />
                           </svg>
-                          {parent && <span className="dot-p" style={{ background: `var(--p${parent.p})`, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} />}
+                          {parent && (() => { const pr = priorities.find(p => p.id === parent.p); return pr ? <span className="dot-p" style={{ background: pr.color, width: 8, height: 8, borderRadius: '50%', flexShrink: 0 }} /> : null; })()}
                           <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--text-3)' }}>{parent?.id || '—'}</span>
                           <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{parent?.title || 'Unknown task'}</span>
                           <span style={{ fontSize: 11, color: 'var(--text-3)' }}>({subtasks.length})</span>
@@ -3914,7 +4046,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                         </div>
                       </td>
                     </tr>,
-                    ...(!isCollapsed ? subtasks.map(t => {
+                    ...(!isCollapsed ? [
+                      ...subtasks.map(t => {
                       const isRowDone = doneStatusId && t.col === doneStatusId;
                       const taskProj = projects.find(p => p.id === t.proj);
                       const branchUrl = t.ghBranch && taskProj?.repo
@@ -3922,7 +4055,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       return (
                         <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
                           <td className="mono" style={{ paddingLeft: 32 }}>{t.id}</td>
-                          <td><span className={'dot-p p' + t.p} /></td>
+                          <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
                           <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
                           <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
                           <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
@@ -3943,7 +4076,18 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                           </td>
                         </tr>
                       );
-                    }) : [])
+                      }),
+                      <tr key={`add-${parentId}`}>
+                        <td colSpan={7} style={{ paddingLeft: 32, paddingTop: 4, paddingBottom: 4 }}>
+                          <button
+                            className="btn ghost"
+                            style={{ fontSize: 11, padding: '4px 10px', color: 'var(--text-3)', borderStyle: 'dashed' }}
+                            onClick={() => openAdd(cols[0]?.id, parentId)}>
+                            <Icon name="plus" size={10} /> Add task
+                          </button>
+                        </td>
+                      </tr>,
+                    ] : [])
                   ];
                 })
               ) : filtered.map(t => {
@@ -3955,7 +4099,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                 return (
                   <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
                     <td className="mono">{t.id}</td>
-                    <td><span key={t.p} className={'dot-p p' + t.p}></span></td>
+                    <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
                     <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
                     <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
                     <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
@@ -3985,8 +4129,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       )}
 
       <AddTaskPanel
-        open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd}
-        projects={projects} defaultCol={addCol} statuses={cols}
+        open={showAdd} onClose={() => { setShowAdd(false); setAddParentId(null); }} onAdd={handleAdd}
+        projects={projects} defaultCol={addCol} defaultParentId={addParentId} statuses={cols} priorities={priorities}
         allTags={tags} onCreateTag={handleCreateTag} githubToken={githubToken}
         onBranchCreated={({ branchName, url, task }) => {
           // Update local task state with the saved branch
@@ -4001,6 +4145,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           task={viewingTask}
           projects={projects}
           statuses={cols}
+          priorities={priorities}
           subtasks={tasks.filter(t => t.parentId === viewingTask._dbId)}
           allTasks={tasks}
           parentTask={parentTask}

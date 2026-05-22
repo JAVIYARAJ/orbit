@@ -150,8 +150,12 @@ export const AuthPage = ({ onAuth }) => {
         <div className="auth-glow auth-glow-2" />
 
         <div className="auth-logo">
-          <span className="auth-logo-dot" />
-          <span>DevOS</span>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{flexShrink:0}}>
+            <circle cx="9" cy="9" r="3" fill="currentColor"/>
+            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none"/>
+            <circle cx="9" cy="3" r="1.5" fill="currentColor"/>
+          </svg>
+          <span>Orbit</span>
           <span className="auth-logo-ver">v1.0</span>
         </div>
 
@@ -174,7 +178,7 @@ export const AuthPage = ({ onAuth }) => {
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff9500' }} />
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#25d366' }} />
             </div>
-            <span className="auth-preview-title">devos — projects</span>
+            <span className="auth-preview-title">orbit — projects</span>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
               <div className="auth-preview-dot" />
               <div className="auth-preview-dot" />
@@ -238,7 +242,7 @@ export const AuthPage = ({ onAuth }) => {
             </h2>
             <p>
               {mode === 'login'  ? 'Sign in to your workspace'         :
-               mode === 'signup' ? 'Set up your DevOS workspace'       :
+               mode === 'signup' ? 'Set up your Orbit workspace'       :
                                    "We'll send a reset link to your email"}
             </p>
           </div>
@@ -384,7 +388,7 @@ export const AuthPage = ({ onAuth }) => {
               {/* Mode switch */}
               <p className="auth-switch">
                 {mode === 'login' ? (
-                  <>New to DevOS?{' '}
+                  <>New to Orbit?{' '}
                     <button type="button" className="auth-link" onClick={() => reset('signup')}>
                       Create a free account
                     </button>
@@ -469,8 +473,12 @@ export const ResetPasswordPage = ({ onDone }) => {
         <div className="auth-glow auth-glow-1" />
         <div className="auth-glow auth-glow-2" />
         <div className="auth-logo">
-          <span className="auth-logo-dot" />
-          <span>DevOS</span>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{flexShrink:0}}>
+            <circle cx="9" cy="9" r="3" fill="currentColor"/>
+            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none"/>
+            <circle cx="9" cy="3" r="1.5" fill="currentColor"/>
+          </svg>
+          <span>Orbit</span>
           <span className="auth-logo-ver">v1.0</span>
         </div>
         <div className="auth-hero">

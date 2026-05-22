@@ -1,7 +1,7 @@
 {
-  "name": "devos-dashboard",
+  "name": "orbit-dashboard",
   "version": "1.0.0",
-  "description": "DevOS - Personal Developer Dashboard",
+  "description": "Orbit - Developer Dashboard",
   "private": true,
   "type": "module",
   "scripts": {

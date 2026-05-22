@@ -31,8 +31,12 @@ export const WorkstationSetup = ({ onCreated, onCancel, isFirst }) => {
 
         {/* Logo */}
         <div className="ws-setup-logo">
-          <span className="ws-setup-logo-dot" />
-          <span>DevOS</span>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{flexShrink:0}}>
+            <circle cx="9" cy="9" r="3" fill="currentColor"/>
+            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none"/>
+            <circle cx="9" cy="3" r="1.5" fill="currentColor"/>
+          </svg>
+          <span>Orbit</span>
         </div>
 
         {/* Heading */}

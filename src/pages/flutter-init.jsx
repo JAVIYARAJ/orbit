@@ -1647,7 +1647,7 @@ ${c.stateManager === 'bloc' ? '│   │       └── bloc/  # HomeBloc + Eve
 \`\`\`
 
 ---
-*Generated with DevOS Flutter Init*
+*Generated with Orbit Flutter Init*
 `;
 }
 
