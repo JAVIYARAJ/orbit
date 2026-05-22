@@ -31,10 +31,10 @@ export const WorkstationSetup = ({ onCreated, onCancel, isFirst }) => {
 
         {/* Logo */}
         <div className="ws-setup-logo">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style={{flexShrink:0}}>
-            <circle cx="9" cy="9" r="2.5" fill="currentColor"/>
-            <ellipse cx="9" cy="9" rx="8" ry="3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity="0.85"/>
-            <circle cx="17" cy="9" r="1.5" fill="currentColor"/>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{flexShrink:0}}>
+            <circle cx="9" cy="9" r="3" fill="currentColor"/>
+            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none"/>
+            <circle cx="9" cy="3" r="1.5" fill="currentColor"/>
           </svg>
           <span>Orbit</span>
         </div>
