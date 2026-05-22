@@ -4339,7 +4339,7 @@ body.texture-grid::before {
 .wc-recharts {
   padding: 4px 0 0;
   flex: 1 1 0;
-  min-height: 0;
+  min-height: 150px;
 }
 
 /* Stretch Waveform card to align with bottom of right column */
@@ -15577,6 +15577,26 @@ body.scanlines::after {
   padding: 12px 10px;
   color: var(--text-3);
   font-size: 12px;
+}
+
+.repo-sel-item.taken {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.repo-sel-item.taken:hover {
+  background: none;
+  color: var(--text-2);
+}
+
+.repo-sel-linked {
+  font-size: 10px;
+  font-family: var(--f-mono);
+  color: var(--accent);
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .repo-badge {

@@ -22,6 +22,7 @@ import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
 import { Settings } from '../pages/settings.jsx';
 import { AuthPage, ResetPasswordPage } from '../pages/auth.jsx';
+import { useRemoteConfig } from '../lib/useRemoteConfig.js';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#0099ff",
@@ -74,6 +75,7 @@ const Loading = () => (
 
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const enabledModules = useRemoteConfig();
 
   // ── Auth ────────────────────────────────────────────────────────
   const [authUser,         setAuthUser]         = useStateApp(null);
@@ -274,6 +276,11 @@ export default function App() {
   // Persist nav
   useEffectApp(() => { localStorage.setItem('orbit:nav', current); }, [current]);
 
+  // Redirect to home if the active page is disabled via Remote Config
+  useEffectApp(() => {
+    if (enabledModules[current] === false) setCurrent('home');
+  }, [enabledModules, current]);
+
   // Timer tick
   useEffectApp(() => {
     if (!running) return;
@@ -293,7 +300,7 @@ export default function App() {
         const handler = (e2) => {
           const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit',f:'flutter-init',g:'github',k:'vercel',s:'settings' };
           const id = map[e2.key.toLowerCase()];
-          if (id) setCurrent(id);
+          if (id && enabledModules[id] !== false) setCurrent(id);
           window.removeEventListener('keydown', handler);
         };
         window.addEventListener('keydown', handler, { once: true });
@@ -485,6 +492,7 @@ export default function App() {
         activeWorkstation={activeWorkstation}
         onWsSwitch={handleWsSwitch}
         onNewWs={handleNewWs}
+        enabledModules={enabledModules}
       />
       <div className="main">
         <Topbar
@@ -527,7 +535,7 @@ export default function App() {
           />
         </div>
       </div>
-      <CmdPalette open={cmdkOpen} onClose={() => setCmdkOpen(false)} onNav={setCurrent} />
+      <CmdPalette open={cmdkOpen} onClose={() => setCmdkOpen(false)} onNav={setCurrent} enabledModules={enabledModules} />
 
       <TweaksPanel>
         <TweakSection label="Theme" />

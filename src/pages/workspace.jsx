@@ -137,6 +137,19 @@ const CustomDot = ({ cx, cy, index, todayIdx, payload }) => {
 };
 
 const WeekLineChart = ({ data, todayIdx }) => {
+  const wrapRef = useRefA(null);
+  const [chartH, setChartH] = useStateA(150);
+
+  useEffectA(() => {
+    if (!wrapRef.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const h = entry.contentRect.height;
+      if (h > 0) setChartH(h);
+    });
+    ro.observe(wrapRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   const chartData = data.map((d, i) => ({
     day: DAY_LABELS[i],
     h: i > todayIdx ? null : d.h,
@@ -144,8 +157,8 @@ const WeekLineChart = ({ data, todayIdx }) => {
   }));
 
   return (
-    <div className="wc-recharts">
-      <ResponsiveContainer width="100%" height="100%" minHeight={150}>
+    <div className="wc-recharts" ref={wrapRef}>
+      <ResponsiveContainer width="100%" height={chartH}>
         <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -28, bottom: 0 }}>
           <defs>
             <linearGradient id="wcGrad" x1="0" y1="0" x2="0" y2="1">
@@ -577,7 +590,7 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
             <div className="card-body-scroll">
               {notes.filter(n => n.pinned).length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>No starred notes</div>
-              ) : notes.filter(n => n.pinned).map(n => (
+              ) : notes.filter(n => n.pinned).slice(0, 3).map(n => (
                 <div key={n.id} className="home-note-row" onClick={() => onNav('notes')}>
                   <div className="home-note-title">
                     <Icon name="star" size={11} /> {n.title}
@@ -640,7 +653,7 @@ const GhConnectHint = ({ label }) => (
 // ═══════════════════════════════════════════════════════════════════
 // Shared form panel — handles both Add and Edit
 // ── Repo selector dropdown (shown when GitHub is connected) ─────────
-const RepoSelector = ({ repos, loading, value, onChange }) => {
+const RepoSelector = ({ repos, loading, value, onChange, takenRepos = {} }) => {
   const [open, setOpen] = useStateA(false);
   const [q, setQ] = useStateA('');
   const [rect, setRect] = useStateA(null);
@@ -716,15 +729,19 @@ const RepoSelector = ({ repos, loading, value, onChange }) => {
             )}
             {filtered.map(r => {
               const [owner, repoName] = r.full_name.split('/');
+              const linkedTo = takenRepos[r.html_url];
+              const isTaken = !!linkedTo;
               return (
                 <button
                   key={r.id}
-                  className={'repo-sel-item' + (r.html_url === value ? ' active' : '')}
-                  onClick={() => { onChange(r.html_url); setOpen(false); setQ(''); }}
+                  className={'repo-sel-item' + (r.html_url === value ? ' active' : '') + (isTaken ? ' taken' : '')}
+                  disabled={isTaken}
+                  onClick={isTaken ? undefined : () => { onChange(r.html_url); setOpen(false); setQ(''); }}
                 >
                   <div className="repo-sel-info">
                     <span className="repo-sel-reponame">{repoName}</span>
                     <span className="repo-sel-owner">{owner}</span>
+                    {isTaken && <span className="repo-sel-linked">linked to {linkedTo}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignSelf: 'flex-start', marginTop: 2 }}>
                     {r.private && <span className="repo-badge private">private</span>}
@@ -925,7 +942,17 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
                 {repoMode === 'existing' && (
                   <div className="branch-opt-name">
                     <label>Choose repository</label>
-                    <RepoSelector repos={ghRepos} loading={ghLoading} value={form.repo} onChange={v => set('repo', v)} />
+                    <RepoSelector
+                      repos={ghRepos}
+                      loading={ghLoading}
+                      value={form.repo}
+                      onChange={v => set('repo', v)}
+                      takenRepos={Object.fromEntries(
+                        projects
+                          .filter(p => p !== initial && p.repo && p.repo !== '—')
+                          .map(p => [p.repo, p.name])
+                      )}
+                    />
                   </div>
                 )}
               </div>
@@ -1200,13 +1227,13 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
         {/* ── Hours ── */}
         {(() => {
           const logged = project.hoursLogged || 0;
-          const est    = project.hoursEst    || 0;
-          const pct    = est > 0 ? Math.min(100, Math.round((logged / est) * 100)) : null;
-          const over   = est > 0 && logged > est;
-          const budgetAmt  = parseBudgetAmount(project.budget);
+          const est = project.hoursEst || 0;
+          const pct = est > 0 ? Math.min(100, Math.round((logged / est) * 100)) : null;
+          const over = est > 0 && logged > est;
+          const budgetAmt = parseBudgetAmount(project.budget);
           const hourlyRate = budgetAmt && est > 0 ? (budgetAmt / est) : null;
-          const burnAmt    = hourlyRate ? (hourlyRate * logged) : null;
-          const burnPct    = budgetAmt && burnAmt ? Math.round((burnAmt / budgetAmt) * 100) : null;
+          const burnAmt = hourlyRate ? (hourlyRate * logged) : null;
+          const burnPct = budgetAmt && burnAmt ? Math.round((burnAmt / budgetAmt) * 100) : null;
           return (
             <div className="fld">
               <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>HOURS</label>
@@ -1226,7 +1253,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
               )}
               {budgetAmt && hourlyRate && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-3)', marginTop: 6 }}>
-                  <span>Rate {project.budget?.replace(/[0-9,. ]+/, '')||''}{ hourlyRate.toFixed(0)}/h</span>
+                  <span>Rate {project.budget?.replace(/[0-9,. ]+/, '') || ''}{hourlyRate.toFixed(0)}/h</span>
                   {burnAmt !== null && <span style={{ color: burnPct > 90 ? '#ef4444' : burnPct > 70 ? '#f59e0b' : 'var(--text-3)' }}>
                     Burn {burnPct}%
                   </span>}
@@ -1837,8 +1864,8 @@ const LinkPreview = ({ url }) => {
         if (data?.title || data?.image || data?.favicon) {
           setMeta(prev => ({
             ...prev,
-            title:   data.title   || prev.title,
-            thumb:   data.image   || prev.thumb,
+            title: data.title || prev.title,
+            thumb: data.image || prev.thumb,
             favicon: data.favicon || prev.favicon,
           }));
         }
@@ -1970,7 +1997,7 @@ const TaskDetailModal = ({
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
   const COL_LABEL = Object.fromEntries(statuses.map(s => [s.id, s.label]));
-  const PRIO_MAP  = Object.fromEntries(priorities.map(p => [p.id, p]));
+  const PRIO_MAP = Object.fromEntries(priorities.map(p => [p.id, p]));
   const proj = projects.find(p => p.id === task.proj);
 
   // 'done' status UUID — used for subtask completion percentage
@@ -2792,7 +2819,7 @@ const TaskDetailModal = ({
                     <Icon name={showLogTime ? 'x' : 'plus'} size={10} />
                     {showLogTime ? 'Close Log' : 'Log Time'}
                   </button>
-                  
+
                   {!showLogTime && (
                     <div className="tt-presets">
                       <button className="tt-preset-btn" onClick={() => handleQuickLog(15)}>+15m</button>
@@ -2887,7 +2914,7 @@ const TaskDetailModal = ({
                 }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                     style={{ color: 'var(--text-3)', flexShrink: 0, marginTop: 1 }}>
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
                   <span>
                     No repository linked to this project.{' '}
@@ -3043,9 +3070,9 @@ const TaskDetailModal = ({
                       disabled={branchSaving}
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                        <line x1="4" y1="4" x2="20" y2="20"/>
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        <line x1="4" y1="4" x2="20" y2="20" />
                       </svg>
                       <span>{branchSaving ? 'Disconnecting…' : 'Disconnect branch'}</span>
                     </button>
@@ -3145,14 +3172,14 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
   // Reset col when defaultCol (i.e. which column's + button was clicked) changes
   useEffectA(() => { setForm(f => ({ ...f, col: defaultCol || statuses[0]?.id || '' })); }, [defaultCol]);
 
-  const [err,             setErr]             = useStateA('');
-  const [saving,          setSaving]          = useStateA(false);
-  const [branchMode,      setBranchMode]      = useStateA('none'); // 'none' | 'create' | 'existing'
-  const [branchName,      setBranchName]      = useStateA('');
-  const [existingBranch,  setExistingBranch]  = useStateA('');
-  const [branches,        setBranches]        = useStateA([]);
+  const [err, setErr] = useStateA('');
+  const [saving, setSaving] = useStateA(false);
+  const [branchMode, setBranchMode] = useStateA('none'); // 'none' | 'create' | 'existing'
+  const [branchName, setBranchName] = useStateA('');
+  const [existingBranch, setExistingBranch] = useStateA('');
+  const [branches, setBranches] = useStateA([]);
   const [branchesLoading, setBranchesLoading] = useStateA(false);
-  const [branchErr,       setBranchErr]       = useStateA('');
+  const [branchErr, setBranchErr] = useStateA('');
   const branchEditedRef = useRefA(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -3332,7 +3359,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
               style={{ color: 'var(--text-3)', flexShrink: 0, marginTop: 1 }}>
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <span>
               No repository linked to this project.
@@ -3352,7 +3379,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
                   {branchMode === 'existing' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3" /></svg>}
                 </span>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
-                  <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+                  <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
                 </svg>
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span>Link existing branch</span>
@@ -3388,7 +3415,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
                   {branchMode === 'create' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3" /></svg>}
                 </span>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
-                  <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+                  <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
                 </svg>
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span>Create a new branch</span>
@@ -3550,16 +3577,16 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 
   const subtaskGroups = subFilter === 'subtask'
     ? Object.entries(
-        filtered.reduce((acc, t) => {
-          const pid = t.parentId || '__none__';
-          (acc[pid] = acc[pid] || []).push(t);
-          return acc;
-        }, {})
-      ).map(([pid, subs]) => ({
-        parentId: pid,
-        parent: tasks.find(x => x._dbId === pid),
-        subtasks: subs,
-      }))
+      filtered.reduce((acc, t) => {
+        const pid = t.parentId || '__none__';
+        (acc[pid] = acc[pid] || []).push(t);
+        return acc;
+      }, {})
+    ).map(([pid, subs]) => ({
+      parentId: pid,
+      parent: tasks.find(x => x._dbId === pid),
+      subtasks: subs,
+    }))
     : null;
 
   const handleAdd = async (taskData) => {
@@ -4054,34 +4081,34 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                     </tr>,
                     ...(!isCollapsed ? [
                       ...subtasks.map(t => {
-                      const isRowDone = doneStatusId && t.col === doneStatusId;
-                      const taskProj = projects.find(p => p.id === t.proj);
-                      const branchUrl = t.ghBranch && taskProj?.repo
-                        ? `${taskProj.repo.replace(/\/$/, '')}/tree/${t.ghBranch}` : null;
-                      return (
-                        <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
-                          <td className="mono" style={{ paddingLeft: 32 }}>{t.id}</td>
-                          <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
-                          <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
-                          <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
-                          <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
-                          <td onClick={e => e.stopPropagation()}>
-                            {t.ghBranch ? (
-                              <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="task-branch-chip">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
-                                {t.ghBranch}
-                              </a>
-                            ) : <span style={{ color: 'var(--text-4)' }}>—</span>}
-                          </td>
-                          <td>
-                            {(t.tags || []).slice(0, 2).map(id => {
-                              const tg = tags.find(x => x.id === id);
-                              return tg ? <span key={id} className="tag" style={{ marginRight: 4, borderColor: tg.color, color: tg.color }}>{tg.name}</span> : null;
-                            })}
-                            {t.tags && t.tags.length > 2 && <span className="tag-more">+{t.tags.length - 2}</span>}
-                          </td>
-                        </tr>
-                      );
+                        const isRowDone = doneStatusId && t.col === doneStatusId;
+                        const taskProj = projects.find(p => p.id === t.proj);
+                        const branchUrl = t.ghBranch && taskProj?.repo
+                          ? `${taskProj.repo.replace(/\/$/, '')}/tree/${t.ghBranch}` : null;
+                        return (
+                          <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
+                            <td className="mono" style={{ paddingLeft: 32 }}>{t.id}</td>
+                            <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
+                            <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
+                            <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
+                            <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
+                            <td onClick={e => e.stopPropagation()}>
+                              {t.ghBranch ? (
+                                <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="task-branch-chip">
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                                  {t.ghBranch}
+                                </a>
+                              ) : <span style={{ color: 'var(--text-4)' }}>—</span>}
+                            </td>
+                            <td>
+                              {(t.tags || []).slice(0, 2).map(id => {
+                                const tg = tags.find(x => x.id === id);
+                                return tg ? <span key={id} className="tag" style={{ marginRight: 4, borderColor: tg.color, color: tg.color }}>{tg.name}</span> : null;
+                              })}
+                              {t.tags && t.tags.length > 2 && <span className="tag-more">+{t.tags.length - 2}</span>}
+                            </td>
+                          </tr>
+                        );
                       }),
                       <tr key={`add-${parentId}`}>
                         <td colSpan={7} style={{ paddingLeft: 32, paddingTop: 4, paddingBottom: 4 }}>
@@ -4394,12 +4421,12 @@ export const LearningPage = ({ learning, setLearning, workstationId }) => {
 //  5. VAULT
 // ═══════════════════════════════════════════════════════════════════
 const VAULT_CATS = [
-  { id: 'all',   label: 'All items',         icon: 'lock'   },
-  { id: 'api',   label: 'API Keys',           icon: 'key'    },
-  { id: 'pw',    label: 'Passwords',          icon: 'lock'   },
-  { id: 'env',   label: 'Environment Vars',   icon: 'code'   },
-  { id: 'ssh',   label: 'SSH Keys',           icon: 'key'    },
-  { id: 'other', label: 'Other',              icon: 'folder' },
+  { id: 'all', label: 'All items', icon: 'lock' },
+  { id: 'api', label: 'API Keys', icon: 'key' },
+  { id: 'pw', label: 'Passwords', icon: 'lock' },
+  { id: 'env', label: 'Environment Vars', icon: 'code' },
+  { id: 'ssh', label: 'SSH Keys', icon: 'key' },
+  { id: 'other', label: 'Other', icon: 'folder' },
 ];
 
 const catIcon = (c) => ({ api: 'key', pw: 'lock', env: 'code', ssh: 'key', other: 'folder' }[c] || 'lock');
@@ -4746,7 +4773,14 @@ const ChangePasswordDialog = ({ open, onClose, onSave }) => {
   if (!open) return null;
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: 28, width: 380 }}>
+      <div style={{
+        background: 'var(--bg-2)',
+        border: '1px solid var(--border)',
+        borderRadius: '12px',
+        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)',
+        padding: 28,
+        width: 380
+      }}>
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Change Master Password</div>
         <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 20 }}>
           All secrets will be re-encrypted with the new password.
@@ -4756,66 +4790,68 @@ const ChangePasswordDialog = ({ open, onClose, onSave }) => {
             {err}
           </div>
         )}
-        <div className="fld">
-          <label>Current password</label>
-          <div className="fld-pw">
-            <input
-              type={showCurrent ? 'text' : 'password'}
-              value={currentPw}
-              onChange={e => { setCurrentPw(e.target.value); setErr(''); }}
-              placeholder="••••••••"
-              disabled={busy}
-              autoFocus
-            />
-            <button type="button" className="pw-toggle" onClick={() => setShowCurrent(s => !s)}>
-              <Icon name={showCurrent ? 'eye-off' : 'eye'} size={13} />
-            </button>
-          </div>
-        </div>
-        <div className="fld">
-          <label>New password</label>
-          <div className="fld-pw">
-            <input
-              type={showNew ? 'text' : 'password'}
-              value={newPw}
-              onChange={e => { setNewPw(e.target.value); setErr(''); }}
-              placeholder="Min. 8 characters"
-              disabled={busy}
-            />
-            <button type="button" className="pw-toggle" onClick={() => setShowNew(s => !s)}>
-              <Icon name={showNew ? 'eye-off' : 'eye'} size={13} />
-            </button>
-          </div>
-          {newPw.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-              <div style={{ display: 'flex', gap: 3, flex: 1 }}>
-                {[1,2,3,4].map(i => (
-                  <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= score ? strengthColors[score] : 'var(--border-2)' }} />
-                ))}
-              </div>
-              <span style={{ fontSize: 10, color: strengthColors[score], fontFamily: 'var(--f-mono)' }}>
-                {strengthLabels[score]}
-              </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="fld">
+            <label>Current password</label>
+            <div className="fld-pw">
+              <input
+                type={showCurrent ? 'text' : 'password'}
+                value={currentPw}
+                onChange={e => { setCurrentPw(e.target.value); setErr(''); }}
+                placeholder="••••••••"
+                disabled={busy}
+                autoFocus
+              />
+              <button type="button" className="pw-toggle" onClick={() => setShowCurrent(s => !s)}>
+                <Icon name={showCurrent ? 'eye-off' : 'eye'} size={13} />
+              </button>
             </div>
-          )}
-        </div>
-        <div className="fld">
-          <label>Confirm new password</label>
-          <div className="fld-pw">
-            <input
-              type={showConfirm ? 'text' : 'password'}
-              value={confirmPw}
-              onChange={e => { setConfirmPw(e.target.value); setErr(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
-              placeholder="Repeat new password"
-              disabled={busy}
-            />
-            <button type="button" className="pw-toggle" onClick={() => setShowConfirm(s => !s)}>
-              <Icon name={showConfirm ? 'eye-off' : 'eye'} size={13} />
-            </button>
+          </div>
+          <div className="fld">
+            <label>New password</label>
+            <div className="fld-pw">
+              <input
+                type={showNew ? 'text' : 'password'}
+                value={newPw}
+                onChange={e => { setNewPw(e.target.value); setErr(''); }}
+                placeholder="Min. 8 characters"
+                disabled={busy}
+              />
+              <button type="button" className="pw-toggle" onClick={() => setShowNew(s => !s)}>
+                <Icon name={showNew ? 'eye-off' : 'eye'} size={13} />
+              </button>
+            </div>
+            {newPw.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <div style={{ display: 'flex', gap: 3, flex: 1 }}>
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= score ? strengthColors[score] : 'var(--border-2)' }} />
+                  ))}
+                </div>
+                <span style={{ fontSize: 10, color: strengthColors[score], fontFamily: 'var(--f-mono)' }}>
+                  {strengthLabels[score]}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="fld">
+            <label>Confirm new password</label>
+            <div className="fld-pw">
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                value={confirmPw}
+                onChange={e => { setConfirmPw(e.target.value); setErr(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
+                placeholder="Repeat new password"
+                disabled={busy}
+              />
+              <button type="button" className="pw-toggle" onClick={() => setShowConfirm(s => !s)}>
+                <Icon name={showConfirm ? 'eye-off' : 'eye'} size={13} />
+              </button>
+            </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
           <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn primary" onClick={handleSave} disabled={busy || !currentPw || newPw.length < 8 || newPw !== confirmPw}>
             <Icon name="lock" size={12} /> {busy ? 'Re-encrypting…' : 'Change password'}
@@ -4832,7 +4868,14 @@ const DeleteConfirmDialog = ({ item, onConfirm, onCancel }) => {
   if (!item) return null;
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: 28, width: 340 }}>
+      <div style={{
+        background: 'var(--bg-2)',
+        border: '1px solid var(--border)',
+        borderRadius: '12px',
+        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)',
+        padding: 28,
+        width: 340
+      }}>
         <div style={{ fontWeight: 600, marginBottom: 8 }}>Delete secret?</div>
         <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 20 }}>
           <strong>{item.name}</strong> will be permanently deleted. This cannot be undone.
@@ -5045,7 +5088,7 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `orbit-vault-${new Date().toISOString().slice(0,10)}.json`;
+    a.href = url; a.download = `orbit-vault-${new Date().toISOString().slice(0, 10)}.json`;
     a.click(); URL.revokeObjectURL(url);
   };
 

@@ -184,6 +184,7 @@ export const Sidebar = ({
   current, onNav, collapsed, onToggleCollapsed,
   user, onLogout,
   workstations, activeWorkstation, onWsSwitch, onNewWs,
+  enabledModules = {},
 }) => {
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -200,23 +201,27 @@ export const Sidebar = ({
       </div>
 
       <div className="sb-scroll">
-        {NAV.map(g => (
-          <div key={g.section}>
-            <div className="sb-section">{g.section}</div>
-            <div className="sb-nav">
-              {g.items.map(it => (
-                <button key={it.id}
-                  className={'sb-item' + (current === it.id ? ' active' : '')}
-                  onClick={() => onNav(it.id)}
-                  title={it.label}>
-                  <span className="ic"><Icon name={it.icon} /></span>
-                  <span className="label">{it.label}</span>
-                  <span className="kbd">{it.kbd}</span>
-                </button>
-              ))}
+        {NAV.map(g => {
+          const visibleItems = g.items.filter(it => enabledModules[it.id] !== false);
+          if (visibleItems.length === 0) return null;
+          return (
+            <div key={g.section}>
+              <div className="sb-section">{g.section}</div>
+              <div className="sb-nav">
+                {visibleItems.map(it => (
+                  <button key={it.id}
+                    className={'sb-item' + (current === it.id ? ' active' : '')}
+                    onClick={() => onNav(it.id)}
+                    title={it.label}>
+                    <span className="ic"><Icon name={it.icon} /></span>
+                    <span className="label">{it.label}</span>
+                    <span className="kbd">{it.kbd}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="sb-foot">
@@ -334,21 +339,25 @@ export const SlidePanel = ({ open, onClose, title, subtitle, children, width = 5
 };
 
 // ─── Cmd+K Palette ────────────────────────────────────────────────
-export const CmdPalette = ({ open, onClose, onNav }) => {
+export const CmdPalette = ({ open, onClose, onNav, enabledModules = {} }) => {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
 
   useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => inputRef.current?.focus(), 50); } }, [open]);
 
+  const isEnabled = (id) => enabledModules[id] !== false;
+
   const ACTIONS = [
-    { type: 'action', label: 'Start new timer', hint: 'T S', icon: 'play', do: () => { onNav('timer'); onClose(); } },
-    { type: 'action', label: 'New task', hint: 'T N', icon: 'plus', do: () => { onNav('tasks'); onClose(); } },
-    { type: 'action', label: 'New note', hint: 'N N', icon: 'plus', do: () => { onNav('notes'); onClose(); } },
-    { type: 'action', label: 'New project', hint: 'P N', icon: 'plus', do: () => { onNav('projects'); onClose(); } },
-    { type: 'action', label: 'Reveal vault item', hint: '', icon: 'eye', do: () => { onNav('vault'); onClose(); } },
-  ];
-  const NAV_ITEMS = NAV_FLAT.map(n => ({ type: 'nav', label: 'Go to ' + n.label, hint: n.kbd, icon: n.icon, do: () => { onNav(n.id); onClose(); } }));
+    { type: 'action', label: 'Start new timer', hint: 'T S', icon: 'play', moduleId: 'timer',    do: () => { onNav('timer'); onClose(); } },
+    { type: 'action', label: 'New task',         hint: 'T N', icon: 'plus', moduleId: 'tasks',    do: () => { onNav('tasks'); onClose(); } },
+    { type: 'action', label: 'New note',         hint: 'N N', icon: 'plus', moduleId: 'notes',    do: () => { onNav('notes'); onClose(); } },
+    { type: 'action', label: 'New project',      hint: 'P N', icon: 'plus', moduleId: 'projects', do: () => { onNav('projects'); onClose(); } },
+    { type: 'action', label: 'Reveal vault item', hint: '',   icon: 'eye',  moduleId: 'vault',    do: () => { onNav('vault'); onClose(); } },
+  ].filter(a => isEnabled(a.moduleId));
+  const NAV_ITEMS = NAV_FLAT
+    .filter(n => isEnabled(n.id))
+    .map(n => ({ type: 'nav', label: 'Go to ' + n.label, hint: n.kbd, icon: n.icon, do: () => { onNav(n.id); onClose(); } }));
 
   const all = [...ACTIONS, ...NAV_ITEMS];
   const lq = q.toLowerCase();
