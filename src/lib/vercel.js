@@ -34,17 +34,28 @@ export const vcGetUser = () =>
 
 export const vcGetProjects = () =>
   cached('vc:projects', TTL, () =>
-    vcProxy('/v9/projects', { limit: 100 }).then(d => d.projects || []))
+    vcProxy('/v9/projects', { limit: 100 }).then(d => {
+      const projects = d.projects || []
+      console.group('[Vercel] vcGetProjects — targets.production shape')
+      projects.forEach(p => console.log(p.name, '→', JSON.stringify(p.targets?.production ?? null)))
+      console.groupEnd()
+      return projects
+    }))
 
 export const vcGetDeployments = (until = null) => {
   const key    = `vc:deployments:${until ?? 'first'}`
   const params = { limit: 20 }
   if (until) params.until = until
   return cached(key, TTL, () =>
-    vcProxy('/v6/deployments', params).then(d => ({
-      deployments: d.deployments || [],
-      next:        d.pagination?.next ?? null,
-    }))
+    vcProxy('/v6/deployments', params).then(d => {
+      const deployments = d.deployments || []
+      console.group('[Vercel] vcGetDeployments — uid / target shape')
+      deployments.slice(0, 5).forEach(dep =>
+        console.log(dep.uid, '| target:', dep.target, '| name:', dep.name)
+      )
+      console.groupEnd()
+      return { deployments, next: d.pagination?.next ?? null }
+    })
   )
 }
 

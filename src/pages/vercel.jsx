@@ -158,6 +158,7 @@ function ProjectsTab() {
 // ── Deployments tab ────────────────────────────────────────────────
 function DeploymentsTab() {
   const [deployments,  setDeployments]  = useState([]);
+  const [prodUids,     setProdUids]     = useState(new Set());
   const [loading,      setLoading]      = useState(true);
   const [loadingMore,  setLoadingMore]  = useState(false);
   const [nextCursor,   setNextCursor]   = useState(null);
@@ -169,10 +170,17 @@ function DeploymentsTab() {
   const [promoteErr,   setPromoteErr]   = useState('');
 
   useEffect(() => {
-    vcGetDeployments()
-      .then(({ deployments, next }) => {
+    Promise.all([vcGetDeployments(), vcGetProjects()])
+      .then(([{ deployments, next }, projects]) => {
         setDeployments(deployments);
         setNextCursor(next);
+        // targets.production.id is the authoritative current-production UID per project
+        const uids = new Set(
+          projects.map(p => p.targets?.production?.id).filter(Boolean)
+        );
+        console.log('[Vercel] prodUids built from targets.production.id:', [...uids]);
+        console.log('[Vercel] deployment uids in list:', deployments.slice(0, 5).map(d => d.uid));
+        setProdUids(uids);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -204,18 +212,13 @@ function DeploymentsTab() {
     deployments.filter(d => {
       const state = d.readyState || d.state;
       const branch = d.meta?.githubCommitRef || d.meta?.gitlabCommitRef || d.meta?.branch || '';
-      if (envFilter === 'production' && d.target !== 'production') return false;
-      if (envFilter === 'preview'    && d.target === 'production') return false;
-      if (statusFilter !== 'all'     && state !== statusFilter)    return false;
-      if (branchFilter !== 'all'     && branch !== branchFilter)   return false;
+      const isProd = d.target === 'production' || prodUids.has(d.uid);
+      if (envFilter === 'production' && !isProd) return false;
+      if (envFilter === 'preview'    &&  isProd) return false;
+      if (statusFilter !== 'all'     && state !== statusFilter) return false;
+      if (branchFilter !== 'all'     && branch !== branchFilter) return false;
       return true;
-    }), [deployments, envFilter, statusFilter, branchFilter]);
-
-  // First READY production deployment in the full list = current live
-  const currentUid = useMemo(() => {
-    const cur = deployments.find(d => d.target === 'production' && (d.readyState || d.state) === 'READY');
-    return cur?.uid ?? null;
-  }, [deployments]);
+    }), [deployments, prodUids, envFilter, statusFilter, branchFilter]);
 
   const handlePromote = async (e, dep) => {
     e.preventDefault();
@@ -229,11 +232,14 @@ function DeploymentsTab() {
         proj?.alias?.find(a => a.target === 'PRODUCTION')?.domain ||
         proj?.targets?.production?.alias?.[0] ||
         `${dep.name}.vercel.app`;
-      await vcPromoteDeployment(dep.uid, alias);
+      try {
+        await vcPromoteDeployment(dep.uid, alias);
+      } catch (err) {
+        // 409 not_modified = alias already points here, deployment is already production
+        if (!err.message.includes('not_modified')) throw err;
+      }
       vcClearCache();
-      setDeployments(prev => prev.map(d =>
-        d.uid === dep.uid ? { ...d, target: 'production' } : d
-      ));
+      setProdUids(prev => new Set([...prev, dep.uid]));
     } catch (err) {
       setPromoteErr(err.message);
     } finally {
@@ -289,8 +295,8 @@ function DeploymentsTab() {
           const buildTime  = dep.ready && dep.buildingAt
             ? `${Math.round((dep.ready - dep.buildingAt) / 1000)}s`
             : null;
-          const isCurrent  = dep.uid === currentUid;
-          const canPromote = dep.target !== 'production' && state === 'READY';
+          const isCurrent  = dep.target === 'production' || prodUids.has(dep.uid);
+          const canPromote = !isCurrent && state === 'READY';
 
           return (
             <div key={dep.uid} className="gh-list-row" style={{ cursor: 'default' }}>
@@ -300,10 +306,10 @@ function DeploymentsTab() {
               <div className="gh-list-body">
                 <div className="gh-list-title">
                   <span className="vc-dep-name">{dep.uid.slice(0, 9)}</span>
-                  {dep.target === 'production'
+                  {isCurrent
                     ? <span className="vc-prod-badge">Production</span>
                     : <span className="vc-preview-badge">Preview</span>}
-                  {isCurrent && <span className="vc-current-badge">Current</span>}
+                  {isCurrent && prodUids.has(dep.uid) && <span className="vc-current-badge">Current</span>}
                   {buildTime && <span className="vc-build-time"><Icon name="clock" size={10} />{buildTime}</span>}
                 </div>
                 <div className="gh-list-meta">
