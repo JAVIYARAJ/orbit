@@ -134,6 +134,7 @@ export const Analytics = ({
   tasks    = [],
   statuses = [],
   timeEntries = [],
+  learningActivity = [],
 }) => {
   const [period, setPeriod] = useState('month');
 
@@ -231,6 +232,24 @@ export const Analytics = ({
     });
   }, [timeEntries, period, periodStart]);
 
+  // ── Learning hours — current week Mon–Sun ────────────────────────
+  const learningWeekData = useMemo(() => {
+    const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const wkStart = new Date(now);
+    wkStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    wkStart.setHours(0, 0, 0, 0);
+    return DAYS.map((day, i) => {
+      const d = new Date(wkStart);
+      d.setDate(wkStart.getDate() + i);
+      const iso = d.toISOString().split('T')[0];
+      const row = learningActivity.find(r => r.date === iso);
+      return { label: day, hours: row ? +row.hours.toFixed(2) : 0 };
+    });
+  }, [learningActivity, now]);
+
+  const learnWeekTotal = learningWeekData.reduce((s, d) => s + d.hours, 0);
+  const hasLearnData   = learningWeekData.some(d => d.hours > 0);
+
   // ── Task status distribution ──────────────────────────────────────
   const taskStatusDist = useMemo(() => statuses
     .map(s => ({
@@ -285,33 +304,6 @@ export const Analytics = ({
     { label: 'In Pipeline', amount: pipelineBudget, fill: 'linear-gradient(90deg,#ff9500,#fbbf24)' },
     { label: 'Total',       amount: totalBudget,    fill: 'linear-gradient(90deg,var(--accent),var(--accent-hi))' },
   ];
-
-  // ── Smart Insights ────────────────────────────────────────────────
-  const insights = useMemo(() => {
-    const list = [];
-
-    if (overdueCt > 0)
-      list.push({ type: 'warning', icon: 'alert', title: `${overdueCt} Overdue Task${overdueCt > 1 ? 's' : ''}`, desc: `${overdueCt} task${overdueCt > 1 ? 's are' : ' is'} past due. Review and reschedule or close them to keep your board accurate.` });
-
-    const overCap = projects.filter(p => p.hoursEst > 0 && p.hoursLogged > p.hoursEst);
-    if (overCap.length > 0)
-      list.push({ type: 'warning', icon: 'bell', title: `${overCap.length} Project${overCap.length > 1 ? 's' : ''} Over Capacity`, desc: `${overCap.map(p => p.name.split(' — ')[0]).join(', ')} exceeded estimated hours. Consider re-scoping or issuing a change order.` });
-
-    if (donePct >= 60)
-      list.push({ type: 'positive', icon: 'flame', title: `${donePct}% Completion Rate`, desc: `${doneTasks} of ${parentTasks.length} tasks are done. Strong momentum — keep shipping.` });
-
-    if (dueSoonCt > 0)
-      list.push({ type: 'info', icon: 'bell', title: `${dueSoonCt} Task${dueSoonCt > 1 ? 's' : ''} Due This Week`, desc: `${dueSoonCt} task${dueSoonCt > 1 ? 's are' : ' is'} due in the next 7 days. Prioritise them to avoid late deliveries.` });
-
-    const stalledProjs = projects.filter(p => (p.status === 'progress' || p.status === 'active') && p.hoursLogged === 0);
-    if (stalledProjs.length > 0)
-      list.push({ type: 'info', icon: 'chart', title: `${stalledProjs.length} Project${stalledProjs.length > 1 ? 's' : ''} With No Hours`, desc: `${stalledProjs.map(p => p.name.split(' — ')[0]).join(', ')} ${stalledProjs.length > 1 ? 'are' : 'is'} active but have no time logged. Start the timer to track progress.` });
-
-    if (list.length === 0)
-      list.push({ type: 'positive', icon: 'flame', title: 'Everything On Track', desc: 'No overdue tasks or over-budget projects. Great work — keep the momentum going.' });
-
-    return list.slice(0, 3);
-  }, [overdueCt, projects, donePct, doneTasks, parentTasks.length, dueSoonCt]);
 
   // ── KPI cards ─────────────────────────────────────────────────────
   const PERIOD_LABEL = { week: 'This Week', month: 'This Month', quarter: 'This Quarter', year: 'This Year' };
@@ -566,6 +558,51 @@ export const Analytics = ({
             </div>
           </div>
 
+          {/* Learning hours — this week */}
+          <div className="an-card">
+            <div className="an-card-h">
+              <div>
+                <div className="an-card-title">Learning Hours — This Week</div>
+                <div className="an-card-sub">Daily study time · Mon to Sun</div>
+              </div>
+              {hasLearnData && (
+                <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: '#4ade80', fontWeight: 700 }}>
+                  {fmtHrs(learnWeekTotal)}
+                </span>
+              )}
+            </div>
+            <div className="an-card-body" style={!hasLearnData ? { padding: '10px 14px' } : undefined}>
+              {!hasLearnData ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="book" size={13} style={{ flexShrink: 0 }} />
+                  <span>No sessions logged this week — head to Learning Path to start tracking.</span>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={learningWeekData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 9, fontFamily: 'var(--f-mono)', fill: 'var(--text-3)' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 9, fontFamily: 'var(--f-mono)', fill: 'var(--text-3)' }} tickLine={false} axisLine={false} tickFormatter={v => v === 0 ? '0' : `${v}h`} />
+                    <Tooltip content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      return (
+                        <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 12px', fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text)' }}>
+                          <div style={{ color: 'var(--text-3)', marginBottom: 2 }}>{label}</div>
+                          <div style={{ color: '#4ade80' }}>{fmtHrs(payload[0].value)}</div>
+                        </div>
+                      );
+                    }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <Bar dataKey="hours" radius={[3, 3, 0, 0]} maxBarSize={28}>
+                      {learningWeekData.map((d, i) => (
+                        <Cell key={i} fill={d.hours > 0 ? '#4ade80' : 'var(--bg-3)'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
           {/* Project progress (hours vs estimate + task completion) */}
           <div className="an-card">
             <div className="an-card-h">
@@ -617,23 +654,6 @@ export const Analytics = ({
         </div>
       </div>
 
-      {/* ── Smart Insights ─────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 12, fontWeight: 600 }}>
-          Smart Insights
-        </div>
-        <div className="an-insights">
-          {insights.map(ins => (
-            <div key={ins.title} className={`an-insight ${ins.type}`}>
-              <div className="an-insight-ic"><Icon name={ins.icon} size={18} /></div>
-              <div>
-                <div className="an-insight-ttl">{ins.title}</div>
-                <div className="an-insight-desc">{ins.desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 };

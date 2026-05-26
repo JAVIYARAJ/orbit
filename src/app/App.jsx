@@ -10,7 +10,7 @@ import {
   setActiveWorkstation as persistActiveWs, loadTaskNoteLinks,
   startTimeEntry, pauseTimeEntry, resumeTimeEntry,
   completeTimeEntry, discardTimeEntry, getTimeEntries, getActiveTimeEntry,
-  logManualTime,
+  logManualTime, getLearningWeekActivity,
 } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
@@ -222,6 +222,9 @@ export default function App() {
 
     // Load completed entry history
     getTimeEntries(activeWorkstation.id).then(setTimeEntries).catch(console.error);
+
+    // Load learning week activity for analytics
+    getLearningWeekActivity(activeWorkstation.id).then(setLearningActivity).catch(console.error);
   }, [activeWorkstation?.id]);
 
   // Workstation handlers
@@ -268,6 +271,7 @@ export default function App() {
   const [noteFolders,    setNoteFolders]    = useStateApp([]);
   const [vault,          setVault]          = useStateApp([]);
   const [learning,       setLearning]       = useStateApp({ toLearn: [], inProgress: [], completed: [] });
+  const [learningActivity, setLearningActivity] = useStateApp([]);
   const [emailTemplates, setEmailTemplates] = useStateApp([]);
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
@@ -522,6 +526,7 @@ export default function App() {
             taskNoteLinks={taskNoteLinks}  setTaskNoteLinks={setTaskNoteLinks}
             vault={vault}                 setVault={setVault}
             learning={learning}           setLearning={setLearning}
+            learningActivity={learningActivity}
             timeEntries={timeEntries}
             onTimerStart={handleTimerStart}
             onTimerPause={handleTimerPause}
