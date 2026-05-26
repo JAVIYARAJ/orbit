@@ -134,6 +134,7 @@ export const Analytics = ({
   tasks    = [],
   statuses = [],
   timeEntries = [],
+  learningActivity = [],
 }) => {
   const [period, setPeriod] = useState('month');
 
@@ -231,6 +232,55 @@ export const Analytics = ({
     });
   }, [timeEntries, period, periodStart]);
 
+  // ── Learning chart data — mirrors activityData pattern ───────────
+  const learningChartData = useMemo(() => {
+    const dayHrs = (d) => {
+      const iso = new Date(d).toISOString().split('T')[0];
+      return Number(learningActivity.find(r => r.date === iso)?.hours) || 0;
+    };
+
+    if (period === 'week') {
+      const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+      return DAYS.map((day, i) => {
+        const d = new Date(periodStart); d.setDate(periodStart.getDate() + i);
+        return { label: day, hours: +dayHrs(d).toFixed(2) };
+      });
+    }
+
+    if (period === 'month') {
+      return Array.from({ length: 4 }, (_, i) => {
+        const wEnd = new Date(now); wEnd.setDate(now.getDate() - (3 - i) * 7); wEnd.setHours(23, 59, 59);
+        const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate() - 6); wStart.setHours(0, 0, 0);
+        const label = wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        let total = 0;
+        for (let d = new Date(wStart); d <= wEnd; d.setDate(d.getDate() + 1)) total += dayHrs(d);
+        return { label, hours: +total.toFixed(2) };
+      });
+    }
+
+    if (period === 'quarter') {
+      return Array.from({ length: 13 }, (_, i) => {
+        const wEnd = new Date(now); wEnd.setDate(now.getDate() - (12 - i) * 7); wEnd.setHours(23, 59, 59);
+        const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate() - 6); wStart.setHours(0, 0, 0);
+        let total = 0;
+        for (let d = new Date(wStart); d <= wEnd; d.setDate(d.getDate() + 1)) total += dayHrs(d);
+        return { label: wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), hours: +total.toFixed(2) };
+      });
+    }
+
+    return Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+      const s = new Date(d.getFullYear(), d.getMonth(), 1);
+      const e = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      let total = 0;
+      for (let day = new Date(s); day <= e; day.setDate(day.getDate() + 1)) total += dayHrs(day);
+      return { label: d.toLocaleDateString('en-US', { month: 'short' }), hours: +total.toFixed(2) };
+    });
+  }, [learningActivity, period, periodStart, now]);
+
+  const learnTotal   = learningChartData.reduce((s, d) => s + d.hours, 0);
+  const hasLearnData = learningChartData.some(d => d.hours > 0);
+
   // ── Task status distribution ──────────────────────────────────────
   const taskStatusDist = useMemo(() => statuses
     .map(s => ({
@@ -285,33 +335,6 @@ export const Analytics = ({
     { label: 'In Pipeline', amount: pipelineBudget, fill: 'linear-gradient(90deg,#ff9500,#fbbf24)' },
     { label: 'Total',       amount: totalBudget,    fill: 'linear-gradient(90deg,var(--accent),var(--accent-hi))' },
   ];
-
-  // ── Smart Insights ────────────────────────────────────────────────
-  const insights = useMemo(() => {
-    const list = [];
-
-    if (overdueCt > 0)
-      list.push({ type: 'warning', icon: 'alert', title: `${overdueCt} Overdue Task${overdueCt > 1 ? 's' : ''}`, desc: `${overdueCt} task${overdueCt > 1 ? 's are' : ' is'} past due. Review and reschedule or close them to keep your board accurate.` });
-
-    const overCap = projects.filter(p => p.hoursEst > 0 && p.hoursLogged > p.hoursEst);
-    if (overCap.length > 0)
-      list.push({ type: 'warning', icon: 'bell', title: `${overCap.length} Project${overCap.length > 1 ? 's' : ''} Over Capacity`, desc: `${overCap.map(p => p.name.split(' — ')[0]).join(', ')} exceeded estimated hours. Consider re-scoping or issuing a change order.` });
-
-    if (donePct >= 60)
-      list.push({ type: 'positive', icon: 'flame', title: `${donePct}% Completion Rate`, desc: `${doneTasks} of ${parentTasks.length} tasks are done. Strong momentum — keep shipping.` });
-
-    if (dueSoonCt > 0)
-      list.push({ type: 'info', icon: 'bell', title: `${dueSoonCt} Task${dueSoonCt > 1 ? 's' : ''} Due This Week`, desc: `${dueSoonCt} task${dueSoonCt > 1 ? 's are' : ' is'} due in the next 7 days. Prioritise them to avoid late deliveries.` });
-
-    const stalledProjs = projects.filter(p => (p.status === 'progress' || p.status === 'active') && p.hoursLogged === 0);
-    if (stalledProjs.length > 0)
-      list.push({ type: 'info', icon: 'chart', title: `${stalledProjs.length} Project${stalledProjs.length > 1 ? 's' : ''} With No Hours`, desc: `${stalledProjs.map(p => p.name.split(' — ')[0]).join(', ')} ${stalledProjs.length > 1 ? 'are' : 'is'} active but have no time logged. Start the timer to track progress.` });
-
-    if (list.length === 0)
-      list.push({ type: 'positive', icon: 'flame', title: 'Everything On Track', desc: 'No overdue tasks or over-budget projects. Great work — keep the momentum going.' });
-
-    return list.slice(0, 3);
-  }, [overdueCt, projects, donePct, doneTasks, parentTasks.length, dueSoonCt]);
 
   // ── KPI cards ─────────────────────────────────────────────────────
   const PERIOD_LABEL = { week: 'This Week', month: 'This Month', quarter: 'This Quarter', year: 'This Year' };
@@ -372,17 +395,18 @@ export const Analytics = ({
                 <div className="an-card-title">Hours Tracked — {PERIOD_LABEL[period]}</div>
                 <div className="an-card-sub">Time logged per {period === 'week' ? 'day' : period === 'year' ? 'month' : 'week'}</div>
               </div>
-              <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', fontWeight: 700 }}>
-                {fmtHrs(periodHours)}
-              </span>
+              {hasPeriodData && (
+                <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', fontWeight: 700 }}>
+                  {fmtHrs(periodHours)}
+                </span>
+              )}
             </div>
             <div className="an-card-body">
               {!hasPeriodData ? (
-                <EmptyState
-                  icon="timer"
-                  title={hasEntries ? 'No entries this period' : 'No time entries yet'}
-                  desc={hasEntries ? 'Try switching to a wider period to see your logged hours.' : 'Head to the Timer page, start a session, and come back here to see your activity chart fill up.'}
-                />
+                <div style={{ height: 160, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="timer" size={13} />
+                  <span>{hasEntries ? 'No entries this period — try a wider range.' : 'No time entries yet — start a timer session.'}</span>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height={160}>
                   <BarChart data={activityData} margin={{ top: 4, right: 4, left: -20, bottom: (period === 'month' || period === 'quarter') ? 10 : 0 }} barCategoryGap="30%">
@@ -401,6 +425,51 @@ export const Analytics = ({
             </div>
           </div>
 
+          {/* Learning hours — this week */}
+          <div className="an-card">
+            <div className="an-card-h">
+              <div>
+                <div className="an-card-title">Learning Hours — {PERIOD_LABEL[period]}</div>
+                <div className="an-card-sub">Study time per {period === 'week' ? 'day' : period === 'year' ? 'month' : 'week'}</div>
+              </div>
+              {hasLearnData && (
+                <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: '#4ade80', fontWeight: 700 }}>
+                  {fmtHrs(learnTotal)}
+                </span>
+              )}
+            </div>
+            <div className="an-card-body">
+              {!hasLearnData ? (
+                <div style={{ height: 160, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="book" size={13} />
+                  <span>No learning sessions this period — head to Learning Path to start tracking.</span>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={learningChartData} margin={{ top: 4, right: 4, left: -20, bottom: (period === 'month' || period === 'quarter') ? 10 : 0 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                    <XAxis dataKey="label" tick={<CustomXTick showWeek={period === 'month' || period === 'quarter'} />} tickLine={false} axisLine={false} interval={period === 'quarter' ? 2 : 0} />
+                    <YAxis tick={{ fontSize: 9, fontFamily: 'var(--f-mono)', fill: 'var(--text-3)' }} tickLine={false} axisLine={false} tickFormatter={v => v === 0 ? '0' : `${v}h`} />
+                    <Tooltip content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      return (
+                        <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 12px', fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text)' }}>
+                          <div style={{ color: 'var(--text-3)', marginBottom: 2 }}>{label}</div>
+                          <div style={{ color: '#4ade80' }}>{fmtHrs(payload[0].value)}</div>
+                        </div>
+                      );
+                    }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                    <Bar dataKey="hours" radius={[3, 3, 0, 0]} maxBarSize={28}>
+                      {learningChartData.map((d, i) => (
+                        <Cell key={i} fill={d.hours > 0 ? '#4ade80' : 'var(--bg-3)'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
           {/* Top projects in period */}
           <div className="an-card">
             <div className="an-card-h">
@@ -409,13 +478,12 @@ export const Analytics = ({
                 <div className="an-card-sub">Most time invested — {PERIOD_LABEL[period].toLowerCase()}</div>
               </div>
             </div>
-            <div className="an-card-body">
+            <div className="an-card-body" style={topProjects.length === 0 ? { padding: '10px 14px' } : undefined}>
               {topProjects.length === 0 ? (
-                <EmptyState
-                  icon="chart"
-                  title="No time logged yet"
-                  desc="Start tracking time on your projects using the Timer. Top contributors will appear here once you log some sessions."
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="chart" size={13} />
+                  <span>No time logged this period — start tracking projects.</span>
+                </div>
               ) : (
                 <div className="an-pipe-list">
                   {topProjects.map(row => {
@@ -455,13 +523,12 @@ export const Analytics = ({
                 </span>
               )}
             </div>
-            <div className="an-card-body">
+            <div className="an-card-body" style={totalBudget === 0 ? { padding: '10px 14px' } : undefined}>
               {totalBudget === 0 ? (
-                <EmptyState
-                  icon="note"
-                  title="No budget data"
-                  desc="Add a budget to your projects to track earned and in-pipeline revenue here."
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="note" size={13} />
+                  <span>No budget data — add budgets to your projects to track revenue.</span>
+                </div>
               ) : (
                 <div className="an-pipe-list">
                   {pipeRows.map(row => (
@@ -494,13 +561,12 @@ export const Analytics = ({
                 <div className="an-card-sub">{parentTasks.length} tasks across {statuses.length} statuses</div>
               </div>
             </div>
-            <div className="an-card-body">
+            <div className="an-card-body" style={taskStatusDist.length === 0 ? { padding: '10px 14px' } : undefined}>
               {taskStatusDist.length === 0 ? (
-                <EmptyState
-                  icon="list"
-                  title={parentTasks.length === 0 ? 'No tasks yet' : 'No status data'}
-                  desc={parentTasks.length === 0 ? 'Create tasks in the Tasks page and assign them a status. Distribution will appear here automatically.' : 'Your tasks exist but have no statuses assigned. Open a task and set its status column to see the breakdown.'}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="list" size={13} />
+                  <span>{parentTasks.length === 0 ? 'No tasks yet — create tasks and assign statuses.' : 'No status data — assign statuses to your tasks.'}</span>
+                </div>
               ) : (
                 <>
                   <SegBar segments={taskStatusDist} />
@@ -534,13 +600,12 @@ export const Analytics = ({
                 <div className="an-card-sub">{projects.length} total projects</div>
               </div>
             </div>
-            <div className="an-card-body">
+            <div className="an-card-body" style={projects.length === 0 ? { padding: '10px 14px' } : undefined}>
               {projects.length === 0 ? (
-                <EmptyState
-                  icon="chart"
-                  title="No projects yet"
-                  desc="Create your first project in the Projects page. Status distribution across all your projects will be shown here."
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="chart" size={13} />
+                  <span>No projects yet — create your first project to see breakdown.</span>
+                </div>
               ) : (
                 <>
                   <SegBar segments={projStatusDist} />
@@ -574,13 +639,12 @@ export const Analytics = ({
                 <div className="an-card-sub">Hours logged · task completion</div>
               </div>
             </div>
-            <div className="an-card-body" style={{ padding: '14px 18px' }}>
+            <div className="an-card-body" style={{ padding: projProgress.length === 0 ? '10px 14px' : '14px 18px' }}>
               {projProgress.length === 0 ? (
-                <EmptyState
-                  icon="chart"
-                  title="No active projects"
-                  desc="All your projects are either on hold or completed. Activate a project or create a new one to track hours and task progress here."
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
+                  <Icon name="chart" size={13} />
+                  <span>No active projects — activate or create a project to track progress.</span>
+                </div>
               ) : (
                 <div className="an-proj-list">
                   {projProgress.map(p => {
@@ -617,23 +681,6 @@ export const Analytics = ({
         </div>
       </div>
 
-      {/* ── Smart Insights ─────────────────────────────────────── */}
-      <div style={{ marginTop: 16 }}>
-        <div style={{ fontFamily: 'var(--f-mono)', fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 12, fontWeight: 600 }}>
-          Smart Insights
-        </div>
-        <div className="an-insights">
-          {insights.map(ins => (
-            <div key={ins.title} className={`an-insight ${ins.type}`}>
-              <div className="an-insight-ic"><Icon name={ins.icon} size={18} /></div>
-              <div>
-                <div className="an-insight-ttl">{ins.title}</div>
-                <div className="an-insight-desc">{ins.desc}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 };
