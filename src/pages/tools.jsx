@@ -581,7 +581,7 @@ const NoteLinkMenu = ({ items, index, onSelect }) => (
   </div>
 );
 
-export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workstationId }) => {
+export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workstationId, jumpToItem }) => {
   const [activeId, setActiveId] = useStateB(notes[0]?.id);
   const [tab, setTab] = useStateB('edit');
   const [q, setQ] = useStateB('');
@@ -652,6 +652,16 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
     titleRef.current = note.title;
     setSaved(true);
   }, [activeId]);
+
+  // Jump to a note from global search
+  useEffectB(() => {
+    if (!jumpToItem || jumpToItem.page !== 'notes') return;
+    const target = notes.find(n => n.id === jumpToItem.id);
+    if (target) {
+      setActiveFolderId(target.folderId || null);
+      setActiveId(target.id);
+    }
+  }, [jumpToItem?.ts]);
 
   const handleBodyChange = (val, cursor) => {
     setBody(val); bodyRef.current = val; setSaved(false);
@@ -2389,7 +2399,7 @@ const EmailTplItem = ({ t, activeId, starred, onSelect, onStar, onDelete }) => (
   </div>
 );
 
-export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId }) => {
+export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId, jumpToItem }) => {
   const [activeId, setActiveId] = useStateB(emailTemplates[0]?.id);
   const [mode, setMode] = useStateB('fill');
   const [showAdd, setShowAdd] = useStateB(false);
@@ -2406,6 +2416,13 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId }) 
   const [confirmDel, setConfirmDel] = useStateB(null);
   const [starred, setStarred] = useStateB(() => emailStarStore.get());
   const [loadingStarters, setLoadingStarters] = useStateB(false);
+
+  // Jump to an email template from global search
+  useEffectB(() => {
+    if (!jumpToItem || jumpToItem.page !== 'email') return;
+    const target = emailTemplates.find(e => e.id === jumpToItem.id);
+    if (target) setActiveId(target.id);
+  }, [jumpToItem?.ts]);
 
   const toggleStar = (e, id) => {
     e.stopPropagation();

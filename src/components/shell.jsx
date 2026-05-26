@@ -340,7 +340,7 @@ export const SlidePanel = ({ open, onClose, title, subtitle, children, width = 5
 };
 
 // ─── Cmd+K Palette ────────────────────────────────────────────────
-export const CmdPalette = ({ open, onClose, onNav, enabledModules = {} }) => {
+export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchData = {}, onSearchSelect }) => {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
@@ -356,15 +356,114 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {} }) => {
     { type: 'action', label: 'New project',      hint: 'P N', icon: 'plus', moduleId: 'projects', do: () => { onNav('projects'); onClose(); } },
     { type: 'action', label: 'Reveal vault item', hint: '',   icon: 'eye',  moduleId: 'vault',    do: () => { onNav('vault'); onClose(); } },
   ].filter(a => isEnabled(a.moduleId));
+
   const NAV_ITEMS = NAV_FLAT
     .filter(n => isEnabled(n.id))
     .map(n => ({ type: 'nav', label: 'Go to ' + n.label, hint: n.kbd, icon: n.icon, do: () => { onNav(n.id); onClose(); } }));
 
-  const all = [...ACTIONS, ...NAV_ITEMS];
-  const lq = q.toLowerCase();
-  const filtered = q ? all.filter(a => a.label.toLowerCase().includes(lq)) : all;
+  const lq = q.toLowerCase().trim();
 
-  useEffect(() => { if (sel >= filtered.length) setSel(0); }, [filtered.length, sel]);
+  const buildDataResults = () => {
+    if (!lq) return [];
+    const {
+      tasks = [], projects = [], notes = [], noteFolders = [],
+      emailTemplates = [], learning = {},
+    } = searchData;
+    const { toLearn = [], inProgress = [], completed = [] } = learning;
+
+    const projNameById = {};
+    projects.forEach(p => { projNameById[p.id] = p.name; });
+
+    const folderNameById = {};
+    noteFolders.forEach(f => { folderNameById[f.id] = f.name; });
+
+    const results = [];
+
+    tasks
+      .filter(t => !t.deleted && (
+        t.title?.toLowerCase().includes(lq) ||
+        t.description?.toLowerCase().includes(lq) ||
+        (t.tags || []).some(tg => (typeof tg === 'string' ? tg : tg.label || '').toLowerCase().includes(lq))
+      ))
+      .slice(0, 5)
+      .forEach(t => results.push({
+        type: 'result', category: 'Tasks', icon: 'list',
+        label: t.title || t.id,
+        sub: [t.status, projNameById[t.proj]].filter(Boolean).join(' · '),
+        do: () => { onSearchSelect?.('tasks', t._dbId); onClose(); },
+      }));
+
+    projects
+      .filter(p => !p.deleted && (
+        p.name?.toLowerCase().includes(lq) ||
+        p.client?.toLowerCase().includes(lq) ||
+        p.description?.toLowerCase().includes(lq) ||
+        (p.stack || []).some(s => s.toLowerCase().includes(lq))
+      ))
+      .slice(0, 5)
+      .forEach(p => results.push({
+        type: 'result', category: 'Projects', icon: 'folder',
+        label: p.name,
+        sub: [p.client, p.status].filter(Boolean).join(' · '),
+        do: () => { onSearchSelect?.('projects', p.id); onClose(); },
+      }));
+
+    notes
+      .filter(n => !n.deleted && (
+        n.title?.toLowerCase().includes(lq) ||
+        n.body?.toLowerCase().includes(lq)
+      ))
+      .slice(0, 5)
+      .forEach(n => results.push({
+        type: 'result', category: 'Notes', icon: 'note',
+        label: n.title || 'Untitled',
+        sub: n.folderId ? (folderNameById[n.folderId] || 'Folder') : 'All Notes',
+        do: () => { onSearchSelect?.('notes', n.id); onClose(); },
+      }));
+
+    emailTemplates
+      .filter(e => (
+        e.name?.toLowerCase().includes(lq) ||
+        e.subject?.toLowerCase().includes(lq) ||
+        e.body?.toLowerCase().includes(lq)
+      ))
+      .slice(0, 5)
+      .forEach(e => results.push({
+        type: 'result', category: 'Email Templates', icon: 'mail',
+        label: e.name,
+        sub: e.cat || '',
+        do: () => { onSearchSelect?.('email', e.id); onClose(); },
+      }));
+
+    const STATUS_LABEL = { toLearn: 'To Learn', inProgress: 'In Progress', completed: 'Completed' };
+    [
+      ...toLearn.map(i => ({ ...i, _status: 'toLearn' })),
+      ...inProgress.map(i => ({ ...i, _status: 'inProgress' })),
+      ...completed.map(i => ({ ...i, _status: 'completed' })),
+    ]
+      .filter(item => (
+        item.topic?.toLowerCase().includes(lq) ||
+        item.notes?.toLowerCase().includes(lq) ||
+        item.cat?.toLowerCase().includes(lq) ||
+        (item.tags || []).some(tg => (typeof tg === 'string' ? tg : tg.label || '').toLowerCase().includes(lq))
+      ))
+      .slice(0, 5)
+      .forEach(item => results.push({
+        type: 'result', category: 'Learning', icon: 'book',
+        label: item.topic || 'Untitled',
+        sub: STATUS_LABEL[item._status] || '',
+        do: () => { onSearchSelect?.('learning', item._dbId); onClose(); },
+      }));
+
+    return results;
+  };
+
+  const dataResults = buildDataResults();
+  const cmdItems = [...ACTIONS, ...NAV_ITEMS];
+  const filteredCmds = lq ? cmdItems.filter(a => a.label.toLowerCase().includes(lq)) : cmdItems;
+  const filtered = [...dataResults, ...filteredCmds];
+
+  useEffect(() => { if (sel >= filtered.length && filtered.length > 0) setSel(0); }, [filtered.length, sel]);
 
   const onKey = (e) => {
     if (e.key === 'Escape') { onClose(); return; }
@@ -374,18 +473,30 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {} }) => {
   };
 
   if (!open) return null;
-  const actions = filtered.filter(a => a.type === 'action');
-  const navs = filtered.filter(a => a.type === 'nav');
+
+  // Group data results by category, preserving insertion order
+  const catOrder = [];
+  const catGroups = {};
+  dataResults.forEach(r => {
+    if (!catGroups[r.category]) { catGroups[r.category] = []; catOrder.push(r.category); }
+    catGroups[r.category].push(r);
+  });
+
+  const actions = filteredCmds.filter(a => a.type === 'action');
+  const navs    = filteredCmds.filter(a => a.type === 'nav');
 
   let idx = -1;
   const renderRow = (a) => {
     idx++;
     const i = idx;
     return (
-      <div key={a.label} className={'cmdk-row' + (i === sel ? ' sel' : '')}
+      <div key={i} className={'cmdk-row' + (i === sel ? ' sel' : '')}
         onMouseEnter={() => setSel(i)} onClick={a.do}>
         <span className="ic"><Icon name={a.icon} size={14} /></span>
-        <span className="t">{a.label}</span>
+        <span className="t">
+          <span className="cmdk-label">{a.label}</span>
+          {a.sub && <span className="cmdk-sub">{a.sub}</span>}
+        </span>
         {a.hint && <span className="h">{a.hint}</span>}
       </div>
     );
@@ -395,9 +506,15 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {} }) => {
     <div className="cmdk-back" onClick={onClose}>
       <div className="cmdk" onClick={e => e.stopPropagation()}>
         <input ref={inputRef} className="cmdk-input"
-          placeholder="Search or run a command…"
-          value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey} />
+          placeholder="Search tasks, projects, notes, templates…"
+          value={q} onChange={e => { setQ(e.target.value); setSel(0); }} onKeyDown={onKey} />
         <div className="cmdk-list">
+          {catOrder.map(cat => (
+            <div key={cat}>
+              <div className="cmdk-sec">{cat}</div>
+              {catGroups[cat].map(renderRow)}
+            </div>
+          ))}
           {actions.length > 0 && <div className="cmdk-sec">Actions</div>}
           {actions.map(renderRow)}
           {navs.length > 0 && <div className="cmdk-sec">Navigate</div>}

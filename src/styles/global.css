@@ -2356,6 +2356,35 @@ body.texture-grid::before {
   color: var(--text-3);
 }
 
+.cmdk-row .t {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.cmdk-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmdk-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+  font-family: var(--f-mono);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmdk-row.sel .cmdk-sub {
+  color: inherit;
+  opacity: 0.7;
+}
+
 /* ───── Period select ───── */
 .period-select {
   background: var(--bg-2);

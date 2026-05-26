@@ -1411,7 +1411,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null, jumpToItem }) => {
   const [view, setView] = useStateA('card');
   const [filter, setFilter] = useStateA('all');
   const [search, setSearch] = useStateA('');
@@ -1427,6 +1427,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
       setIndStyle({ left: el.offsetLeft, width: el.offsetWidth });
     }
   }, [filter]);
+
+  // Jump to a project from global search
+  useEffectA(() => {
+    if (!jumpToItem || jumpToItem.page !== 'projects') return;
+    const target = projects.find(p => p.id === jumpToItem.id);
+    if (target) setViewing(target);
+  }, [jumpToItem?.ts]);
 
   const q = search.trim().toLowerCase();
   const filtered = projects.filter(p => {
@@ -3480,7 +3487,7 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem }) => {
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view, setView] = useStateA('board');
@@ -3533,6 +3540,14 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [projDropOpen]);
+
+  // Jump to a task from global search
+  useEffectA(() => {
+    if (!jumpToItem || jumpToItem.page !== 'tasks') return;
+    const source = localTasks || tasks;
+    const target = source.find(t => t._dbId === jumpToItem.id);
+    if (target) setViewingTask(target);
+  }, [jumpToItem?.ts]);
 
   // Lazy-load tasks when a specific project is selected
   useEffectA(() => {
@@ -4789,7 +4804,7 @@ const LearnDeleteDialog = ({ item, onConfirm, onCancel }) => {
 };
 
 // ── Main LearningPage ────────────────────────────────────────────
-export const LearningPage = ({ learning, setLearning, workstationId }) => {
+export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem }) => {
   const [showAdd,      setShowAdd]      = useStateA(false);
   const [editItem,     setEditItem]     = useStateA(null);
   const [deleteTarget, setDeleteTarget] = useStateA(null);
@@ -4819,6 +4834,14 @@ export const LearningPage = ({ learning, setLearning, workstationId }) => {
   useEffectA(() => {
     getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => {});
   }, [workstationId]);
+
+  // Jump to a learning item from global search
+  useEffectA(() => {
+    if (!jumpToItem || jumpToItem.page !== 'learning') return;
+    const allItems = [...learning.toLearn, ...learning.inProgress, ...learning.completed];
+    const target = allItems.find(i => i._dbId === jumpToItem.id);
+    if (target) setEditItem(target);
+  }, [jumpToItem?.ts]);
 
   const total    = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
   const done     = learning.completed.length;

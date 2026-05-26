@@ -245,6 +245,8 @@ export default function App() {
   const handleNewWs = () => setShowWsSetup(true);
 
   // Navigation — redirect to settings if returning from GitHub or Vercel OAuth
+  const [jumpToItem, setJumpToItem] = useStateApp(null);
+
   const [current,   setCurrent]   = useStateApp(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('gh_callback') === '1' || params.get('vc_callback') === '1') {
@@ -474,6 +476,12 @@ export default function App() {
     ));
   };
 
+  const handleSearchSelect = (page, id) => {
+    setCurrent(page);
+    setJumpToItem({ page, id, ts: Date.now() });
+    setCmdkOpen(false);
+  };
+
   const displaySec = (activeEntry?.totalSeconds || 0) + timerSec;
   const timer = {
     running,
@@ -539,10 +547,18 @@ export default function App() {
             emailTemplates={emailTemplates} setEmailTemplates={setEmailTemplates}
             ganttTasks={ganttTasks}        setGanttTasks={setGanttTasks}
             isGithubConnected={isGithubConnected}
+            jumpToItem={jumpToItem}
           />
         </div>
       </div>
-      <CmdPalette open={cmdkOpen} onClose={() => setCmdkOpen(false)} onNav={setCurrent} enabledModules={enabledModules} />
+      <CmdPalette
+        open={cmdkOpen}
+        onClose={() => setCmdkOpen(false)}
+        onNav={setCurrent}
+        enabledModules={enabledModules}
+        searchData={{ tasks, projects, notes, noteFolders, emailTemplates, learning }}
+        onSearchSelect={handleSearchSelect}
+      />
 
       <TweaksPanel>
         <TweakSection label="Theme" />
