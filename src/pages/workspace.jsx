@@ -441,7 +441,7 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
               <span className="lbl">Dev Streak</span>
               <span className="icon-wrap" style={{ color: 'var(--st-review)' }}><Icon name="flame" size={13} /></span>
             </div>
-            <span className="val">{streakCurrent !== null ? streakCurrent : '0'} d</span>
+            <span className="val">{streakCurrent !== null ? streakCurrent : '0'}d</span>
             <div className="footer-desc">
               {streakBest !== null ? `Personal record: ${streakBest} days` : 'Telemetry loading…'}
             </div>
