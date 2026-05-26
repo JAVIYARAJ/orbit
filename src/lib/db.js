@@ -88,6 +88,8 @@ const fromDbLearning = (r) => ({
   rev:          r.needs_review,
   prog:         r.progress,
   lastReviewed: r.last_reviewed,
+  difficulty:   r.difficulty  || null,
+  createdAt:    r.created_at  || null,
 })
 
 const fromDbVault = (r) => ({
@@ -136,15 +138,16 @@ const taskPayload = (t) => ({
 })
 
 const learningPayload = (i) => ({
-  topic:        i.topic,
-  cat:          i.cat         || '',
-  est_hours:    i.est         ?? null,
-  actual_hours: i.actual      ?? null,
-  link:         i.link        || '',
-  note:         i.note        || '',
-  needs_review: i.rev         || false,
-  progress:     i.prog        || 0,
-  last_reviewed:i.lastReviewed || null,
+  topic:         i.topic,
+  cat:           i.cat          || '',
+  est_hours:     i.est          ?? null,
+  actual_hours:  i.actual       ?? null,
+  link:          i.link         || '',
+  note:          i.note         || '',
+  needs_review:  i.rev          || false,
+  progress:      i.prog         || 0,
+  last_reviewed: i.lastReviewed || null,
+  difficulty:   i.difficulty  || null,
 })
 
 // ─── DB → App shape converters ────────────────────────────────────
@@ -832,3 +835,57 @@ export const createLearningItem = async (item, column, workstationId) => {
   if (error) throw error
   return { column, item: fromDbLearning(data) }
 }
+
+const STATUS_MAP_REV = { to_learn: 'toLearn', in_progress: 'inProgress', completed: 'completed' }
+
+export const updateLearningItem = async (item, newColumn) => {
+  const payload = { ...learningPayload(item) }
+  if (newColumn) payload.status = STATUS_MAP[newColumn] || newColumn
+  const { data, error } = await supabase.rpc('update_learning_item', {
+    p_item_id: item._dbId,
+    p_data:    payload,
+  })
+  if (error) throw error
+  return { column: newColumn || STATUS_MAP_REV[data.status] || 'toLearn', item: fromDbLearning(data) }
+}
+
+export const deleteLearningItem = async (id) => {
+  const { error } = await supabase.rpc('delete_learning_item', { p_item_id: id })
+  if (error) throw error
+}
+
+const fromDbSession = (r) => ({
+  id:        r.id,
+  learningId:r.learning_id,
+  date:      r.date,
+  hours:     Number(r.hours) || 0,
+  note:      r.note || '',
+  createdAt: r.created_at,
+})
+
+export const createLearningSession = async (learningId, hours, note = '', date = null) => {
+  const params = { p_learning_id: learningId, p_hours: hours, p_note: note || '' }
+  if (date) params.p_date = date
+  const { data, error } = await supabase.rpc('create_learning_session', params)
+  if (error) throw error
+  return { session: fromDbSession(data.session), learning: fromDbLearning(data.learning) }
+}
+
+export const listLearningSessions = async (learningId) => {
+  const { data, error } = await supabase.rpc('list_learning_sessions', { p_learning_id: learningId })
+  if (error) throw error
+  return (data || []).map(fromDbSession)
+}
+
+export const deleteLearningSession = async (sessionId) => {
+  const { data, error } = await supabase.rpc('delete_learning_session', { p_session_id: sessionId })
+  if (error) throw error
+  return fromDbLearning(data)
+}
+
+export const getWeeklyLearningHours = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_weekly_learning_hours', { p_workstation_id: workstationId })
+  if (error) throw error
+  return Number(data) || 0
+}
+

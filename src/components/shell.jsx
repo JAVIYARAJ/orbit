@@ -18,6 +18,7 @@ export const Icon = ({ name, size = 16 }) => {
     search: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" /></g>,
     bell: <path d="M4 11V7C4 4.79 5.79 3 8 3C10.21 3 12 4.79 12 7V11L13 12H3L4 11ZM7 13H9C9 13.55 8.55 14 8 14C7.45 14 7 13.55 7 13Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
     plus: <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />,
+    minus: <path d="M3 8H13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />,
     play: <path d="M5 3L13 8L5 13V3Z" fill="currentColor" />,
     pause: <g fill="currentColor"><rect x="4" y="3" width="3" height="10" /><rect x="9" y="3" width="3" height="10" /></g>,
     stop: <rect x="3" y="3" width="10" height="10" fill="currentColor" />,
