@@ -4,9 +4,12 @@ import { useState as useStateA, useEffect as useEffectA, useRef as useRefA } fro
 import { createPortal } from 'react-dom';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
+  loadUserData,
   createProject, updateProject, softDeleteProject, createTask, updateTask, softDeleteTask,
   createVaultItem, updateVaultItem, deleteVaultItem, getVaultConfig, saveVaultConfig, resetVault,
-  createLearningItem, createTag,
+  createLearningItem, updateLearningItem, deleteLearningItem,
+  createLearningSession, listLearningSessions, deleteLearningSession, getWeeklyLearningHours,
+  createTag,
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
 } from '../lib/db.js';
 import {
@@ -4208,69 +4211,301 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 // ═══════════════════════════════════════════════════════════════════
 //  4. LEARNING PATH
 // ═══════════════════════════════════════════════════════════════════
-const LEARN_CATS = ['Flutter', 'Backend', 'AI', 'Web', 'Soft Skills', 'DevOps', 'Other'];
+const LEARN_COLS = [
+  { key: 'toLearn',    label: 'TO LEARN',    dot: 'var(--text-3)' },
+  { key: 'inProgress', label: 'IN PROGRESS', dot: 'var(--accent)' },
+  { key: 'completed',  label: 'COMPLETED',   dot: '#4ade80' },
+];
+const TAG_PALETTE = ['#54C5F8','#4ade80','#a855f7','#f97316','#ec4899','#f59e0b','#06b6d4','#84cc16','#ef4444','#fb923c'];
+const getTagColor = (tag) => {
+  if (!tag) return '#6b7280';
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+  return TAG_PALETTE[h % TAG_PALETTE.length];
+};
 
-const LearnCard = ({ item, stage }) => (
-  <div className="lcard">
-    <div className="topic">
-      <span>{item.topic}</span>
-      {item.rev && <span className="rev" title="Marked for revision"><Icon name="rev" size={12} /></span>}
-    </div>
-    <div className="meta">
-      <span className="tag accent">{item.cat}</span>
-      {item.est && <span>{item.est}h est</span>}
-      {item.actual !== undefined && <span style={{ color: 'var(--accent-hi)' }}>{item.actual}h logged</span>}
-      {stage === 'completed' && <span>last reviewed {item.lastReviewed}</span>}
-    </div>
-    {stage === 'inProgress' && (
-      <div className="prog thin"><div className="fill" style={{ width: item.prog + '%' }}></div></div>
-    )}
-    {item.note && <div style={{ fontSize: 11, color: 'var(--text-2)', fontStyle: 'italic' }}>"{item.note}"</div>}
-    {item.link && item.link !== '—' && <div className="res">→ {item.link}</div>}
-  </div>
-);
+// ── Streak & last-active helpers ─────────────────────────────────
+const lTodayStr = () => new Date().toISOString().slice(0, 10);
+const lReadStreak = () => {
+  try { return JSON.parse(localStorage.getItem('orbit:learn:streak') || '{"count":0,"lastDate":""}'); }
+  catch { return { count: 0, lastDate: '' }; }
+};
+const lTouchStreak = () => {
+  const today = lTodayStr();
+  const s = lReadStreak();
+  if (s.lastDate === today) return s;
+  const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const next = { count: s.lastDate === yest ? s.count + 1 : 1, lastDate: today };
+  localStorage.setItem('orbit:learn:streak', JSON.stringify(next));
+  return next;
+};
+const lTouchActive = () => localStorage.setItem('orbit:learn:lastActive', lTodayStr());
+const lShouldReEngage = () => {
+  const last = localStorage.getItem('orbit:learn:lastActive');
+  return last ? (Date.now() - new Date(last).getTime()) / 86400000 >= 3 : false;
+};
 
-const AddTopicPanel = ({ open, onClose, onAdd }) => {
-  const empty = { topic: '', cat: 'Flutter', column: 'toLearn', est: '4', link: '', note: '' };
+// ── LearnCard ────────────────────────────────────────────────────
+const DIFF_COLOR = { easy: '#4ade80', medium: '#f59e0b', hard: '#ef4444' };
+
+const LearnCard = ({ item, stage, onEdit, onDelete, onMove, onToggleRev, onLogHours, onSessions, selectMode, isSelected, onToggleSelect }) => {
+  const [menuOpen, setMenuOpen] = useStateA(false);
+  const menuRef = useRefA(null);
+  const color = getTagColor(item.cat);
+  const prog  = item.prog || 0;
+  const otherCols = LEARN_COLS.filter(c => c.key !== stage);
+
+  useEffectA(() => {
+    if (!menuOpen) return;
+    const close = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menuOpen]);
+
+  const daysSince = item.lastReviewed
+    ? Math.floor((Date.now() - new Date(item.lastReviewed).getTime()) / 86400000)
+    : null;
+
+  return (
+    <div
+      className={`lcard${isSelected ? ' lcard-selected' : ''}`}
+      style={{ borderLeftColor: color, cursor: selectMode ? 'pointer' : 'default' }}
+      onClick={selectMode ? () => onToggleSelect(item._dbId) : undefined}
+    >
+      {/* select checkbox */}
+      {selectMode && (
+        <div className="lcard-cb-wrap">
+          <span className={`lcard-cb${isSelected ? ' checked' : ''}`}>
+            {isSelected && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+          </span>
+        </div>
+      )}
+
+      {/* row 1: tag + difficulty + actions */}
+      <div className="lcard-head">
+        <div className="lcard-cat">
+          <span className="lcard-cat-dot" style={{ background: color }} />
+          <span style={{ color }}>{item.cat}</span>
+          {item.rev && <span className="lcard-rev-pill">revision</span>}
+          {item.difficulty && (
+            <span className="lcard-diff" style={{ color: DIFF_COLOR[item.difficulty], borderColor: DIFF_COLOR[item.difficulty] + '55' }}>
+              {item.difficulty}
+            </span>
+          )}
+        </div>
+        {!selectMode && <div className="lcard-acts">
+          <div ref={menuRef} className="lcard-move-wrap">
+            <button className="lcard-act" title="Move to column" onClick={() => setMenuOpen(o => !o)}>
+              <Icon name="arrow" size={11} />
+            </button>
+            {menuOpen && (
+              <div className="lcard-move-menu">
+                {otherCols.map(c => (
+                  <button key={c.key} onClick={() => { onMove(item, c.key); setMenuOpen(false); }}>
+                    <span style={{ background: c.dot, width: 6, height: 6, borderRadius: '50%', display: 'inline-block', marginRight: 6 }} />
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className={`lcard-act${item.rev ? ' lcard-act-on' : ''}`} title={item.rev ? 'Unmark revision' : 'Mark for revision'} onClick={() => onToggleRev(item)}>
+            <Icon name="rev" size={11} />
+          </button>
+          {(stage === 'inProgress' || stage === 'completed') && (
+            <button className="lcard-act" title="Session history" onClick={() => onSessions(item)}>
+              <Icon name="timer" size={11} />
+            </button>
+          )}
+          <button className="lcard-act" title="Edit" onClick={() => onEdit(item)}>
+            <Icon name="edit" size={11} />
+          </button>
+          <button className="lcard-act lcard-act-del" title="Delete" onClick={() => onDelete(item)}>
+            <Icon name="trash" size={11} />
+          </button>
+        </div>}
+      </div>
+
+      {/* row 2: topic title */}
+      <div className="lcard-title">{item.topic}</div>
+
+      {/* row 3: progress bar (in-progress only) */}
+      {stage === 'inProgress' && (
+        <div className="lcard-prog-row">
+          <div className="lcard-prog-track">
+            <div className="lcard-prog-fill" style={{ width: prog + '%', background: color }} />
+          </div>
+          <span className="lcard-prog-num" style={{ color }}>{prog}%</span>
+        </div>
+      )}
+
+      {/* row 4: meta */}
+      <div className="lcard-meta">
+        {item.est > 0 && (
+          <span>
+            {stage === 'inProgress'
+              ? <><span className="lcard-meta-hi" style={{ color }}>{item.actual || 0}</span>/{item.est}h</>
+              : `${item.est}h est`}
+          </span>
+        )}
+        {stage === 'completed' && (
+          <span className={daysSince !== null && daysSince > 60 ? 'lcard-meta-warn' : 'lcard-meta-ok'}>
+            {daysSince === null ? 'never reviewed' : daysSince === 0 ? 'reviewed today' : `reviewed ${daysSince}d ago`}
+          </span>
+        )}
+      </div>
+
+      {/* note */}
+      {item.note && <div className="lcard-note">"{item.note}"</div>}
+
+      {/* resource link — same thumbnail preview as task view */}
+      {item.link && item.link !== '—' && (
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+          <LinkPreview key={item.link} url={item.link} />
+        </div>
+      )}
+
+      {/* log hours button — in-progress */}
+      {stage === 'inProgress' && (
+        <button className="lcard-log-btn" onClick={() => onLogHours(item)}>
+          <Icon name="timer" size={10} /> log hours
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ── Tag dropdown ─────────────────────────────────────────────────
+const TagDropdown = ({ value, onChange, allTags }) => {
+  const [open,   setOpen]   = useStateA(false);
+  const [search, setSearch] = useStateA('');
+  const ref = useRefA(null);
+
+  useEffectA(() => {
+    if (!open) { setSearch(''); return; }
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const q        = search.trim().toLowerCase();
+  const filtered = allTags.filter(t => !q || t.toLowerCase().includes(q));
+  const isNew    = search.trim() && !allTags.some(t => t.toLowerCase() === search.trim().toLowerCase());
+
+  const select = (tag) => { onChange(tag); setOpen(false); };
+
+  return (
+    <div ref={ref} className="tag-drop-wrap">
+      <button type="button" className={`tag-drop-trigger${open ? ' open' : ''}`} onClick={() => setOpen(o => !o)}>
+        {value ? (
+          <>
+            <span className="tag-dot" style={{ background: getTagColor(value) }} />
+            <span className="tag-name">{value}</span>
+          </>
+        ) : (
+          <span className="tag-placeholder">Pick or create a tag…</span>
+        )}
+        <svg className="tag-chevron" viewBox="0 0 16 16" fill="none">
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="tag-drop-menu">
+          <div className="tag-drop-search">
+            <svg viewBox="0 0 16 16" fill="none">
+              <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+            <input
+              autoFocus
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search or create…"
+              onKeyDown={e => {
+                if (e.key === 'Enter' && search.trim()) select(search.trim());
+                if (e.key === 'Escape') setOpen(false);
+              }}
+            />
+          </div>
+          <div className="tag-drop-list">
+            {filtered.map(t => (
+              <button key={t} type="button" className={`tag-drop-item${value === t ? ' active' : ''}`} onClick={() => select(t)}>
+                <span className="tag-dot" style={{ background: getTagColor(t) }} />
+                <span style={{ flex: 1 }}>{t}</span>
+                {value === t && (
+                  <svg className="tag-check" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 8l4 4 6-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+            ))}
+            {isNew && (
+              <button type="button" className="tag-drop-item tag-drop-create" onClick={() => select(search.trim())}>
+                <svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                <span>Create &ldquo;<strong>{search.trim()}</strong>&rdquo;</span>
+              </button>
+            )}
+            {filtered.length === 0 && !isNew && (
+              <div className="tag-drop-empty">No tags yet — type to create one</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Topic form panel (shared Add + Edit) ─────────────────────────
+const TopicFormPanel = ({ open, onClose, onSave, initial, mode, allTags }) => {
+  const empty = { topic: '', cat: '', column: 'toLearn', est: '4', link: '', note: '', difficulty: null };
   const [form, setForm] = useStateA(empty);
   const [err, setErr] = useStateA('');
   const [saving, setSaving] = useStateA(false);
+
+  useEffectA(() => {
+    if (!open) return;
+    setErr('');
+    setForm(initial ? {
+      topic:        initial.topic        || '',
+      cat:          initial.cat          || '',
+      column:       initial._col         || 'toLearn',
+      est:          String(initial.est   || '4'),
+      link:         (initial.link === '—' ? '' : initial.link) || '',
+      note:         initial.note         || '',
+      difficulty: initial.difficulty || null,
+    } : empty);
+  }, [open]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = async () => {
     if (!form.topic.trim()) { setErr('Topic name is required.'); return; }
-    const newItem = {
-      topic: form.topic.trim(),
-      cat: form.cat,
-      est: parseFloat(form.est) || 4,
-      link: form.link.trim() || '—',
-      note: form.note.trim(),
-      rev: false,
+    const item = {
+      ...(initial || {}),
+      topic:        form.topic.trim(),
+      cat:          form.cat,
+      est:          parseFloat(form.est) || 4,
+      link:         form.link.trim() || '—',
+      note:         form.note.trim(),
+      difficulty: form.difficulty || null,
     };
-    if (form.column === 'inProgress') {
-      newItem.actual = 0;
-      newItem.prog = 0;
-    }
-    if (form.column === 'completed') {
-      newItem.actual = 0;
-      newItem.lastReviewed = new Date().toISOString().slice(0, 10);
+    if (mode === 'add') {
+      item.rev = false;
+      if (form.column === 'inProgress') { item.actual = 0; item.prog = 0; }
+      if (form.column === 'completed')  { item.actual = 0; item.lastReviewed = lTodayStr(); }
     }
     setSaving(true);
-    try {
-      await onAdd(form.column, newItem);
-      setForm(empty);
-      setErr('');
-      onClose();
-    } catch (e) {
-      setErr(e.message || 'Failed to add topic.');
-    } finally {
-      setSaving(false);
-    }
+    try { await onSave(form.column, item); onClose(); }
+    catch (e) { setErr(e.message || 'Failed to save.'); }
+    finally { setSaving(false); }
   };
 
+  const isEdit = mode === 'edit';
   return (
-    <SlidePanel open={open} onClose={onClose} title="New Topic" subtitle="PERSONAL / LEARNING / ADD">
+    <SlidePanel open={open} onClose={onClose}
+      title={isEdit ? 'Edit Topic' : 'New Topic'}
+      subtitle={`PERSONAL / LEARNING / ${isEdit ? 'EDIT' : 'ADD'}`}>
       <div className="sp-body">
         {err && <div className="sp-error">{err}</div>}
         <div className="fld">
@@ -4279,13 +4514,11 @@ const AddTopicPanel = ({ open, onClose, onAdd }) => {
         </div>
         <div className="fld-row">
           <div className="fld">
-            <label>Category</label>
-            <select value={form.cat} onChange={e => set('cat', e.target.value)}>
-              {LEARN_CATS.map(c => <option key={c}>{c}</option>)}
-            </select>
+            <label>Tag</label>
+            <TagDropdown value={form.cat} onChange={v => set('cat', v)} allTags={allTags} />
           </div>
           <div className="fld">
-            <label>Add to column</label>
+            <label>{isEdit ? 'Column' : 'Add to'}</label>
             <select value={form.column} onChange={e => set('column', e.target.value)}>
               <option value="toLearn">To Learn</option>
               <option value="inProgress">In Progress</option>
@@ -4307,63 +4540,490 @@ const AddTopicPanel = ({ open, onClose, onAdd }) => {
           <label>Notes</label>
           <textarea value={form.note} onChange={e => set('note', e.target.value)} placeholder="Why are you learning this?" />
         </div>
+        <div className="fld">
+          <label>Difficulty</label>
+          <div className="diff-pills">
+            {[null, 'easy', 'medium', 'hard'].map(d => (
+              <button
+                key={d ?? 'none'}
+                type="button"
+                className={`diff-pill${form.difficulty === d ? ' active' : ''}`}
+                style={form.difficulty === d && d ? { borderColor: DIFF_COLOR[d], color: DIFF_COLOR[d], background: DIFF_COLOR[d] + '18' } : {}}
+                onClick={() => set('difficulty', d)}
+              >
+                {d ?? 'None'}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="sp-footer">
         <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
         <button className="btn primary" onClick={handleSubmit} disabled={saving || !form.topic.trim()}>
-          <Icon name="plus" size={12} /> {saving ? 'Adding…' : 'Add topic'}
+          <Icon name={isEdit ? 'check' : 'plus'} size={12} />
+          {saving ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save changes' : 'Add topic')}
         </button>
       </div>
     </SlidePanel>
   );
 };
 
+// ── Sessions panel ───────────────────────────────────────────────
+const SessionsPanel = ({ item, stage, onClose, onLogHours, onSessionDeleted }) => {
+  const [sessions, setSessions] = useStateA(null);
+  const [loading,  setLoading]  = useStateA(false);
+  const [deleting, setDeleting] = useStateA(null);
+
+  useEffectA(() => {
+    if (!item) return;
+    setLoading(true);
+    listLearningSessions(item._dbId)
+      .then(setSessions)
+      .catch(() => setSessions([]))
+      .finally(() => setLoading(false));
+  }, [item?._dbId]);
+
+  const handleDelete = async (session) => {
+    setDeleting(session.id);
+    try {
+      const updated = await deleteLearningSession(session.id);
+      setSessions(prev => prev.filter(s => s.id !== session.id));
+      onSessionDeleted(updated);
+    } catch (e) { /* ignore */ }
+    finally { setDeleting(null); }
+  };
+
+  const totalHours = (sessions || []).reduce((s, x) => s + x.hours, 0);
+
+  return (
+    <SlidePanel open={!!item} onClose={onClose} title="Session history" subtitle="LEARNING / SESSIONS">
+      <div className="sp-body">
+        {item && (
+          <>
+            <div className="sess-topic">{item.topic}</div>
+            <div className="sess-meta-row">
+              <span>{(sessions || []).length} session{(sessions || []).length !== 1 ? 's' : ''}</span>
+              <span>{totalHours}h total logged</span>
+              {stage === 'inProgress' && (
+                <button className="btn primary" style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px' }}
+                  onClick={() => { onClose(); onLogHours(item); }}>
+                  <Icon name="timer" size={11} /> Log session
+                </button>
+              )}
+            </div>
+            {loading && <div className="sess-empty">Loading…</div>}
+            {!loading && sessions?.length === 0 && <div className="sess-empty">No sessions logged yet.</div>}
+            {!loading && sessions?.map(s => (
+              <div key={s.id} className="sess-row">
+                <div className="sess-row-left">
+                  <span className="sess-date">{s.date}</span>
+                  <span className="sess-hours">{s.hours}h</span>
+                </div>
+                <div className="sess-note">{s.note || <span style={{ color: 'var(--text-3)' }}>—</span>}</div>
+                <button
+                  className="sess-del"
+                  title="Delete session"
+                  disabled={deleting === s.id}
+                  onClick={() => handleDelete(s)}
+                >
+                  <Icon name="trash" size={11} />
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </SlidePanel>
+  );
+};
+
+// ── Log Hours dialog ─────────────────────────────────────────────
+const LogHoursDialog = ({ item, onSave, onClose }) => {
+  const [hrs,  setHrs]  = useStateA('1');
+  const [note, setNote] = useStateA('');
+  const [err,  setErr]  = useStateA('');
+  const [busy, setBusy] = useStateA(false);
+
+  useEffectA(() => { if (item) { setHrs('1'); setNote(''); setErr(''); } }, [item]);
+  if (!item) return null;
+
+  const val     = parseFloat(hrs);
+  const newActual = (item.actual || 0) + (isNaN(val) ? 0 : val);
+  const newProg   = item.est > 0 ? Math.min(100, Math.round((newActual / item.est) * 100)) : (item.prog || 0);
+  const color     = getTagColor(item.cat);
+
+  const adjustHrs = (amount) => {
+    const current = parseFloat(hrs) || 0;
+    const next = Math.max(0.25, current + amount);
+    setHrs(String(next));
+    setErr('');
+  };
+
+  const save = async () => {
+    if (isNaN(val) || val <= 0) { setErr('Enter hours > 0.'); return; }
+    setBusy(true);
+    try { await onSave(item, val, note.trim(), newProg); onClose(); }
+    catch (e) { setErr(e.message || 'Failed to log session.'); }
+    finally { setBusy(false); }
+  };
+
+  return createPortal(
+    <div className="modal-overlay">
+      <div className="modal-box" style={{ width: 380, borderRadius: 16 }}>
+        <div className="modal-title" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>Log session</div>
+        <div className="modal-sub" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+          <span className="tag-dot" style={{ background: color, width: 6, height: 6, borderRadius: '50%' }} />
+          <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{item.topic}</span>
+        </div>
+        {err && <div className="modal-err" style={{ marginTop: 12 }}>{err}</div>}
+        
+        {/* Large custom hrs stepper */}
+        <div className="log-stepper-row">
+          <button type="button" className="log-step-btn" onClick={() => adjustHrs(-0.5)}>
+            <Icon name="minus" size={14} />
+          </button>
+          <div className="log-hrs-input-wrap">
+            <input 
+              type="number" 
+              value={hrs} 
+              min="0.25" 
+              step="0.25"
+              autoFocus
+              onChange={e => { setHrs(e.target.value); setErr(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') onClose(); }}
+              className="log-hrs-val-input"
+            />
+            <span className="log-hrs-unit">hrs</span>
+          </div>
+          <button type="button" className="log-step-btn" onClick={() => adjustHrs(0.5)}>
+            <Icon name="plus" size={14} />
+          </button>
+        </div>
+
+        {/* Quick select presets */}
+        <div className="log-presets">
+          {[0.5, 1, 2, 4].map(preset => (
+            <button 
+              key={preset} 
+              type="button" 
+              className="log-preset-btn"
+              onClick={() => { setHrs(String(preset)); setErr(''); }}
+            >
+              +{preset}h
+            </button>
+          ))}
+        </div>
+
+        {/* Dynamic progress bar preview */}
+        {item.est > 0 && !isNaN(val) && val > 0 && (
+          <div className="log-preview-box">
+            <div className="log-preview-labels">
+              <span>Progress Preview</span>
+              <span className="pct-change">{item.prog || 0}% → {newProg}%</span>
+            </div>
+            <div className="log-preview-bar">
+              <div className="log-bar-current" style={{ width: `${Math.min(100, item.prog || 0)}%` }} />
+              <div className="log-bar-added" style={{
+                left: `${Math.min(100, item.prog || 0)}%`,
+                width: `${Math.min(100 - (item.prog || 0), newProg - (item.prog || 0))}%`,
+              }} />
+            </div>
+            <div className="log-preview-details">
+              <span className="log-det-logged">
+                <span className="log-det-dot log-det-dot-logged" />
+                Logged: {item.actual || 0}h
+              </span>
+              <span className="log-det-session">
+                <span className="log-det-dot log-det-dot-session" />
+                +{val}h session
+              </span>
+              <span className="log-det-goal">Goal: {item.est}h</span>
+            </div>
+          </div>
+        )}
+
+        {/* Notes input */}
+        <div className="fld" style={{ marginTop: 8 }}>
+          <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
+            What did you work on? <span className="opt-label">(optional)</span>
+          </label>
+          <textarea 
+            className="log-notes-input"
+            value={note} 
+            onChange={e => setNote(e.target.value)} 
+            placeholder="e.g. completed core API integration, reviewed documentation"
+            rows={2}
+          />
+        </div>
+
+        <div className="modal-footer" style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={busy || isNaN(val) || val <= 0}>
+            <Icon name="timer" size={12} /> {busy ? 'Saving…' : 'Log session'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ── Delete confirm ───────────────────────────────────────────────
+const LearnDeleteDialog = ({ item, onConfirm, onCancel }) => {
+  if (!item) return null;
+  return createPortal(
+    <div className="modal-overlay">
+      <div className="modal-box" style={{ width: 320 }}>
+        <div className="modal-title">Delete topic?</div>
+        <div style={{ fontSize: 13, color: 'var(--text-2)', margin: '8px 0 20px' }}>
+          <strong>{item.topic}</strong> will be permanently deleted.
+        </div>
+        <div className="modal-footer">
+          <button className="btn ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn" style={{ background: '#ef4444', color: '#fff', border: 'none' }} onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ── Main LearningPage ────────────────────────────────────────────
 export const LearningPage = ({ learning, setLearning, workstationId }) => {
-  const [showAdd, setShowAdd] = useStateA(false);
+  const [showAdd,      setShowAdd]      = useStateA(false);
+  const [editItem,     setEditItem]     = useStateA(null);
+  const [deleteTarget, setDeleteTarget] = useStateA(null);
+  const [logHoursItem, setLogHoursItem] = useStateA(null);
+  const [sessionsItem, setSessionsItem] = useStateA(null);
+  const [sessionsStage,setSessStage]    = useStateA(null);
+  const [streak,       setStreak]       = useStateA(() => lReadStreak());
+  const [showReEngage, setShowReEngage] = useStateA(() => lShouldReEngage());
+  const [searchQ,      setSearchQ]      = useStateA('');
+  const [sortBy,       setSortBy]       = useStateA('date');
+  const [sortOpen,     setSortOpen]     = useStateA(false);
+  const [selectMode,   setSelectMode]   = useStateA(false);
+  const [selected,     setSelected]     = useStateA(new Set());
+  const [weeklyHours,  setWeeklyHours]  = useStateA(0);
+  const [weeklyGoal,   setWeeklyGoal]   = useStateA(() => Number(localStorage.getItem('orbit:learn:weeklyGoal')) || 10);
+  const [goalEdit,     setGoalEdit]     = useStateA(false);
+  const [goalInput,    setGoalInput]    = useStateA('');
+  const [overviewTab,  setOverviewTab]  = useStateA('revision');
+  const sortRef = useRefA(null);
 
-  const total = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
-  const done = learning.completed.length;
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  useEffectA(() => {
+    const close = (e) => { if (sortRef.current && !sortRef.current.contains(e.target)) setSortOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
 
-  const today = new Date(2026, 4, 12);
+  useEffectA(() => {
+    getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => {});
+  }, [workstationId]);
+
+  const total    = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
+  const done     = learning.completed.length;
+  const pct      = total > 0 ? Math.round((done / total) * 100) : 0;
+  const totalEst = [...learning.toLearn, ...learning.inProgress, ...learning.completed]
+    .reduce((s, i) => s + (i.est || 0), 0);
+  const totalLogged =
+    learning.inProgress.reduce((s, i) => s + (i.actual || 0), 0) +
+    learning.completed.reduce((s, i) => s + (i.actual || i.est || 0), 0);
+
+  const today = new Date();
   const dueForRev = learning.completed.filter(c => {
     if (c.rev) return true;
-    const d = new Date(c.lastReviewed);
-    return (today - d) / (1000 * 60 * 60 * 24) > 60;
+    if (!c.lastReviewed) return true;
+    return (today - new Date(c.lastReviewed)) / 86400000 > 60;
   });
 
-  const R = 38;
-  const C = 2 * Math.PI * R;
-  const off = C - (pct / 100) * C;
+  const allItems = [...learning.toLearn, ...learning.inProgress, ...learning.completed];
+  const allTags  = [...new Set(allItems.map(i => i.cat).filter(Boolean))].sort();
+
+  const tagBreakdown = allTags.map(tag => {
+    const items = allItems.filter(i => i.cat === tag);
+    const hours = items.reduce((s, i) => {
+      if (i._col === 'completed' || learning.completed.some(c => c._dbId === i._dbId))
+        return s + (i.actual || i.est || 0);
+      return s + (i.actual || 0);
+    }, 0);
+    return { tag, hours };
+  }).filter(t => t.hours > 0).sort((a, b) => b.hours - a.hours);
+  const tagMaxHours = tagBreakdown[0]?.hours || 1;
+
+  const weekGoalPct  = weeklyGoal > 0 ? Math.min(100, Math.round((weeklyHours / weeklyGoal) * 100)) : 0;
+  const saveGoal = () => {
+    const v = parseFloat(goalInput);
+    if (!isNaN(v) && v > 0) { setWeeklyGoal(v); localStorage.setItem('orbit:learn:weeklyGoal', String(v)); }
+    setGoalEdit(false);
+  };
+
+  const R = 38, CIRC = 2 * Math.PI * R;
+  const off = CIRC - (pct / 100) * CIRC;
+
+  const recordActivity    = () => { setStreak(lTouchStreak()); lTouchActive(); setShowReEngage(false); };
+  const refreshWeeklyHours = () => getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => {});
+  const reloadLearning = () => loadUserData(workstationId).then(d => { setLearning(d.learning); refreshWeeklyHours(); }).catch(() => {});
+
+  const SORT_LABELS = { date: 'Date added', est: 'Est. hours', tag: 'Tag', diff: 'Difficulty' };
+  const DIFF_ORDER  = { hard: 0, medium: 1, easy: 2 };
+  const applySearch = (items) => !searchQ.trim() ? items : items.filter(i => i.topic.toLowerCase().includes(searchQ.toLowerCase()));
+  const applySort   = (items) => {
+    const arr = [...items];
+    if (sortBy === 'est')  return arr.sort((a, b) => (b.est || 0) - (a.est || 0));
+    if (sortBy === 'tag')  return arr.sort((a, b) => (a.cat || '').localeCompare(b.cat || ''));
+    if (sortBy === 'diff') return arr.sort((a, b) => (DIFF_ORDER[a.difficulty] ?? 3) - (DIFF_ORDER[b.difficulty] ?? 3));
+    return arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  };
+  const processItems = (items) => applySort(applySearch(items));
+
+  const toggleSelect   = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); };
+
+  const handleBulkMove = async (toCol) => {
+    const ids = [...selected];
+    const allItems = [...learning.toLearn, ...learning.inProgress, ...learning.completed];
+    await Promise.all(ids.map(id => {
+      const item = allItems.find(i => i._dbId === id);
+      if (!item) return null;
+      const toSave = { ...item };
+      if (toCol === 'completed') toSave.lastReviewed = lTodayStr();
+      return updateLearningItem(toSave, toCol);
+    }));
+    setLearning(prev => {
+      const next = { toLearn: [...prev.toLearn], inProgress: [...prev.inProgress], completed: [...prev.completed] };
+      ids.forEach(id => {
+        const fromCol = Object.keys(next).find(k => next[k].some(i => i._dbId === id));
+        if (!fromCol) return;
+        const item = next[fromCol].find(i => i._dbId === id);
+        next[fromCol] = next[fromCol].filter(i => i._dbId !== id);
+        if (item && !next[toCol].some(i => i._dbId === id)) next[toCol].push({ ...item });
+      });
+      return next;
+    });
+    exitSelectMode();
+    recordActivity();
+    reloadLearning();
+  };
 
   const handleAdd = async (column, item) => {
     const { item: saved } = await createLearningItem(item, column, workstationId);
     setLearning(prev => ({ ...prev, [column]: [...prev[column], saved] }));
+    recordActivity();
+  };
+
+  const handleEditOpen = (item, column) => setEditItem({ item: { ...item, _col: column }, column });
+
+  const handleEditSave = async (newColumn, updatedItem) => {
+    const oldColumn  = editItem.column;
+    const colChanged = newColumn !== oldColumn;
+    const toSave     = { ...updatedItem };
+    if (colChanged && newColumn === 'completed' && !toSave.lastReviewed) toSave.lastReviewed = lTodayStr();
+    const { item: saved } = await updateLearningItem(toSave, colChanged ? newColumn : null);
+    setLearning(prev => {
+      const next = { ...prev };
+      if (colChanged) {
+        next[oldColumn] = next[oldColumn].filter(x => x._dbId !== saved._dbId);
+        next[newColumn] = [...next[newColumn], saved];
+      } else {
+        next[oldColumn] = next[oldColumn].map(x => x._dbId === saved._dbId ? saved : x);
+      }
+      return next;
+    });
+    setEditItem(null);
+    recordActivity();
+    reloadLearning();
+  };
+
+  const handleMove = async (item, fromCol, toCol) => {
+    const toSave = { ...item };
+    if (toCol === 'inProgress') { toSave.actual = toSave.actual ?? 0; toSave.prog = toSave.prog ?? 0; }
+    if (toCol === 'completed')  toSave.lastReviewed = lTodayStr();
+    const { item: saved } = await updateLearningItem(toSave, toCol);
+    setLearning(prev => {
+      const next = { ...prev };
+      next[fromCol] = next[fromCol].filter(x => x._dbId !== item._dbId);
+      next[toCol]   = [...next[toCol], saved];
+      return next;
+    });
+    recordActivity();
+    reloadLearning();
+  };
+
+  const handleToggleRev = async (item, column) => {
+    const { item: saved } = await updateLearningItem({ ...item, rev: !item.rev }, null);
+    setLearning(prev => ({ ...prev, [column]: prev[column].map(x => x._dbId === saved._dbId ? saved : x) }));
+  };
+
+  const handleDeleteConfirm = async () => {
+    const { item, column } = deleteTarget;
+    await deleteLearningItem(item._dbId);
+    setLearning(prev => ({ ...prev, [column]: prev[column].filter(x => x._dbId !== item._dbId) }));
+    setDeleteTarget(null);
+  };
+
+  const handleLogHoursSave = async (item, hours, note, newProg) => {
+    const { learning: saved } = await createLearningSession(item._dbId, hours, note);
+    const withProg = { ...saved, prog: newProg };
+    await updateLearningItem(withProg, null);
+    setLearning(prev => ({ ...prev, inProgress: prev.inProgress.map(x => x._dbId === saved._dbId ? { ...saved, prog: newProg } : x) }));
+    setWeeklyHours(prev => prev + hours);
+    recordActivity();
+  };
+
+  const handleSessionDeleted = (updatedLearning) => {
+    setLearning(prev => {
+      const col = Object.keys(prev).find(k => prev[k].some(i => i._dbId === updatedLearning._dbId));
+      if (!col) return prev;
+      return { ...prev, [col]: prev[col].map(x => x._dbId === updatedLearning._dbId ? { ...x, actual: updatedLearning.actual } : x) };
+    });
+    refreshWeeklyHours();
   };
 
   return (
     <div className="page page-wide">
+      {/* ── Page header ─────────────────────────────────────── */}
       <div className="page-head">
         <div>
           <div className="crumb">PERSONAL / LEARNING</div>
           <h1>Learning path</h1>
-          <div className="sub">Curate · practice · revisit. {total} topics tracked.</div>
+          <div className="sub" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {total} topic{total !== 1 ? 's' : ''} tracked
+            {streak.count > 1 && (
+              <span className="learn-streak">
+                <Icon name="rev" size={11} /> {streak.count}-day streak
+              </span>
+            )}
+          </div>
         </div>
         <div className="actions">
-          <button className="btn"><Icon name="rev" size={12} /> Mark revision</button>
           <button className="btn primary" onClick={() => setShowAdd(true)}>
             <Icon name="plus" size={12} /> New topic
           </button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 16 }}>
-        <div className="card">
+      {/* ── Re-engagement banner ─────────────────────────────── */}
+      {showReEngage && (
+        <div className="learn-engage">
+          <span>
+            <strong>Welcome back.</strong>{' '}
+            <span style={{ color: 'var(--text-2)' }}>
+              You're {pct}% through your path — {learning.toLearn.length} topic{learning.toLearn.length !== 1 ? 's' : ''} still to start.
+            </span>
+          </span>
+          <button className="btn ghost" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setShowReEngage(false)}>Dismiss</button>
+        </div>
+      )}
+
+      {/* ── Stats + overview cards ────────────────────────────── */}
+      <div className="learn-overview">
+        <div className="card learn-overview-main">
           <div className="ring-wrap">
             <div className="ring">
               <svg viewBox="0 0 100 100" width="100" height="100">
                 <circle cx="50" cy="50" r={R} fill="none" stroke="var(--bg-3)" strokeWidth="6" />
-                <circle cx="50" cy="50" r={R} fill="none" stroke="var(--accent)" strokeWidth="6" strokeDasharray={C} strokeDashoffset={off} strokeLinecap="square" />
+                <circle cx="50" cy="50" r={R} fill="none" stroke="var(--accent)" strokeWidth="6"
+                  strokeDasharray={CIRC} strokeDashoffset={off} strokeLinecap="square" />
               </svg>
               <div className="num">{pct}%</div>
             </div>
@@ -4371,48 +5031,216 @@ export const LearningPage = ({ learning, setLearning, workstationId }) => {
               <div className="cell"><div className="l">To learn</div><div className="v">{learning.toLearn.length}</div></div>
               <div className="cell"><div className="l">In progress</div><div className="v" style={{ color: 'var(--accent-hi)' }}>{learning.inProgress.length}</div></div>
               <div className="cell"><div className="l">Completed</div><div className="v" style={{ color: '#4ade80' }}>{learning.completed.length}</div></div>
+              <div className="cell"><div className="l">Est. total</div><div className="v" style={{ fontSize: 14 }}>{totalEst}h</div></div>
+              <div className="cell"><div className="l">Logged</div><div className="v" style={{ fontSize: 14, color: 'var(--accent-hi)' }}>{totalLogged}h</div></div>
+              <div className="cell"><div className="l">Revision due</div><div className="v" style={{ fontSize: 14, color: dueForRev.length > 0 ? '#fbbf24' : 'var(--text-3)' }}>{dueForRev.length}</div></div>
             </div>
           </div>
+          {/* Weekly goal row */}
+          <div className="learn-goal-row">
+            <div className="learn-goal-label">
+              <span>This week</span>
+              {goalEdit ? (
+                <span className="learn-goal-edit-wrap">
+                  <input
+                    className="learn-goal-input"
+                    type="number" min="1" step="1"
+                    value={goalInput}
+                    autoFocus
+                    onChange={e => setGoalInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveGoal(); if (e.key === 'Escape') setGoalEdit(false); }}
+                    placeholder={String(weeklyGoal)}
+                  />
+                  <button className="learn-goal-ok" onClick={saveGoal}>✓</button>
+                </span>
+              ) : (
+                <button className="learn-goal-edit-btn" onClick={() => { setGoalInput(String(weeklyGoal)); setGoalEdit(true); }} title="Set weekly goal">
+                  {weeklyHours}h / {weeklyGoal}h goal
+                  <svg viewBox="0 0 12 12" fill="none"><path d="M8.5 1.5l2 2L4 10H2V8L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
+                </button>
+              )}
+            </div>
+            <div className="learn-goal-track">
+              <div className="learn-goal-fill" style={{ width: weekGoalPct + '%', background: weekGoalPct >= 100 ? '#4ade80' : 'var(--accent)' }} />
+            </div>
+            <span className="learn-goal-pct">{weekGoalPct}%</span>
+          </div>
         </div>
-        <div className="card">
-          <div className="card-h">
-            <div className="t" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="rev" size={14} /> Due for revision</div>
-            <span className="lbl">{dueForRev.length}</span>
+
+        {/* Right card: tabbed (revision / tags) */}
+        <div className="card learn-overview-rev">
+          <div className="card-h" style={{ paddingBottom: 0, borderBottom: 'none' }}>
+            <div className="learn-tabs">
+              <button className={`learn-tab${overviewTab === 'revision' ? ' active' : ''}`} onClick={() => setOverviewTab('revision')}>
+                Revision due {dueForRev.length > 0 && <span className="learn-tab-badge">{dueForRev.length}</span>}
+              </button>
+              <button className={`learn-tab${overviewTab === 'tags' ? ' active' : ''}`} onClick={() => setOverviewTab('tags')}>
+                Tags
+              </button>
+            </div>
           </div>
-          <div style={{ padding: '4px 0' }}>
-            {dueForRev.map((c, i) => (
-              <div key={i} style={{ padding: '10px 16px', borderBottom: i === dueForRev.length - 1 ? 0 : '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 500 }}>{c.topic}</div>
-                  <div className="label-mono" style={{ marginTop: 2 }}>last touched {c.lastReviewed}</div>
-                </div>
-                <span className="tag accent">{c.cat}</span>
-              </div>
-            ))}
-            {dueForRev.length === 0 && <div style={{ padding: 16, color: 'var(--text-3)', fontSize: 12 }}>Nothing due — you're caught up.</div>}
-          </div>
+
+          {overviewTab === 'revision' && (
+            <div style={{ overflowY: 'auto', maxHeight: 180 }}>
+              {dueForRev.length === 0
+                ? <div style={{ padding: '12px 16px', color: 'var(--text-3)', fontSize: 12 }}>Nothing due — you&apos;re caught up.</div>
+                : dueForRev.map((c, i) => (
+                  <div key={c._dbId || i} className="learn-rev-row">
+                    <div>
+                      <div className="learn-rev-topic">{c.topic}</div>
+                      <div className="learn-rev-sub">{c.lastReviewed ? `last reviewed ${c.lastReviewed}` : 'never reviewed'}</div>
+                    </div>
+                    <span className="learn-rev-cat" style={{ color: getTagColor(c.cat), borderColor: getTagColor(c.cat) }}>{c.cat}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+
+          {overviewTab === 'tags' && (
+            <div className="learn-tagbreak" style={{ overflowY: 'auto', maxHeight: 180 }}>
+              {tagBreakdown.length === 0
+                ? <div style={{ padding: '12px 16px', color: 'var(--text-3)', fontSize: 12 }}>Log sessions to see tag breakdown.</div>
+                : tagBreakdown.map(({ tag, hours }) => (
+                  <div key={tag} className="learn-tagbreak-row">
+                    <span className="learn-tagbreak-name" style={{ color: getTagColor(tag) }}>{tag}</span>
+                    <div className="learn-tagbreak-track">
+                      <div className="learn-tagbreak-fill" style={{ width: Math.round((hours / tagMaxHours) * 100) + '%', background: getTagColor(tag) }} />
+                    </div>
+                    <span className="learn-tagbreak-hrs">{hours}h</span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       </div>
 
+      {/* ── Weekly goal achieved banner ──────────────────────── */}
+      {weekGoalPct >= 100 && (
+        <div className="learn-goal-achieved">
+          <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+            <path d="M8 1.5l1.6 3.2 3.5.5-2.55 2.5.6 3.5L8 9.5l-3.15 1.7.6-3.5L3 5.2l3.5-.5z" fill="#4ade80" stroke="#4ade80" strokeWidth="0.8" strokeLinejoin="round"/>
+          </svg>
+          <span><strong>Weekly goal reached!</strong> {weeklyHours}h logged this week — you&apos;re on a roll.</span>
+        </div>
+      )}
+
+      {/* ── Search / Sort / Select toolbar ──────────────────── */}
+      <div className="learn-toolbar">
+        <div className="learn-search-wrap">
+          <svg viewBox="0 0 16 16" fill="none">
+            <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3"/>
+            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+          </svg>
+          <input
+            className="learn-search"
+            placeholder="Search topics…"
+            value={searchQ}
+            onChange={e => setSearchQ(e.target.value)}
+          />
+          {searchQ && (
+            <button className="learn-search-clear" onClick={() => setSearchQ('')}>
+              <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            </button>
+          )}
+        </div>
+
+        <div ref={sortRef} className="learn-sort-wrap">
+          <button className={`learn-sort-btn${sortOpen ? ' open' : ''}`} onClick={() => setSortOpen(o => !o)}>
+            <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+            {SORT_LABELS[sortBy]}
+            <svg viewBox="0 0 16 16" fill="none" className="learn-sort-chev"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+          {sortOpen && (
+            <div className="learn-sort-menu">
+              {Object.entries(SORT_LABELS).map(([k, v]) => (
+                <button key={k} className={`learn-sort-item${sortBy === k ? ' active' : ''}`}
+                  onClick={() => { setSortBy(k); setSortOpen(false); }}>
+                  {sortBy === k && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  {v}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button
+          className={`learn-select-btn${selectMode ? ' active' : ''}`}
+          onClick={() => { selectMode ? exitSelectMode() : setSelectMode(true); }}
+        >
+          <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg>
+          {selectMode ? 'Cancel' : 'Select'}
+        </button>
+      </div>
+
+      {/* ── Kanban columns ───────────────────────────────────── */}
       <div className="learn-cols">
-        {[
-          { key: 'toLearn', t: 'TO LEARN', items: learning.toLearn },
-          { key: 'inProgress', t: 'IN PROGRESS', items: learning.inProgress },
-          { key: 'completed', t: 'COMPLETED', items: learning.completed },
-        ].map(col => (
-          <div key={col.key} className="learn-col">
-            <div className="learn-h">
-              <span className="t">{col.t}</span>
-              <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)', padding: '1px 6px', background: 'var(--bg-3)' }}>{col.items.length}</span>
+        {LEARN_COLS.map(col => {
+          const items = processItems(learning[col.key] || []);
+          const total = (learning[col.key] || []).length;
+          return (
+            <div key={col.key} className="learn-col">
+              <div className="learn-h">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span className="learn-h-dot" style={{ background: col.dot }} />
+                  <span className="t">{col.label}</span>
+                </div>
+                <span className="learn-h-count">
+                  {searchQ && items.length !== total ? `${items.length}/${total}` : total}
+                </span>
+              </div>
+              <div className="learn-body">
+                {items.map(it => (
+                  <LearnCard
+                    key={it._dbId}
+                    item={it}
+                    stage={col.key}
+                    onEdit={(item) => handleEditOpen(item, col.key)}
+                    onDelete={(item) => setDeleteTarget({ item, column: col.key })}
+                    onMove={(item, toCol) => handleMove(item, col.key, toCol)}
+                    onToggleRev={(item) => handleToggleRev(item, col.key)}
+                    onLogHours={(item) => setLogHoursItem(item)}
+                    onSessions={(item) => { setSessionsItem(item); setSessStage(col.key); }}
+                    selectMode={selectMode}
+                    isSelected={selected.has(it._dbId)}
+                    onToggleSelect={toggleSelect}
+                  />
+                ))}
+                {items.length === 0 && (
+                  <div className="learn-empty">{searchQ ? 'No matches' : 'Empty'}</div>
+                )}
+              </div>
             </div>
-            <div className="learn-body">
-              {col.items.map((it, i) => <LearnCard key={i} item={it} stage={col.key} />)}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <AddTopicPanel open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd} />
+      {/* ── Bulk action bar ──────────────────────────────────── */}
+      {selectMode && selected.size > 0 && (
+        <div className="learn-bulk-bar">
+          <span className="learn-bulk-count">{selected.size} selected</span>
+          <span className="learn-bulk-sep" />
+          <span className="learn-bulk-label">Move to</span>
+          {LEARN_COLS.map(c => (
+            <button key={c.key} className="learn-bulk-move" onClick={() => handleBulkMove(c.key)}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.dot, flexShrink: 0, display: 'inline-block' }} />
+              {c.label}
+            </button>
+          ))}
+          <button className="learn-bulk-cancel" onClick={exitSelectMode}>Cancel</button>
+        </div>
+      )}
+
+      <TopicFormPanel open={showAdd}    onClose={() => setShowAdd(false)}  onSave={handleAdd}      mode="add"  allTags={allTags} />
+      <TopicFormPanel open={!!editItem} onClose={() => setEditItem(null)}  onSave={handleEditSave} mode="edit" initial={editItem?.item} allTags={allTags} />
+      <LogHoursDialog   item={logHoursItem}       onSave={handleLogHoursSave}    onClose={() => setLogHoursItem(null)} />
+      <LearnDeleteDialog item={deleteTarget?.item} onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} />
+      <SessionsPanel
+        item={sessionsItem}
+        stage={sessionsStage}
+        onClose={() => setSessionsItem(null)}
+        onLogHours={(item) => setLogHoursItem(item)}
+        onSessionDeleted={handleSessionDeleted}
+      />
     </div>
   );
 };
