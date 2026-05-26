@@ -889,11 +889,12 @@ export const getWeeklyLearningHours = async (workstationId) => {
   return Number(data) || 0
 }
 
-export const getLearningWeekActivity = async (workstationId, weekStart = null) => {
+export const getLearningActivity = async (workstationId, startDate = null, endDate = null) => {
   const params = { p_workstation_id: workstationId }
-  if (weekStart) params.p_week_start = weekStart
-  const { data, error } = await supabase.rpc('get_learning_week_activity', params)
+  if (startDate) params.p_start_date = startDate
+  if (endDate)   params.p_end_date   = endDate
+  const { data, error } = await supabase.rpc('get_learning_activity', params)
   if (error) throw error
-  return (data || []).map(r => ({ date: r.day_date, hours: Number(r.total_hours) || 0 }))
+  return (data || []).map(r => ({ date: r.activity_date, hours: Number(r.total_hours) || 0 }))
 }
 

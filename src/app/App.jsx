@@ -10,7 +10,7 @@ import {
   setActiveWorkstation as persistActiveWs, loadTaskNoteLinks,
   startTimeEntry, pauseTimeEntry, resumeTimeEntry,
   completeTimeEntry, discardTimeEntry, getTimeEntries, getActiveTimeEntry,
-  logManualTime, getLearningWeekActivity,
+  logManualTime, getLearningActivity,
 } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
@@ -223,8 +223,10 @@ export default function App() {
     // Load completed entry history
     getTimeEntries(activeWorkstation.id).then(setTimeEntries).catch(console.error);
 
-    // Load learning week activity for analytics
-    getLearningWeekActivity(activeWorkstation.id).then(setLearningActivity).catch(console.error);
+    // Load past year of learning activity for analytics
+    const yearAgo = new Date(); yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+    getLearningActivity(activeWorkstation.id, yearAgo.toISOString().split('T')[0])
+      .then(setLearningActivity).catch(console.error);
   }, [activeWorkstation?.id]);
 
   // Workstation handlers
