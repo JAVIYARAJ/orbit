@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useState as useStateB, useEffect as useEffectB, useRef as useRefB } from 'react';
+import DOMPurify from 'dompurify';
 import { createPortal } from 'react-dom';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
@@ -9,7 +10,7 @@ import {
   restoreNote as dbRestoreNote, purgeNote as dbPurgeNote, getDeletedNotes as dbGetDeletedNotes,
   createNoteFolder as dbCreateNoteFolder, renameNoteFolder as dbRenameNoteFolder,
   deleteNoteFolder as dbDeleteNoteFolder, reorderNoteFolders as dbReorderNoteFolders,
-  createEmailTemplate,
+  createEmailTemplate, updateEmailTemplate, deleteEmailTemplate,
   createGanttTask, updateGanttTask, deleteGanttTask,
 } from '../lib/db.js';
 
@@ -556,7 +557,11 @@ const renderMdCore = (s) => {
 
 export const renderMd = (src) => {
   if (!src) return '';
-  return renderMdCore(src);
+  return DOMPurify.sanitize(renderMdCore(src), {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus'],
+  });
 };
 
 const NoteLinkMenu = ({ items, index, onSelect }) => (
@@ -2225,6 +2230,28 @@ const extractPlaceholders = (body) => {
   return Array.from(set);
 };
 
+const emailSubjectStore = {
+  get: (id) => { try { return JSON.parse(localStorage.getItem('orbit_email_subjects') || '{}')[id] || ''; } catch { return ''; } },
+  save: (id, val) => { try { const s = JSON.parse(localStorage.getItem('orbit_email_subjects') || '{}'); s[id] = val; localStorage.setItem('orbit_email_subjects', JSON.stringify(s)); } catch {} },
+};
+
+const emailVarsStore = {
+  get: () => { try { return JSON.parse(localStorage.getItem('orbit_email_globals') || '{}'); } catch { return {}; } },
+  save: (vars) => { try { localStorage.setItem('orbit_email_globals', JSON.stringify(vars)); } catch {} },
+};
+
+const emailStarStore = {
+  get: () => { try { return new Set(JSON.parse(localStorage.getItem('orbit_email_starred') || '[]')); } catch { return new Set(); } },
+  toggle: (id) => {
+    try {
+      const s = emailStarStore.get();
+      s.has(id) ? s.delete(id) : s.add(id);
+      localStorage.setItem('orbit_email_starred', JSON.stringify([...s]));
+      return s;
+    } catch { return new Set(); }
+  },
+};
+
 const AddTemplatePanel = ({ open, onClose, onAdd }) => {
   const empty = { name: '', cat: 'Proposals', body: '' };
   const [form, setForm] = useStateB(empty);
@@ -2257,7 +2284,7 @@ const AddTemplatePanel = ({ open, onClose, onAdd }) => {
         <div className="fld-row">
           <div className="fld">
             <label>Template name *</label>
-            <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Project kick-off" />
+            <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Project kick-off" autoFocus />
           </div>
           <div className="fld">
             <label>Category</label>
@@ -2287,23 +2314,181 @@ const AddTemplatePanel = ({ open, onClose, onAdd }) => {
   );
 };
 
+const VariablesPanel = ({ open, onClose, templates }) => {
+  const [globals, setGlobals] = useStateB(() => emailVarsStore.get());
+
+  useEffectB(() => { if (open) setGlobals(emailVarsStore.get()); }, [open]);
+
+  const allPlaceholders = React.useMemo(() => {
+    const map = {};
+    templates.forEach(t => {
+      extractPlaceholders(t.body).forEach(p => { map[p] = (map[p] || 0) + 1; });
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [templates]);
+
+  const save = () => { emailVarsStore.save(globals); onClose(); };
+
+  return (
+    <SlidePanel open={open} onClose={onClose} title="Global Variables" subtitle="TOOLS / EMAIL HUB / VARIABLES" width={480}>
+      <div className="sp-body">
+        <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 16, lineHeight: 1.6 }}>
+          Set default values for common placeholders. These pre-fill automatically when you select any template.
+        </div>
+        {allPlaceholders.length === 0 ? (
+          <div style={{ color: 'var(--text-4)', fontSize: 12, textAlign: 'center', padding: '32px 0' }}>
+            No placeholders found across your templates yet.
+          </div>
+        ) : allPlaceholders.map(([p, count]) => (
+          <div key={p} className="fld" style={{ marginBottom: 12 }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{p.replace(/_/g, ' ')}</span>
+              <span style={{ color: 'var(--text-4)', fontSize: 10, fontWeight: 400 }}>
+                used in {count} template{count !== 1 ? 's' : ''}
+              </span>
+            </label>
+            <input
+              value={globals[p] || ''}
+              onChange={e => setGlobals(v => ({ ...v, [p]: e.target.value }))}
+              placeholder={`{{${p}}}`}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="sp-footer">
+        <button className="btn ghost" onClick={onClose}>Cancel</button>
+        <button className="btn primary" onClick={save}>Save defaults</button>
+      </div>
+    </SlidePanel>
+  );
+};
+
+const EmailTplItem = ({ t, activeId, starred, onSelect, onStar, onDelete }) => (
+  <div
+    className={'email-tpl' + (t.id === activeId ? ' active' : '')}
+    onClick={onSelect}
+  >
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+      <div className="t" style={{ flex: 1 }}>{t.name}</div>
+      <button
+        className={'email-tpl-star' + (starred.has(t.id) ? ' starred' : '')}
+        onClick={e => onStar(e, t.id)}
+        title={starred.has(t.id) ? 'Remove from favourites' : 'Add to favourites'}
+      >
+        <Icon name="star" size={10}/>
+      </button>
+      <button
+        className="email-tpl-del"
+        onClick={e => { e.stopPropagation(); onDelete(); }}
+        title="Delete"
+      >
+        <Icon name="trash" size={10}/>
+      </button>
+    </div>
+    <div className="p">{t.body.split('\n').find(l => l.trim()) || ''}</div>
+  </div>
+);
+
 export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId }) => {
   const [activeId, setActiveId] = useStateB(emailTemplates[0]?.id);
   const [mode, setMode] = useStateB('fill');
   const [showAdd, setShowAdd] = useStateB(false);
+  const [showVars, setShowVars] = useStateB(false);
+  const [search, setSearch] = useStateB('');
   const [vals, setVals] = useStateB({});
+  const [subject, setSubject] = useStateB('');
+  const [editBody, setEditBody] = useStateB('');
+  const [editName, setEditName] = useStateB('');
+  const [editCat, setEditCat] = useStateB('Proposals');
+  const [editSubject, setEditSubject] = useStateB('');
+  const [saving, setSaving] = useStateB(false);
+  const [copied, setCopied] = useStateB(false);
+  const [confirmDel, setConfirmDel] = useStateB(null);
+  const [starred, setStarred] = useStateB(() => emailStarStore.get());
+  const [loadingStarters, setLoadingStarters] = useStateB(false);
+
+  const toggleStar = (e, id) => {
+    e.stopPropagation();
+    setStarred(emailStarStore.toggle(id));
+  };
+
+  const handleLoadStarters = async () => {
+    setLoadingStarters(true);
+    const starters = [
+      {
+        id: 'client-proposal-' + Date.now().toString().slice(-4),
+        cat: 'Proposals',
+        name: 'Client Project Proposal',
+        body: 'Hi {{client_name}},\n\nThank you for taking the time to discuss your project needs yesterday. I\'ve put together a comprehensive proposal outlining our approach, timeline, and deliverables for {{project_name}}.\n\nBased on our conversation, we will focus on:\n1. {{key_requirement_1}}\n2. {{key_requirement_2}}\n\nYou can view the full proposal document here: {{proposal_link}}\n\nPlease let me know if you have any questions or if you\'re ready to proceed with the next steps!\n\nBest regards,\n{{your_name}}'
+      },
+      {
+        id: 'freelance-contract-' + Date.now().toString().slice(-4),
+        cat: 'Freelance',
+        name: 'Freelance Contract & Deposit',
+        body: 'Hi {{client_name}},\n\nIt\'s a pleasure working with you on {{project_name}}!\n\nI have prepared the freelance service agreement for your review and signature. Please find it attached to this email.\n\nTo kick off the project, a {{deposit_percentage}}% deposit of {{deposit_amount}} is required. You can settle this invoice via the payment link below:\n{{payment_link}}\n\nOnce the agreement is signed and the deposit is received, I will begin the development phase immediately.\n\nThanks,\n{{your_name}}'
+      },
+      {
+        id: 'meeting-followup-' + Date.now().toString().slice(-4),
+        cat: 'Follow-ups',
+        name: 'Post-Meeting Actions',
+        body: 'Hi {{recipient_name}},\n\nGreat speaking with you today regarding {{topic}}. Here is a quick summary of what we discussed and our next action items:\n\nAction Items:\n- {{our_task}} (Assigned to: Us)\n- {{their_task}} (Assigned to: {{recipient_name}})\n\nWe are scheduled to check in next on {{next_meeting_date}}.\n\nBest,\n{{your_name}}'
+      },
+      {
+        id: 'weekly-update-' + Date.now().toString().slice(-4),
+        cat: 'Client Updates',
+        name: 'Weekly Progress Update',
+        body: 'Hi {{client_name}},\n\nHere is your weekly progress report for {{project_name}}:\n\nWhat we accomplished this week:\n- {{accomplishment_1}}\n- {{accomplishment_2}}\n\nPlan for next week:\n- {{next_step_1}}\n\nCurrent Status: On track for delivery by {{target_date}}.\n\nLet me know if you have any feedback or questions!\n\nBest,\n{{your_name}}'
+      }
+    ];
+
+    try {
+      const savedTemplates = [];
+      for (const tplItem of starters) {
+        const saved = await createEmailTemplate(tplItem, workstationId);
+        savedTemplates.push(saved);
+      }
+      setEmailTemplates(prev => [...prev, ...savedTemplates]);
+      if (savedTemplates.length > 0) {
+        setActiveId(savedTemplates[0].id);
+      }
+    } catch (e) {
+      console.error('Failed to load starter templates:', e);
+    } finally {
+      setLoadingStarters(false);
+    }
+  };
 
   const tpl = emailTemplates.find(t => t.id === activeId) || emailTemplates[0];
   const placeholders = tpl ? extractPlaceholders(tpl.body) : [];
 
-  const renderBody = (body) => {
+  useEffectB(() => {
+    if (!tpl) return;
+    const subj = emailSubjectStore.get(tpl.id);
+    setSubject(subj);
+    const globals = emailVarsStore.get();
+    const prefilled = {};
+    extractPlaceholders(tpl.body).forEach(p => { if (globals[p]) prefilled[p] = globals[p]; });
+    setVals(prefilled);
+  }, [activeId]);
+
+  const handleModeSwitch = (m) => {
+    if (m === 'edit' && tpl) {
+      setEditBody(tpl.body);
+      setEditName(tpl.name);
+      setEditCat(tpl.cat);
+      setEditSubject(emailSubjectStore.get(tpl.id));
+    }
+    setMode(m);
+  };
+
+  const renderFill = (body) => {
     const parts = [];
     let last = 0;
     const re = /\{\{(\w+)\}\}/g; let m;
     while ((m = re.exec(body)) !== null) {
       if (m.index > last) parts.push(body.slice(last, m.index));
-      const key = m[1]; const v = vals[key];
-      parts.push({ key, v });
+      const key = m[1];
+      parts.push({ key, v: vals[key] });
       last = m.index + m[0].length;
     }
     if (last < body.length) parts.push(body.slice(last));
@@ -2314,18 +2499,88 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId }) 
     });
   };
 
-  const finalCopy = () => {
-    if (!tpl) return;
-    let b = tpl.body;
-    Object.entries(vals).forEach(([k, v]) => { b = b.replaceAll(`{{${k}}}`, v); });
-    navigator.clipboard?.writeText(b);
+  const renderPreview = (text) => {
+    let out = text;
+    Object.entries(vals).forEach(([k, v]) => { if (v) out = out.replaceAll(`{{${k}}}`, v); });
+    return out;
   };
 
-  const handleAdd = async (tpl) => {
-    const saved = await createEmailTemplate(tpl, workstationId);
+  const buildCopyText = () => {
+    if (!tpl) return '';
+    let b = tpl.body;
+    Object.entries(vals).forEach(([k, v]) => { if (v) b = b.replaceAll(`{{${k}}}`, v); });
+    return subject ? `Subject: ${subject}\n\n${b}` : b;
+  };
+
+  const finalCopy = () => {
+    navigator.clipboard?.writeText(buildCopyText());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleAdd = async (t) => {
+    const saved = await createEmailTemplate(t, workstationId);
     setEmailTemplates(prev => [...prev, saved]);
     setActiveId(saved.id);
   };
+
+  const handleSaveEdit = async () => {
+    if (!tpl || !editName.trim() || !editBody.trim()) return;
+    setSaving(true);
+    try {
+      await updateEmailTemplate({ id: tpl.id, cat: editCat, name: editName.trim(), body: editBody.trim() });
+      setEmailTemplates(prev => prev.map(t => t.id === tpl.id
+        ? { ...t, cat: editCat, name: editName.trim(), body: editBody.trim() } : t));
+      emailSubjectStore.save(tpl.id, editSubject);
+      setSubject(editSubject);
+      setMode('fill');
+    } catch (e) {
+      console.error('Failed to save template:', e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const id = confirmDel;
+    setConfirmDel(null);
+    const prev = emailTemplates;
+    const remaining = emailTemplates.filter(t => t.id !== id);
+    setEmailTemplates(remaining);
+    setActiveId(remaining[0]?.id || null);
+    try {
+      await deleteEmailTemplate(id);
+    } catch (e) {
+      console.error('Failed to delete:', e);
+      setEmailTemplates(prev);
+    }
+  };
+
+  const handleDuplicate = async () => {
+    if (!tpl) return;
+    const newId = `${tpl.id}-copy-${Date.now().toString().slice(-4)}`;
+    try {
+      const saved = await createEmailTemplate(
+        { id: newId, cat: tpl.cat, name: `${tpl.name} (Copy)`, body: tpl.body },
+        workstationId,
+      );
+      setEmailTemplates(prev => [...prev, saved]);
+      setActiveId(saved.id);
+    } catch (e) {
+      console.error('Failed to duplicate:', e);
+    }
+  };
+
+  const filteredTemplates = React.useMemo(() => {
+    if (!search.trim()) return emailTemplates;
+    const lq = search.toLowerCase();
+    return emailTemplates.filter(t => t.name.toLowerCase().includes(lq) || t.body.toLowerCase().includes(lq));
+  }, [emailTemplates, search]);
+
+  const starredTemplates   = filteredTemplates.filter(t => starred.has(t.id));
+  const unstarredTemplates = filteredTemplates.filter(t => !starred.has(t.id));
+
+  const editPlaceholders = mode === 'edit' ? extractPlaceholders(editBody) : [];
 
   return (
     <div className="page page-wide">
@@ -2336,93 +2591,296 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId }) 
           <div className="sub">{emailTemplates.length} template{emailTemplates.length !== 1 ? 's' : ''}</div>
         </div>
         <div className="actions">
-          <button className="btn"><Icon name="copy" size={12}/> Variables</button>
+          <button className="btn" onClick={() => setShowVars(true)}><Icon name="hash" size={12}/> Variables</button>
           <button className="btn primary" onClick={() => setShowAdd(true)}>
             <Icon name="plus" size={12}/> New template
           </button>
         </div>
       </div>
 
-      <div className="email-layout">
-        <div className="email-list">
-          {emailTemplates.length === 0 ? (
-            <div className="empty-state" style={{ padding: '48px 16px' }}>
-              <Icon name="mail" size={28} />
-              <div className="empty-title">No templates yet</div>
-              <div className="empty-sub">Create reusable email templates with fill-in placeholders.</div>
-              <button className="btn primary" onClick={() => setShowAdd(true)}>
-                <Icon name="plus" size={12} /> New template
-              </button>
-            </div>
-          ) : EMAIL_CATS.map(cat => {
-            const items = emailTemplates.filter(t => t.cat === cat);
-            if (items.length === 0) return null;
-            return (
-              <React.Fragment key={cat}>
-                <div className="email-cat">{cat} · {items.length}</div>
-                {items.map(t => (
-                  <div key={t.id} className={'email-tpl' + (t.id === activeId ? ' active' : '')} onClick={() => setActiveId(t.id)}>
-                    <div className="t">{t.name}</div>
-                    <div className="p">{t.body.split('\n').find(l => l.trim()) || ''}</div>
-                  </div>
-                ))}
-              </React.Fragment>
-            );
-          })}
-        </div>
-
-        {tpl && (
-          <div className="email-editor">
-            <div className="email-edh">
-              <div>
-                <div className="t">{tpl.name}</div>
-                <div className="label-mono" style={{ marginTop: 4 }}>{tpl.cat} · {placeholders.length} placeholders</div>
+      {emailTemplates.length === 0 ? (
+        <div className="email-empty-hub">
+          <div className="email-empty-card">
+            <div className="email-empty-content">
+              <div className="email-empty-icon-wrap">
+                <Icon name="mail" size={32} />
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <div className="view-toggle">
-                  <button className={mode==='fill'?'active':''} onClick={() => setMode('fill')}>FILL</button>
-                  <button className={mode==='edit'?'active':''} onClick={() => setMode('edit')}>EDIT</button>
-                  <button className={mode==='preview'?'active':''} onClick={() => setMode('preview')}>PREVIEW</button>
+              <h2 className="email-empty-title">Simplify your communication</h2>
+              <p className="email-empty-desc">
+                Stop typing the same messages repeatedly. Create placeholder-driven email templates for client proposals, freelance follow-ups, and developer updates.
+              </p>
+              
+              {loadingStarters ? (
+                <div className="email-empty-loader">
+                  <div className="email-empty-loader-dot"></div>
+                  <div className="email-empty-loader-dot"></div>
+                  <div className="email-empty-loader-dot"></div>
+                  <span>Generating starter templates...</span>
                 </div>
-                <button className="btn primary" onClick={finalCopy}><Icon name="copy" size={12}/> COPY EMAIL</button>
-              </div>
-            </div>
-            <div className="email-content">
-              <div className="email-body">
-                {mode === 'edit' ? (
-                  <textarea value={tpl.body} readOnly style={{ width: '100%', minHeight: '100%', background: 'transparent', border: 0, color: 'var(--text)', fontFamily: 'var(--f-mono)', fontSize: 12, resize: 'none', lineHeight: 1.8 }} />
-                ) : (
-                  renderBody(tpl.body)
-                )}
-              </div>
-              <div className="email-fill">
-                <div className="label-mono">FILL PLACEHOLDERS</div>
-                {placeholders.map(p => (
-                  <div key={p} className="grp">
-                    <div className="lbl">{p.replace(/_/g, ' ')}</div>
-                    <input
-                      placeholder={`{{${p}}}`}
-                      value={vals[p] || ''}
-                      onChange={e => setVals(v => ({ ...v, [p]: e.target.value }))}
-                    />
+              ) : (
+                <div className="email-empty-actions">
+                  <button className="btn primary" onClick={() => setShowAdd(true)}>
+                    <Icon name="plus" size={12} /> Create custom template
+                  </button>
+                  <button className="btn" onClick={handleLoadStarters}>
+                    <Icon name="rev" size={12} /> Load starter templates
+                  </button>
+                </div>
+              )}
+
+              <div className="email-empty-features">
+                <div className="email-empty-feature-item">
+                  <div className="email-empty-feature-icon">
+                    <Icon name="tag" size={16} />
                   </div>
-                ))}
-                {placeholders.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 11 }}>No placeholders — this template is ready to copy.</div>}
-                <div style={{ marginTop: 'auto', padding: '12px 0 0', borderTop: '1px solid var(--border)' }}>
-                  <div className="label-mono">SHORTCUTS</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 6, lineHeight: 1.8, fontFamily: 'var(--f-mono)' }}>
-                    ⌘↵ &nbsp;copy email<br/>
-                    ⌘⇧V &nbsp;paste from clipboard<br/>
-                    ⌘D &nbsp;duplicate template
+                  <div className="email-empty-feature-title">{"{{placeholders}}"}</div>
+                  <div className="email-empty-feature-desc">Define custom variables to pre-fill dynamic values instantly.</div>
+                </div>
+                <div className="email-empty-feature-item">
+                  <div className="email-empty-feature-icon">
+                    <Icon name="hash" size={16} />
                   </div>
+                  <div className="email-empty-feature-title">Global defaults</div>
+                  <div className="email-empty-feature-desc">Set default values for common placeholders globally.</div>
                 </div>
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="email-layout">
+          {/* ── Template list ── */}
+          <div className="email-list">
+            <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search templates…"
+                style={{ width: '100%', background: 'var(--bg-2)', border: '1px solid var(--border-2)', padding: '5px 10px', fontSize: 12, color: 'var(--text)', outline: 'none' }}
+              />
+            </div>
+
+            {filteredTemplates.length === 0 ? (
+              <div style={{ padding: '24px 12px', textAlign: 'center', fontSize: 12, color: 'var(--text-4)' }}>
+                No templates match "{search}"
+              </div>
+            ) : (
+              <>
+                {/* ── Favourites ── */}
+                {starredTemplates.length > 0 && (
+                  <>
+                    <div className="email-cat" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="star" size={9} style={{ color: '#f59e0b' }}/> FAVOURITES · {starredTemplates.length}
+                    </div>
+                    {starredTemplates.map(t => <EmailTplItem key={t.id} t={t} activeId={activeId} starred={starred} onSelect={() => { setActiveId(t.id); setMode('fill'); }} onStar={toggleStar} onDelete={() => setConfirmDel(t.id)} />)}
+                  </>
+                )}
+
+                {/* ── By category ── */}
+                {EMAIL_CATS.map(cat => {
+                  const items = unstarredTemplates.filter(t => t.cat === cat);
+                  if (items.length === 0) return null;
+                  return (
+                    <React.Fragment key={cat}>
+                      <div className="email-cat">{cat} · {items.length}</div>
+                      {items.map(t => <EmailTplItem key={t.id} t={t} activeId={activeId} starred={starred} onSelect={() => { setActiveId(t.id); setMode('fill'); }} onStar={toggleStar} onDelete={() => setConfirmDel(t.id)} />)}
+                    </React.Fragment>
+                  );
+                })}
+              </>
+            )}
+          </div>
+
+          {/* ── Editor ── */}
+          {tpl ? (
+            <div className="email-editor">
+              {/* Header */}
+              <div className="email-edh">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {mode === 'edit' ? (
+                    <>
+                      <input
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        placeholder="Template name"
+                        style={{ fontSize: 16, fontWeight: 600, fontFamily: 'var(--f-display)', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-2)', color: 'var(--text)', width: '100%', padding: '2px 0 4px', outline: 'none' }}
+                      />
+                      <div style={{ marginTop: 8 }}>
+                        <select
+                          value={editCat}
+                          onChange={e => setEditCat(e.target.value)}
+                          style={{ background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--text-2)', fontSize: 11, fontFamily: 'var(--f-mono)', padding: '3px 8px', cursor: 'pointer' }}
+                        >
+                          {EMAIL_CATS.map(c => <option key={c}>{c}</option>)}
+                        </select>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="t">{tpl.name}</div>
+                      <div className="label-mono" style={{ marginTop: 4 }}>
+                        {tpl.cat} · {placeholders.length} placeholder{placeholders.length !== 1 ? 's' : ''}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+                  <div className="view-toggle">
+                    <button className={mode === 'fill' ? 'active' : ''} onClick={() => handleModeSwitch('fill')}>FILL</button>
+                    <button className={mode === 'edit' ? 'active' : ''} onClick={() => handleModeSwitch('edit')}>EDIT</button>
+                    <button className={mode === 'preview' ? 'active' : ''} onClick={() => handleModeSwitch('preview')}>PREVIEW</button>
+                  </div>
+                  {mode === 'edit' ? (
+                    <button className="btn primary" onClick={handleSaveEdit} disabled={saving || !editName.trim() || !editBody.trim()}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  ) : (
+                    <button className="btn primary" onClick={finalCopy}>
+                      <Icon name="copy" size={12}/> {copied ? 'COPIED!' : 'COPY EMAIL'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Subject line */}
+              <div style={{ padding: '8px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 10, fontFamily: 'var(--f-mono)', letterSpacing: '0.08em', color: 'var(--text-3)', flexShrink: 0, textTransform: 'uppercase' }}>Subject</span>
+                <input
+                  value={mode === 'edit' ? editSubject : subject}
+                  onChange={e => {
+                    if (mode === 'edit') { setEditSubject(e.target.value); }
+                    else { setSubject(e.target.value); emailSubjectStore.save(tpl.id, e.target.value); }
+                  }}
+                  placeholder="Email subject line (supports {{placeholders}})…"
+                  style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 13, color: 'var(--text)', padding: '2px 0' }}
+                />
+              </div>
+
+              {/* Content area */}
+              <div className="email-content" style={mode === 'preview' ? { gridTemplateColumns: '1fr' } : {}}>
+                <div className="email-body">
+                  {mode === 'edit' ? (
+                    <textarea
+                      value={editBody}
+                      onChange={e => setEditBody(e.target.value)}
+                      style={{ width: '100%', height: '100%', background: 'transparent', border: 0, color: 'var(--text)', fontFamily: 'var(--f-mono)', fontSize: 12, resize: 'none', lineHeight: 1.8, outline: 'none', display: 'block' }}
+                      autoFocus
+                    />
+                  ) : mode === 'preview' ? (
+                    <div style={{ fontFamily: 'inherit', fontSize: 13, lineHeight: 1.9, whiteSpace: 'pre-wrap', color: 'var(--text)' }}>
+                      {subject && (
+                        <div style={{ marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
+                          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-3)', marginRight: 8 }}>SUBJECT</span>
+                          <span style={{ color: 'var(--text-2)' }}>{renderPreview(subject)}</span>
+                        </div>
+                      )}
+                      {renderPreview(tpl.body)}
+                    </div>
+                  ) : (
+                    renderFill(tpl.body)
+                  )}
+                </div>
+
+                {mode !== 'preview' && (
+                  <div className="email-fill">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div className="label-mono">{mode === 'edit' ? 'DETECTED PLACEHOLDERS' : 'FILL PLACEHOLDERS'}</div>
+                      {mode === 'fill' && placeholders.length > 0 && (
+                        <button className="btn" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => setVals({})}>
+                          Reset
+                        </button>
+                      )}
+                    </div>
+
+                    {mode === 'fill' && (
+                      <>
+                        {placeholders.map(p => (
+                          <div key={p} className="grp">
+                            <div className="lbl">{p.replace(/_/g, ' ')}</div>
+                            <input
+                              placeholder={`{{${p}}}`}
+                              value={vals[p] || ''}
+                              onChange={e => setVals(v => ({ ...v, [p]: e.target.value }))}
+                            />
+                          </div>
+                        ))}
+                        {placeholders.length === 0 && (
+                          <div style={{ color: 'var(--text-3)', fontSize: 11 }}>No placeholders — this template is ready to copy.</div>
+                        )}
+                      </>
+                    )}
+
+                    {mode === 'edit' && (
+                      <>
+                        {editPlaceholders.length === 0 ? (
+                          <div style={{ color: 'var(--text-3)', fontSize: 11 }}>No placeholders detected yet.</div>
+                        ) : editPlaceholders.map(p => (
+                          <div key={p} style={{ padding: '3px 0' }}>
+                            <span style={{ fontFamily: 'var(--f-mono)', fontSize: 11, color: 'var(--accent-hi)', background: 'rgba(1,117,194,0.1)', padding: '2px 7px', display: 'inline-block' }}>
+                              {`{{${p}}}`}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn" style={{ flex: 1, fontSize: 11, justifyContent: 'center' }} onClick={handleDuplicate}>
+                          <Icon name="copy" size={11}/> Duplicate
+                        </button>
+                        <button
+                          className="btn"
+                          style={{ fontSize: 11, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}
+                          onClick={() => setConfirmDel(tpl.id)}
+                          title="Delete template"
+                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = ''; }}
+                        >
+                          <Icon name="trash" size={11}/>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="email-editor-empty">
+              <Icon name="mail" size={24} />
+              <div className="title">No template selected</div>
+              <div className="desc">Choose a template from the sidebar or clear your search to start editing.</div>
+            </div>
+          )}
+        </div>
+      )}
 
       <AddTemplatePanel open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd} />
+      <VariablesPanel open={showVars} onClose={() => setShowVars(false)} templates={emailTemplates} />
+
+      {/* Delete confirmation */}
+      {confirmDel && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => setConfirmDel(null)}
+        >
+          <div
+            style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 360, borderRadius: 4 }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 14 }}>
+              Delete template?
+            </div>
+            <div style={{ padding: '14px 20px', fontSize: 13, color: 'var(--text-2)' }}>
+              "{emailTemplates.find(t => t.id === confirmDel)?.name}" will be permanently deleted.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid var(--border)' }}>
+              <button className="btn" onClick={() => setConfirmDel(null)}>Cancel</button>
+              <button className="btn danger" onClick={handleDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -4,10 +4,19 @@ import { useState as useStateA, useEffect as useEffectA, useRef as useRefA } fro
 import { createPortal } from 'react-dom';
 import { Icon, SlidePanel } from '../components/shell.jsx';
 import {
-  createProject, updateProject, softDeleteProject, createTask, updateTask, softDeleteTask, createVaultItem, createLearningItem, createTag,
+  createProject, updateProject, softDeleteProject, createTask, updateTask, softDeleteTask,
+  createVaultItem, updateVaultItem, deleteVaultItem, getVaultConfig, saveVaultConfig, resetVault,
+  createLearningItem, createTag,
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
 } from '../lib/db.js';
+import {
+  deriveKey, generateSalt, encryptValue, decryptValue,
+  createVerifier, verifyKey,
+  setSessionKey, getSessionKey, getSessionFingerprint, clearSessionKey, isVaultUnlocked,
+} from '../lib/vault-crypto.js';
+import { VAULT_AUTO_LOCK_MS } from '../lib/constants.js';
 import { renderMd } from './tools.jsx';
+import { supabase } from '../lib/supabase.js';
 import { ghGetRepos, ghGetLastCommit, ghCreateBranch, ghGetBranches, ghCreateRepo, ghDeleteRepo, ghDeleteBranch, ghGetTokenScopes } from '../lib/github.js';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -128,6 +137,19 @@ const CustomDot = ({ cx, cy, index, todayIdx, payload }) => {
 };
 
 const WeekLineChart = ({ data, todayIdx }) => {
+  const wrapRef = useRefA(null);
+  const [chartH, setChartH] = useStateA(150);
+
+  useEffectA(() => {
+    if (!wrapRef.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const h = entry.contentRect.height;
+      if (h > 0) setChartH(h);
+    });
+    ro.observe(wrapRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   const chartData = data.map((d, i) => ({
     day: DAY_LABELS[i],
     h: i > todayIdx ? null : d.h,
@@ -135,8 +157,8 @@ const WeekLineChart = ({ data, todayIdx }) => {
   }));
 
   return (
-    <div className="wc-recharts">
-      <ResponsiveContainer width="100%" height="100%" minHeight={150}>
+    <div className="wc-recharts" ref={wrapRef}>
+      <ResponsiveContainer width="100%" height={chartH}>
         <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -28, bottom: 0 }}>
           <defs>
             <linearGradient id="wcGrad" x1="0" y1="0" x2="0" y2="1">
@@ -419,7 +441,7 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
               <span className="lbl">Dev Streak</span>
               <span className="icon-wrap" style={{ color: 'var(--st-review)' }}><Icon name="flame" size={13} /></span>
             </div>
-            <span className="val">{streakCurrent !== null ? streakCurrent : '0'} d</span>
+            <span className="val">{streakCurrent !== null ? streakCurrent : '0'}d</span>
             <div className="footer-desc">
               {streakBest !== null ? `Personal record: ${streakBest} days` : 'Telemetry loading…'}
             </div>
@@ -568,7 +590,7 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
             <div className="card-body-scroll">
               {notes.filter(n => n.pinned).length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>No starred notes</div>
-              ) : notes.filter(n => n.pinned).map(n => (
+              ) : notes.filter(n => n.pinned).slice(0, 3).map(n => (
                 <div key={n.id} className="home-note-row" onClick={() => onNav('notes')}>
                   <div className="home-note-title">
                     <Icon name="star" size={11} /> {n.title}
@@ -631,7 +653,7 @@ const GhConnectHint = ({ label }) => (
 // ═══════════════════════════════════════════════════════════════════
 // Shared form panel — handles both Add and Edit
 // ── Repo selector dropdown (shown when GitHub is connected) ─────────
-const RepoSelector = ({ repos, loading, value, onChange }) => {
+const RepoSelector = ({ repos, loading, value, onChange, takenRepos = {} }) => {
   const [open, setOpen] = useStateA(false);
   const [q, setQ] = useStateA('');
   const [rect, setRect] = useStateA(null);
@@ -707,15 +729,19 @@ const RepoSelector = ({ repos, loading, value, onChange }) => {
             )}
             {filtered.map(r => {
               const [owner, repoName] = r.full_name.split('/');
+              const linkedTo = takenRepos[r.html_url];
+              const isTaken = !!linkedTo;
               return (
                 <button
                   key={r.id}
-                  className={'repo-sel-item' + (r.html_url === value ? ' active' : '')}
-                  onClick={() => { onChange(r.html_url); setOpen(false); setQ(''); }}
+                  className={'repo-sel-item' + (r.html_url === value ? ' active' : '') + (isTaken ? ' taken' : '')}
+                  disabled={isTaken}
+                  onClick={isTaken ? undefined : () => { onChange(r.html_url); setOpen(false); setQ(''); }}
                 >
                   <div className="repo-sel-info">
                     <span className="repo-sel-reponame">{repoName}</span>
                     <span className="repo-sel-owner">{owner}</span>
+                    {isTaken && <span className="repo-sel-linked">linked to {linkedTo}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignSelf: 'flex-start', marginTop: 2 }}>
                     {r.private && <span className="repo-badge private">private</span>}
@@ -732,7 +758,7 @@ const RepoSelector = ({ repos, loading, value, onChange }) => {
   );
 };
 
-const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], githubToken = null, projects = [] }) => {
+const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], isGithubConnected = false, projects = [] }) => {
   const isEdit = !!initial;
 
   const toForm = (p) => p ? {
@@ -766,9 +792,9 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
     setRepoMode('existing');
     setNewRepoName('');
     setNewRepoPrivate(false);
-    if (githubToken && ghRepos.length === 0) {
+    if (isGithubConnected && ghRepos.length === 0) {
       setGhLoading(true);
-      ghGetRepos(githubToken).then(setGhRepos).catch(console.error).finally(() => setGhLoading(false));
+      ghGetRepos().then(setGhRepos).catch(console.error).finally(() => setGhLoading(false));
     }
   }, [open, initial?.id]);
 
@@ -790,19 +816,19 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
     }
 
     // Repo URL validation (only when GitHub not connected and user typed something)
-    if (!githubToken && form.repo.trim() && !GH_REPO_RE.test(form.repo.trim())) {
+    if (!isGithubConnected && form.repo.trim() && !GH_REPO_RE.test(form.repo.trim())) {
       setErr('Repository must be a valid GitHub URL (e.g. https://github.com/user/repo).'); return;
     }
 
-    if (githubToken && repoMode === 'new' && !newRepoName.trim()) {
+    if (isGithubConnected && repoMode === 'new' && !newRepoName.trim()) {
       setErr('Repository name is required when creating a new repo.');
       return;
     }
     setSaving(true);
     try {
       let repoUrl = form.repo.trim() || '—';
-      if (githubToken && repoMode === 'new' && newRepoName.trim()) {
-        const created = await ghCreateRepo(githubToken, newRepoName.trim(), newRepoPrivate, form.description.trim());
+      if (isGithubConnected && repoMode === 'new' && newRepoName.trim()) {
+        const created = await ghCreateRepo(newRepoName.trim(), newRepoPrivate, form.description.trim());
         repoUrl = created.html_url;
       }
       const payload = {
@@ -898,7 +924,7 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
           </div>
         </div>
 
-        {githubToken ? (
+        {isGithubConnected ? (
           <>
             <div className="fld">
               <label>Repository</label>
@@ -916,7 +942,17 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
                 {repoMode === 'existing' && (
                   <div className="branch-opt-name">
                     <label>Choose repository</label>
-                    <RepoSelector repos={ghRepos} loading={ghLoading} value={form.repo} onChange={v => set('repo', v)} />
+                    <RepoSelector
+                      repos={ghRepos}
+                      loading={ghLoading}
+                      value={form.repo}
+                      onChange={v => set('repo', v)}
+                      takenRepos={Object.fromEntries(
+                        projects
+                          .filter(p => p !== initial && p.repo && p.repo !== '—')
+                          .map(p => [p.repo, p.name])
+                      )}
+                    />
                   </div>
                 )}
               </div>
@@ -988,7 +1024,7 @@ const timeAgo = (dateStr) => {
   return new Date(dateStr).toLocaleDateString();
 };
 
-const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], githubToken = null, timer = null }) => {
+const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], isGithubConnected = false, timer = null }) => {
   // All hooks unconditionally before any early return
   const [lastCommit, setLastCommit] = useStateA(null);
   const [commitLoading, setCommitLoading] = useStateA(false);
@@ -1014,15 +1050,14 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
   // useEffect must be before the early return to keep hook order stable
   useEffectA(() => {
     if (!open) { setShowDeleteConfirm(false); setDeleteRepo(false); setRepoDeleteErr(''); setDeleteConfirmText(''); return; }
-    if (!githubToken || !repoFullName) { setLastCommit(null); return; }
+    if (!isGithubConnected || !repoFullName) { setLastCommit(null); return; }
     setCommitLoading(true);
     setLastCommit(null);
-    ghGetLastCommit(githubToken, repoFullName)
+    ghGetLastCommit(repoFullName)
       .then(data => setLastCommit(data?.[0] || null))
       .catch(() => setLastCommit(null))
       .finally(() => setCommitLoading(false));
-    // Pre-flight: check if token has delete_repo scope
-    ghGetTokenScopes(githubToken)
+    ghGetTokenScopes()
       .then(scopes => setHasDeleteScope(scopes.includes('delete_repo')))
       .catch(() => setHasDeleteScope(true));
   }, [open, project?.id, repoFullName]);
@@ -1038,9 +1073,9 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
       // Always delete the project first
       await onDelete(project.id);
       // Optionally delete the GitHub repo
-      if (deleteRepo && githubToken && repoFullName) {
+      if (deleteRepo && isGithubConnected && repoFullName) {
         try {
-          await ghDeleteRepo(githubToken, repoFullName);
+          await ghDeleteRepo(repoFullName);
         } catch (repoErr) {
           // Project is already deleted — surface repo error without blocking close
           setRepoDeleteErr(repoErr.message || 'Failed to delete repository.');
@@ -1135,7 +1170,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
           </div>
         </div>
 
-        {repoFullName && githubToken && (
+        {repoFullName && isGithubConnected && (
           <div className="fld">
             <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>LAST COMMIT</label>
             {commitLoading ? (
@@ -1169,7 +1204,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
           </div>
         )}
 
-        {repoFullName && !githubToken && (
+        {repoFullName && !isGithubConnected && (
           <GhConnectHint label="Connect GitHub to see last commit activity and manage this repo." />
         )}
 
@@ -1192,13 +1227,13 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
         {/* ── Hours ── */}
         {(() => {
           const logged = project.hoursLogged || 0;
-          const est    = project.hoursEst    || 0;
-          const pct    = est > 0 ? Math.min(100, Math.round((logged / est) * 100)) : null;
-          const over   = est > 0 && logged > est;
-          const budgetAmt  = parseBudgetAmount(project.budget);
+          const est = project.hoursEst || 0;
+          const pct = est > 0 ? Math.min(100, Math.round((logged / est) * 100)) : null;
+          const over = est > 0 && logged > est;
+          const budgetAmt = parseBudgetAmount(project.budget);
           const hourlyRate = budgetAmt && est > 0 ? (budgetAmt / est) : null;
-          const burnAmt    = hourlyRate ? (hourlyRate * logged) : null;
-          const burnPct    = budgetAmt && burnAmt ? Math.round((burnAmt / budgetAmt) * 100) : null;
+          const burnAmt = hourlyRate ? (hourlyRate * logged) : null;
+          const burnPct = budgetAmt && burnAmt ? Math.round((burnAmt / budgetAmt) * 100) : null;
           return (
             <div className="fld">
               <label style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em' }}>HOURS</label>
@@ -1218,7 +1253,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
               )}
               {budgetAmt && hourlyRate && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: 'var(--f-mono)', color: 'var(--text-3)', marginTop: 6 }}>
-                  <span>Rate {project.budget?.replace(/[0-9,. ]+/, '')||''}{ hourlyRate.toFixed(0)}/h</span>
+                  <span>Rate {project.budget?.replace(/[0-9,. ]+/, '') || ''}{hourlyRate.toFixed(0)}/h</span>
                   {burnAmt !== null && <span style={{ color: burnPct > 90 ? '#ef4444' : burnPct > 70 ? '#f59e0b' : 'var(--text-3)' }}>
                     Burn {burnPct}%
                   </span>}
@@ -1266,14 +1301,14 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
           )}
 
           {/* Scope pre-flight warning */}
-          {repoFullName && githubToken && !hasDeleteScope && (
+          {repoFullName && isGithubConnected && !hasDeleteScope && (
             <div style={{ fontSize: 11, marginBottom: 8, padding: '8px 12px', background: '#f59e0b10', border: '1px solid #f59e0b30', borderRadius: 8, lineHeight: 1.6, color: '#f59e0b' }}>
               Your GitHub token is missing the <code style={{ fontFamily: 'var(--f-mono)', background: '#f59e0b20', padding: '1px 4px', borderRadius: 3 }}>delete_repo</code> scope — repo deletion will fail. Go to <strong>Settings → Integrations</strong> and reconnect GitHub to grant it.
             </div>
           )}
 
           {/* Optional: also delete the linked GitHub repo */}
-          {repoFullName && githubToken && (
+          {repoFullName && isGithubConnected && (
             <div
               className={'danger-repo-opt' + (deleteRepo ? ' active' : '')}
               onClick={() => { setDeleteRepo(d => !d); setRepoDeleteErr(''); }}
@@ -1317,7 +1352,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
               style={{ fontSize: 12, width: '100%' }}
               onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); }}
             >
-              Delete project{deleteRepo && repoFullName && githubToken ? ' & repository' : ''}
+              Delete project{deleteRepo && repoFullName && isGithubConnected ? ' & repository' : ''}
             </button>
           ) : (() => {
             const repoShortName = repoFullName ? repoFullName.split('/')[1] : null;
@@ -1373,7 +1408,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], githubToken = null, timer = null }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null }) => {
   const [view, setView] = useStateA('card');
   const [filter, setFilter] = useStateA('all');
   const [search, setSearch] = useStateA('');
@@ -1566,13 +1601,13 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         projectTypes={projectTypes}
         tasks={tasks}
         statuses={statuses}
-        githubToken={githubToken}
+        isGithubConnected={isGithubConnected}
         timer={timer}
         onEdit={() => { setEditing(viewing); setViewing(null); }}
         onDelete={handleDelete}
       />
-      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} githubToken={githubToken} projects={projects} />
-      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} githubToken={githubToken} initial={editing} projects={projects} />
+      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} isGithubConnected={isGithubConnected} projects={projects} />
+      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} isGithubConnected={isGithubConnected} initial={editing} projects={projects} />
     </div>
   );
 };
@@ -1823,17 +1858,15 @@ const LinkPreview = ({ url }) => {
   useEffectA(() => {
     if (baseMeta.type !== 'link') return;
     let cancelled = false;
-    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`)
-      .then(r => r.json())
-      .then(data => {
+    supabase.functions.invoke('og-proxy', { body: { url } })
+      .then(({ data }) => {
         if (cancelled) return;
-        if (data.status === 'success') {
-          const { title, image, logo } = data.data || {};
+        if (data?.title || data?.image || data?.favicon) {
           setMeta(prev => ({
             ...prev,
-            title: title || prev.title,
-            thumb: image?.url || prev.thumb,
-            favicon: logo?.url || prev.favicon,
+            title: data.title || prev.title,
+            thumb: data.image || prev.thumb,
+            favicon: data.favicon || prev.favicon,
           }));
         }
         setOgLoading(false);
@@ -1959,12 +1992,12 @@ const TaskDetailModal = ({
   onAddSubtask, onLinkSubtask, onOpenSubtask, parentTask, onBack,
   allTags = [], onCreateTag,
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
-  onLogTime, githubToken = null, onBranchUpdate, onDelete,
+  onLogTime, isGithubConnected = false, onBranchUpdate, onDelete,
 }) => {
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
   const COL_LABEL = Object.fromEntries(statuses.map(s => [s.id, s.label]));
-  const PRIO_MAP  = Object.fromEntries(priorities.map(p => [p.id, p]));
+  const PRIO_MAP = Object.fromEntries(priorities.map(p => [p.id, p]));
   const proj = projects.find(p => p.id === task.proj);
 
   // 'done' status UUID — used for subtask completion percentage
@@ -2113,7 +2146,7 @@ const TaskDetailModal = ({
   const taskRepoFull = taskProjObj?.repo && taskProjObj.repo !== '—'
     ? taskProjObj.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
     : null;
-  const showBranchSection = !!githubToken && !!taskRepoFull;
+  const showBranchSection = !!isGithubConnected && !!taskRepoFull;
 
   const [ghBranch, setGhBranch] = useStateA(task.ghBranch || '');
   const [branches, setBranches] = useStateA([]);
@@ -2133,7 +2166,7 @@ const TaskDetailModal = ({
   useEffectA(() => {
     if (!showBranchSection || branchMode !== 'switch' || !branchOpen) return;
     setBranchesLoading(true);
-    ghGetBranches(githubToken, taskRepoFull)
+    ghGetBranches(taskRepoFull)
       .then(data => setBranches(data.map(b => b.name)))
       .catch(() => setBranches([]))
       .finally(() => setBranchesLoading(false));
@@ -2146,7 +2179,7 @@ const TaskDetailModal = ({
     setBranchErr('');
     try {
       if (branchMode === 'create') {
-        await ghCreateBranch(githubToken, taskRepoFull, name);
+        await ghCreateBranch(taskRepoFull, name);
       }
       await onBranchUpdate({ ...task, ghBranch: name });
       setGhBranch(name);
@@ -2177,8 +2210,8 @@ const TaskDetailModal = ({
     setDeletingTask(true);
     setDeleteErr('');
     try {
-      if (deleteBranch && githubToken && taskRepoFull && task.ghBranch) {
-        await ghDeleteBranch(githubToken, taskRepoFull, task.ghBranch);
+      if (deleteBranch && isGithubConnected && taskRepoFull && task.ghBranch) {
+        await ghDeleteBranch(taskRepoFull, task.ghBranch);
       }
       await onDelete(task);
     } catch (e) {
@@ -2786,7 +2819,7 @@ const TaskDetailModal = ({
                     <Icon name={showLogTime ? 'x' : 'plus'} size={10} />
                     {showLogTime ? 'Close Log' : 'Log Time'}
                   </button>
-                  
+
                   {!showLogTime && (
                     <div className="tt-presets">
                       <button className="tt-preset-btn" onClick={() => handleQuickLog(15)}>+15m</button>
@@ -2864,14 +2897,14 @@ const TaskDetailModal = ({
             )}
 
             {/* GitHub Branch */}
-            {taskRepoFull && !githubToken && (
+            {taskRepoFull && !isGithubConnected && (
               <div className="tpanel-prop">
                 <div className="tpanel-prop-label">Branch</div>
                 <GhConnectHint label="Connect GitHub to manage branches for this task." />
               </div>
             )}
 
-            {githubToken && !taskRepoFull && taskProjObj && (
+            {isGithubConnected && !taskRepoFull && taskProjObj && (
               <div className="tpanel-prop">
                 <div className="tpanel-prop-label">Branch</div>
                 <div style={{
@@ -2881,7 +2914,7 @@ const TaskDetailModal = ({
                 }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                     style={{ color: 'var(--text-3)', flexShrink: 0, marginTop: 1 }}>
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
                   <span>
                     No repository linked to this project.{' '}
@@ -3037,9 +3070,9 @@ const TaskDetailModal = ({
                       disabled={branchSaving}
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                        <line x1="4" y1="4" x2="20" y2="20"/>
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        <line x1="4" y1="4" x2="20" y2="20" />
                       </svg>
                       <span>{branchSaving ? 'Disconnecting…' : 'Disconnect branch'}</span>
                     </button>
@@ -3132,21 +3165,21 @@ const TaskDetailModal = ({
 const toBranchName = (title) =>
   'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, githubToken = null, onBranchCreated }) => {
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, isGithubConnected = false, onBranchCreated }) => {
   const empty = { title: '', proj: projects[0]?.id || '', p: priorities[0]?.id || null, col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
   // Reset col when defaultCol (i.e. which column's + button was clicked) changes
   useEffectA(() => { setForm(f => ({ ...f, col: defaultCol || statuses[0]?.id || '' })); }, [defaultCol]);
 
-  const [err,             setErr]             = useStateA('');
-  const [saving,          setSaving]          = useStateA(false);
-  const [branchMode,      setBranchMode]      = useStateA('none'); // 'none' | 'create' | 'existing'
-  const [branchName,      setBranchName]      = useStateA('');
-  const [existingBranch,  setExistingBranch]  = useStateA('');
-  const [branches,        setBranches]        = useStateA([]);
+  const [err, setErr] = useStateA('');
+  const [saving, setSaving] = useStateA(false);
+  const [branchMode, setBranchMode] = useStateA('none'); // 'none' | 'create' | 'existing'
+  const [branchName, setBranchName] = useStateA('');
+  const [existingBranch, setExistingBranch] = useStateA('');
+  const [branches, setBranches] = useStateA([]);
   const [branchesLoading, setBranchesLoading] = useStateA(false);
-  const [branchErr,       setBranchErr]       = useStateA('');
+  const [branchErr, setBranchErr] = useStateA('');
   const branchEditedRef = useRefA(false);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -3155,7 +3188,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
   const projRepoFull = selectedProj?.repo && selectedProj.repo !== '—'
     ? selectedProj.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
     : null;
-  const showBranchOption = !!githubToken && !!projRepoFull;
+  const showBranchOption = !!isGithubConnected && !!projRepoFull;
 
   // Auto-generate branch name from title unless user has manually edited it
   const handleTitleChange = (v) => {
@@ -3165,9 +3198,9 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
 
   // Fetch branches when "existing" mode is selected
   useEffectA(() => {
-    if (branchMode !== 'existing' || !githubToken || !projRepoFull) return;
+    if (branchMode !== 'existing' || !isGithubConnected || !projRepoFull) return;
     setBranchesLoading(true);
-    ghGetBranches(githubToken, projRepoFull)
+    ghGetBranches(projRepoFull)
       .then(data => setBranches(data.map(b => b.name)))
       .catch(() => setBranches([]))
       .finally(() => setBranchesLoading(false));
@@ -3202,7 +3235,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
       const savedTask = await onAdd(newTask);
       if (branchMode === 'create' && projRepoFull) {
         try {
-          await ghCreateBranch(githubToken, projRepoFull, branchName.trim());
+          await ghCreateBranch(projRepoFull, branchName.trim());
           const branch = branchName.trim();
           const updated = await updateTask({ ...savedTask, ghBranch: branch });
           onBranchCreated?.({ branchName: branch, url: `https://github.com/${projRepoFull}/tree/${branch}`, task: updated });
@@ -3314,11 +3347,11 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
             style={{ width: '100%', background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: 12, padding: '8px 10px', fontFamily: 'inherit', resize: 'vertical' }} />
         </div>
 
-        {projRepoFull && !githubToken && (
+        {projRepoFull && !isGithubConnected && (
           <GhConnectHint label="Connect GitHub to auto-create a branch when adding this task." />
         )}
 
-        {githubToken && !projRepoFull && selectedProj && (
+        {isGithubConnected && !projRepoFull && selectedProj && (
           <div style={{
             display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
             background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 6,
@@ -3326,7 +3359,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
           }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
               style={{ color: 'var(--text-3)', flexShrink: 0, marginTop: 1 }}>
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <span>
               No repository linked to this project.
@@ -3346,7 +3379,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
                   {branchMode === 'existing' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3" /></svg>}
                 </span>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
-                  <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+                  <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
                 </svg>
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span>Link existing branch</span>
@@ -3382,7 +3415,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
                   {branchMode === 'create' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3" /></svg>}
                 </span>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-3)', flexShrink: 0 }}>
-                  <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+                  <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
                 </svg>
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span>Create a new branch</span>
@@ -3444,7 +3477,7 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, githubToken = null }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false }) => {
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view, setView] = useStateA('board');
@@ -3544,16 +3577,16 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 
   const subtaskGroups = subFilter === 'subtask'
     ? Object.entries(
-        filtered.reduce((acc, t) => {
-          const pid = t.parentId || '__none__';
-          (acc[pid] = acc[pid] || []).push(t);
-          return acc;
-        }, {})
-      ).map(([pid, subs]) => ({
-        parentId: pid,
-        parent: tasks.find(x => x._dbId === pid),
-        subtasks: subs,
-      }))
+      filtered.reduce((acc, t) => {
+        const pid = t.parentId || '__none__';
+        (acc[pid] = acc[pid] || []).push(t);
+        return acc;
+      }, {})
+    ).map(([pid, subs]) => ({
+      parentId: pid,
+      parent: tasks.find(x => x._dbId === pid),
+      subtasks: subs,
+    }))
     : null;
 
   const handleAdd = async (taskData) => {
@@ -4048,34 +4081,34 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                     </tr>,
                     ...(!isCollapsed ? [
                       ...subtasks.map(t => {
-                      const isRowDone = doneStatusId && t.col === doneStatusId;
-                      const taskProj = projects.find(p => p.id === t.proj);
-                      const branchUrl = t.ghBranch && taskProj?.repo
-                        ? `${taskProj.repo.replace(/\/$/, '')}/tree/${t.ghBranch}` : null;
-                      return (
-                        <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
-                          <td className="mono" style={{ paddingLeft: 32 }}>{t.id}</td>
-                          <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
-                          <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
-                          <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
-                          <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
-                          <td onClick={e => e.stopPropagation()}>
-                            {t.ghBranch ? (
-                              <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="task-branch-chip">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
-                                {t.ghBranch}
-                              </a>
-                            ) : <span style={{ color: 'var(--text-4)' }}>—</span>}
-                          </td>
-                          <td>
-                            {(t.tags || []).slice(0, 2).map(id => {
-                              const tg = tags.find(x => x.id === id);
-                              return tg ? <span key={id} className="tag" style={{ marginRight: 4, borderColor: tg.color, color: tg.color }}>{tg.name}</span> : null;
-                            })}
-                            {t.tags && t.tags.length > 2 && <span className="tag-more">+{t.tags.length - 2}</span>}
-                          </td>
-                        </tr>
-                      );
+                        const isRowDone = doneStatusId && t.col === doneStatusId;
+                        const taskProj = projects.find(p => p.id === t.proj);
+                        const branchUrl = t.ghBranch && taskProj?.repo
+                          ? `${taskProj.repo.replace(/\/$/, '')}/tree/${t.ghBranch}` : null;
+                        return (
+                          <tr key={t.id} style={{ cursor: 'pointer', opacity: isRowDone ? 0.6 : 1, background: isRowDone ? 'var(--bg-green, rgba(34,197,94,0.06))' : undefined }} onClick={() => setViewingTask(t)}>
+                            <td className="mono" style={{ paddingLeft: 32 }}>{t.id}</td>
+                            <td>{(() => { const pr = priorities.find(p => p.id === t.p); return pr ? <span className="dot-p" style={{ background: pr.color }} title={pr.label} /> : <span className="dot-p" style={{ background: 'var(--text-4)' }} />; })()}</td>
+                            <td style={{ textDecoration: isRowDone ? 'line-through' : 'none', color: isRowDone ? 'var(--text-3)' : undefined }}>{t.title}</td>
+                            <td className="mono" style={{ color: 'var(--accent-hi)' }}>{t.proj}</td>
+                            <td><span className="pill muted" style={{ textTransform: 'uppercase' }}>{cols.find(c => c.id === t.col)?.label || '—'}</span></td>
+                            <td onClick={e => e.stopPropagation()}>
+                              {t.ghBranch ? (
+                                <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="task-branch-chip">
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>
+                                  {t.ghBranch}
+                                </a>
+                              ) : <span style={{ color: 'var(--text-4)' }}>—</span>}
+                            </td>
+                            <td>
+                              {(t.tags || []).slice(0, 2).map(id => {
+                                const tg = tags.find(x => x.id === id);
+                                return tg ? <span key={id} className="tag" style={{ marginRight: 4, borderColor: tg.color, color: tg.color }}>{tg.name}</span> : null;
+                              })}
+                              {t.tags && t.tags.length > 2 && <span className="tag-more">+{t.tags.length - 2}</span>}
+                            </td>
+                          </tr>
+                        );
                       }),
                       <tr key={`add-${parentId}`}>
                         <td colSpan={7} style={{ paddingLeft: 32, paddingTop: 4, paddingBottom: 4 }}>
@@ -4131,7 +4164,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       <AddTaskPanel
         open={showAdd} onClose={() => { setShowAdd(false); setAddParentId(null); }} onAdd={handleAdd}
         projects={projects} defaultCol={addCol} defaultParentId={addParentId} statuses={cols} priorities={priorities}
-        allTags={tags} onCreateTag={handleCreateTag} githubToken={githubToken}
+        allTags={tags} onCreateTag={handleCreateTag} isGithubConnected={isGithubConnected}
         onBranchCreated={({ branchName, url, task }) => {
           // Update local task state with the saved branch
           setTasks(prev => prev.map(t => t.id === task.id ? task : t));
@@ -4163,7 +4196,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           onLinkNote={(noteId) => handleLinkNote(viewingTask._dbId, noteId)}
           onUnlinkNote={(noteId) => handleUnlinkNote(viewingTask._dbId, noteId)}
           onLogTime={handleLogTime}
-          githubToken={githubToken}
+          isGithubConnected={isGithubConnected}
           onBranchUpdate={handleBranchUpdate}
           onDelete={handleTaskDelete}
         />
@@ -4398,12 +4431,17 @@ const VAULT_CATS = [
 
 const catIcon = (c) => ({ api: 'key', pw: 'lock', env: 'code', ssh: 'key', other: 'folder' }[c] || 'lock');
 
-const AddSecretPanel = ({ open, onClose, onAdd }) => {
+// ── Vault secret form panel (shared by Add + Edit) ────────────────
+const SecretFormPanel = ({ open, onClose, onSave, initial, title, subtitle }) => {
   const empty = { name: '', cat: 'api', value: '' };
   const [form, setForm] = useStateA(empty);
   const [err, setErr] = useStateA('');
   const [show, setShow] = useStateA(false);
   const [saving, setSaving] = useStateA(false);
+
+  useEffectA(() => {
+    if (open) { setForm(initial || empty); setErr(''); setShow(false); }
+  }, [open]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -4412,10 +4450,7 @@ const AddSecretPanel = ({ open, onClose, onAdd }) => {
     if (!form.value.trim()) { setErr('Secret value is required.'); return; }
     setSaving(true);
     try {
-      await onAdd({ cat: form.cat, name: form.name.trim(), value: form.value.trim() });
-      setForm(empty);
-      setErr('');
-      setShow(false);
+      await onSave({ ...form, name: form.name.trim(), value: form.value.trim() });
       onClose();
     } catch (e) {
       setErr(e.message || 'Failed to save secret.');
@@ -4425,12 +4460,12 @@ const AddSecretPanel = ({ open, onClose, onAdd }) => {
   };
 
   return (
-    <SlidePanel open={open} onClose={onClose} title="New Secret" subtitle="PERSONAL / VAULT / ADD">
+    <SlidePanel open={open} onClose={onClose} title={title} subtitle={subtitle}>
       <div className="sp-body">
         {err && <div className="sp-error">{err}</div>}
         <div className="vault-notice">
           <Icon name="lock" size={12} />
-          <span>Stored locally only — never transmitted. Treat values as sensitive.</span>
+          <span>Value encrypted AES-256-GCM before saving — never stored in plain text.</span>
         </div>
         <div className="fld">
           <label>Secret name *</label>
@@ -4448,19 +4483,15 @@ const AddSecretPanel = ({ open, onClose, onAdd }) => {
         </div>
         <div className="fld">
           <label>Value *</label>
-          <div style={{ position: 'relative' }}>
+          <div className="fld-pw">
             <input
               type={show ? 'text' : 'password'}
               value={form.value}
               onChange={e => set('value', e.target.value)}
-              placeholder="sk-proj-..."
-              style={{ paddingRight: 40 }}
+              placeholder="sk-proj-…"
             />
-            <button
-              type="button"
-              onClick={() => setShow(s => !s)}
-              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', padding: 0 }}>
-              <Icon name="eye" size={14} />
+            <button type="button" className="pw-toggle" onClick={() => setShow(s => !s)}>
+              <Icon name={show ? 'eye-off' : 'eye'} size={14} />
             </button>
           </div>
         </div>
@@ -4475,21 +4506,64 @@ const AddSecretPanel = ({ open, onClose, onAdd }) => {
   );
 };
 
-export const VaultPage = ({ vault, setVault, workstationId }) => {
-  const [cat, setCat] = useStateA('all');
-  const [revealed, setRevealed] = useStateA({});
-  const [q, setQ] = useStateA('');
-  const [showAdd, setShowAdd] = useStateA(false);
+// ── Vault locked / setup screens ──────────────────────────────────
+const VaultLockScreen = ({ hasConfig, onUnlock, onSetup, onReset }) => {
+  const [pw, setPw] = useStateA('');
+  const [pw2, setPw2] = useStateA('');
+  const [err, setErr] = useStateA('');
+  const [busy, setBusy] = useStateA(false);
+  const [showPw, setShowPw] = useStateA(false);
+  const [showPw2, setShowPw2] = useStateA(false);
 
-  const items = vault.filter(v =>
-    (cat === 'all' || v.cat === cat) &&
-    (!q || v.name.toLowerCase().includes(q.toLowerCase()))
-  );
+  // Reset state
+  const [showReset, setShowReset] = useStateA(false);
+  const [resetConfirm, setResetConfirm] = useStateA('');
+  const [resetErr, setResetErr] = useStateA('');
+  const [resetBusy, setResetBusy] = useStateA(false);
 
-  const handleAdd = async (item) => {
-    const saved = await createVaultItem(item, workstationId);
-    setVault(prev => [...prev, saved]);
+  const handleUnlock = async () => {
+    if (!pw) { setErr('Enter your master password.'); return; }
+    setBusy(true); setErr('');
+    try { await onUnlock(pw); }
+    catch (e) { setErr(e.message || 'Incorrect password.'); }
+    finally { setBusy(false); }
   };
+
+  const handleSetup = async () => {
+    if (pw.length < 8) { setErr('Master password must be at least 8 characters.'); return; }
+    if (pw !== pw2) { setErr('Passwords do not match.'); return; }
+    setBusy(true); setErr('');
+    try { await onSetup(pw); }
+    catch (e) { setErr(e.message || 'Failed to set up vault.'); }
+    finally { setBusy(false); }
+  };
+
+  const handleReset = async () => {
+    if (resetConfirm !== 'DELETE') { setResetErr('Type DELETE (all caps) to confirm.'); return; }
+    setResetBusy(true); setResetErr('');
+    try { await onReset(); }
+    catch (e) { setResetErr(e.message || 'Reset failed.'); }
+    finally { setResetBusy(false); }
+  };
+
+  const handleKey = (fn) => (e) => { if (e.key === 'Enter') fn(); };
+
+  const isSetup = !hasConfig;
+
+  const getPwStrength = (password) => {
+    if (!password) return 0;
+    if (password.length < 8) return 1;
+    let s = 1;
+    if (password.length >= 10) s++;
+    if (/[A-Z]/.test(password) && /[a-z]/.test(password)) s++;
+    if (/[0-9]/.test(password)) s++;
+    if (/[^A-Za-z0-9]/.test(password)) s++;
+    return Math.min(s, 4);
+  };
+
+  const strengthScore = getPwStrength(pw);
+  const strengthLabels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+  const strengthColors = ['', '#ef4444', '#f97316', '#eab308', '#22c55e'];
 
   return (
     <div className="page page-wide">
@@ -4497,10 +4571,614 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
         <div>
           <div className="crumb">PERSONAL / VAULT</div>
           <h1>Vault</h1>
-          <div className="sub">{vault.length} secrets · AES-256 local · last unlocked 09:42</div>
+          <div className="sub">{isSetup ? 'Set up your vault — first time only' : 'Vault is locked'}</div>
+        </div>
+      </div>
+      <div className="vault-lock-container">
+        <div className="vault-lock-card">
+          <div className="vault-lock-header">
+            <div className="vault-lock-badge">
+              <Icon name="lock" size={24} />
+            </div>
+            <h2 className="vault-lock-title">
+              {isSetup ? 'Create Master Password' : 'Unlock Vault'}
+            </h2>
+            <p className="vault-lock-sub">
+              {isSetup
+                ? 'This password encrypts all your secrets. If you lose it, secrets cannot be recovered.'
+                : 'Enter your master password to access secrets.'}
+            </p>
+          </div>
+
+          {err && (
+            <div className="vault-error-banner" role="alert">
+              <Icon name="alert-circle" size={14} />
+              <span>{err}</span>
+            </div>
+          )}
+
+          <div className="vault-lock-form">
+            <div className="vault-field-group">
+              <label>{isSetup ? 'Master password' : 'Password'}</label>
+              <div className="vault-input-wrapper">
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={pw}
+                  onChange={e => { setPw(e.target.value); setErr(''); }}
+                  onKeyDown={handleKey(isSetup ? handleSetup : handleUnlock)}
+                  placeholder={isSetup ? 'Min. 8 characters' : '••••••••'}
+                  autoFocus
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  className="vault-pw-toggle"
+                  onClick={() => setShowPw(s => !s)}
+                  title={showPw ? 'Hide password' : 'Show password'}
+                >
+                  <Icon name={showPw ? 'eye-off' : 'eye'} size={14} />
+                </button>
+              </div>
+
+              {isSetup && pw.length > 0 && (
+                <div className="vault-strength">
+                  <div className="vault-strength-bars">
+                    {[1, 2, 3, 4].map(idx => (
+                      <div
+                        key={idx}
+                        className="vault-strength-bar"
+                        style={{ background: idx <= strengthScore ? strengthColors[strengthScore] : undefined }}
+                      />
+                    ))}
+                  </div>
+                  <span className="vault-strength-text" style={{ color: strengthColors[strengthScore] }}>
+                    Password strength: {strengthLabels[strengthScore]}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {isSetup && (
+              <div className="vault-field-group">
+                <label>Confirm password</label>
+                <div className="vault-input-wrapper">
+                  <input
+                    type={showPw2 ? 'text' : 'password'}
+                    value={pw2}
+                    onChange={e => { setPw2(e.target.value); setErr(''); }}
+                    onKeyDown={handleKey(handleSetup)}
+                    placeholder="Repeat password"
+                    disabled={busy}
+                  />
+                  <button
+                    type="button"
+                    className="vault-pw-toggle"
+                    onClick={() => setShowPw2(s => !s)}
+                    title={showPw2 ? 'Hide password' : 'Show password'}
+                  >
+                    <Icon name={showPw2 ? 'eye-off' : 'eye'} size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <button
+              className="vault-submit-btn"
+              onClick={isSetup ? handleSetup : handleUnlock}
+              disabled={busy || (isSetup && (!pw || !pw2))}
+            >
+              <Icon name="lock" size={13} />
+              {busy ? (isSetup ? 'Setting up…' : 'Unlocking…') : (isSetup ? 'Create vault' : 'Unlock')}
+            </button>
+
+            {/* Forgot password — only on locked state, not setup */}
+            {!isSetup && (
+              <div style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                {!showReset ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowReset(true)}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer', padding: 0, fontFamily: 'var(--f-mono)' }}
+                  >
+                    Forgot password? Reset vault →
+                  </button>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#ef4444', marginBottom: 6 }}>
+                      Reset vault — IRREVERSIBLE
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 10, lineHeight: 1.5 }}>
+                      This permanently deletes <strong style={{ color: 'var(--text-2)' }}>all encrypted secrets</strong> and your master password. They cannot be recovered. Type <code style={{ color: '#ef4444' }}>DELETE</code> to confirm.
+                    </div>
+                    {resetErr && (
+                      <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 8 }}>{resetErr}</div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        value={resetConfirm}
+                        onChange={e => { setResetConfirm(e.target.value); setResetErr(''); }}
+                        onKeyDown={e => { if (e.key === 'Enter') handleReset(); }}
+                        placeholder="Type DELETE"
+                        style={{ flex: 1, background: 'var(--bg-2)', border: '1px solid #ef4444', padding: '6px 10px', fontSize: 12, color: 'var(--text)', fontFamily: 'var(--f-mono)' }}
+                        disabled={resetBusy}
+                      />
+                      <button
+                        className="btn"
+                        style={{ background: '#ef4444', color: '#fff', border: 'none', fontSize: 11 }}
+                        onClick={handleReset}
+                        disabled={resetBusy || resetConfirm !== 'DELETE'}
+                      >
+                        {resetBusy ? 'Resetting…' : 'Reset'}
+                      </button>
+                      <button
+                        className="btn ghost"
+                        style={{ fontSize: 11 }}
+                        onClick={() => { setShowReset(false); setResetConfirm(''); setResetErr(''); }}
+                        disabled={resetBusy}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Change password dialog ─────────────────────────────────────────
+const ChangePasswordDialog = ({ open, onClose, onSave }) => {
+  const [currentPw, setCurrentPw] = useStateA('');
+  const [newPw, setNewPw] = useStateA('');
+  const [confirmPw, setConfirmPw] = useStateA('');
+  const [err, setErr] = useStateA('');
+  const [busy, setBusy] = useStateA(false);
+  const [showCurrent, setShowCurrent] = useStateA(false);
+  const [showNew, setShowNew] = useStateA(false);
+  const [showConfirm, setShowConfirm] = useStateA(false);
+
+  useEffectA(() => {
+    if (open) { setCurrentPw(''); setNewPw(''); setConfirmPw(''); setErr(''); }
+  }, [open]);
+
+  const getPwStrength = (p) => {
+    if (!p) return 0;
+    if (p.length < 8) return 1;
+    let s = 1;
+    if (p.length >= 10) s++;
+    if (/[A-Z]/.test(p) && /[a-z]/.test(p)) s++;
+    if (/[0-9]/.test(p)) s++;
+    if (/[^A-Za-z0-9]/.test(p)) s++;
+    return Math.min(s, 4);
+  };
+  const strengthColors = ['', '#ef4444', '#f97316', '#eab308', '#22c55e'];
+  const strengthLabels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+  const score = getPwStrength(newPw);
+
+  const handleSave = async () => {
+    if (!currentPw) { setErr('Enter your current password.'); return; }
+    if (newPw.length < 8) { setErr('New password must be at least 8 characters.'); return; }
+    if (newPw !== confirmPw) { setErr('New passwords do not match.'); return; }
+    if (newPw === currentPw) { setErr('New password must differ from current password.'); return; }
+    setBusy(true); setErr('');
+    try { await onSave(currentPw, newPw); onClose(); }
+    catch (e) { setErr(e.message || 'Failed to change password.'); }
+    finally { setBusy(false); }
+  };
+
+  if (!open) return null;
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div style={{
+        background: 'var(--bg-2)',
+        border: '1px solid var(--border)',
+        borderRadius: '12px',
+        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)',
+        padding: 28,
+        width: 380
+      }}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Change Master Password</div>
+        <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 20 }}>
+          All secrets will be re-encrypted with the new password.
+        </div>
+        {err && (
+          <div style={{ fontSize: 12, color: '#ef4444', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', padding: '8px 12px', marginBottom: 14 }}>
+            {err}
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="fld">
+            <label>Current password</label>
+            <div className="fld-pw">
+              <input
+                type={showCurrent ? 'text' : 'password'}
+                value={currentPw}
+                onChange={e => { setCurrentPw(e.target.value); setErr(''); }}
+                placeholder="••••••••"
+                disabled={busy}
+                autoFocus
+              />
+              <button type="button" className="pw-toggle" onClick={() => setShowCurrent(s => !s)}>
+                <Icon name={showCurrent ? 'eye-off' : 'eye'} size={13} />
+              </button>
+            </div>
+          </div>
+          <div className="fld">
+            <label>New password</label>
+            <div className="fld-pw">
+              <input
+                type={showNew ? 'text' : 'password'}
+                value={newPw}
+                onChange={e => { setNewPw(e.target.value); setErr(''); }}
+                placeholder="Min. 8 characters"
+                disabled={busy}
+              />
+              <button type="button" className="pw-toggle" onClick={() => setShowNew(s => !s)}>
+                <Icon name={showNew ? 'eye-off' : 'eye'} size={13} />
+              </button>
+            </div>
+            {newPw.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <div style={{ display: 'flex', gap: 3, flex: 1 }}>
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= score ? strengthColors[score] : 'var(--border-2)' }} />
+                  ))}
+                </div>
+                <span style={{ fontSize: 10, color: strengthColors[score], fontFamily: 'var(--f-mono)' }}>
+                  {strengthLabels[score]}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="fld">
+            <label>Confirm new password</label>
+            <div className="fld-pw">
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                value={confirmPw}
+                onChange={e => { setConfirmPw(e.target.value); setErr(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
+                placeholder="Repeat new password"
+                disabled={busy}
+              />
+              <button type="button" className="pw-toggle" onClick={() => setShowConfirm(s => !s)}>
+                <Icon name={showConfirm ? 'eye-off' : 'eye'} size={13} />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+          <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn primary" onClick={handleSave} disabled={busy || !currentPw || newPw.length < 8 || newPw !== confirmPw}>
+            <Icon name="lock" size={12} /> {busy ? 'Re-encrypting…' : 'Change password'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+// ── Delete confirmation dialog ────────────────────────────────────
+const DeleteConfirmDialog = ({ item, onConfirm, onCancel }) => {
+  if (!item) return null;
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+      <div style={{
+        background: 'var(--bg-2)',
+        border: '1px solid var(--border)',
+        borderRadius: '12px',
+        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)',
+        padding: 28,
+        width: 340
+      }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Delete secret?</div>
+        <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 20 }}>
+          <strong>{item.name}</strong> will be permanently deleted. This cannot be undone.
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn" style={{ background: '#ef4444', color: '#fff', border: 'none' }} onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+export const VaultPage = ({ vault, setVault, workstationId }) => {
+  const [vaultState, setVaultState] = useStateA('loading'); // loading | setup | locked | unlocked
+  const [cat, setCat] = useStateA('all');
+  const [revealed, setRevealed] = useStateA({});
+  const [decrypted, setDecrypted] = useStateA({});
+  const [q, setQ] = useStateA('');
+  const [showAdd, setShowAdd] = useStateA(false);
+  const [editItem, setEditItem] = useStateA(null);
+  const [deleteItem, setDeleteItem] = useStateA(null);
+  const [fingerprint, setFingerprint] = useStateA(null);
+  const [unlockedAt, setUnlockedAt] = useStateA(null);
+  const [importErr, setImportErr] = useStateA('');
+  const [showChangePw, setShowChangePw] = useStateA(false);
+  const importRef = useRefA(null);
+  const autoLockTimer = useRefA(null);
+  const vaultStateRef = useRefA(null);
+  vaultStateRef.current = vaultState;
+
+  // On mount, check if vault already unlocked this session or needs config
+  useEffectA(() => {
+    if (isVaultUnlocked()) {
+      setFingerprint(getSessionFingerprint());
+      setVaultState('unlocked');
+      return;
+    }
+    getVaultConfig(workstationId)
+      .then(cfg => setVaultState(cfg ? 'locked' : 'setup'))
+      .catch(() => setVaultState('setup'));
+  }, [workstationId]);
+
+  // Auto-lock on inactivity — only active while unlocked
+  useEffectA(() => {
+    if (vaultState !== 'unlocked') {
+      clearTimeout(autoLockTimer.current);
+      return;
+    }
+
+    const reset = () => {
+      clearTimeout(autoLockTimer.current);
+      autoLockTimer.current = setTimeout(() => {
+        if (vaultStateRef.current === 'unlocked') {
+          clearSessionKey();
+          setRevealed({});
+          setDecrypted({});
+          setFingerprint(null);
+          setVaultState('locked');
+        }
+      }, VAULT_AUTO_LOCK_MS);
+    };
+
+    const events = ['mousedown', 'keydown', 'touchstart'];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    reset(); // start the initial timer
+
+    return () => {
+      clearTimeout(autoLockTimer.current);
+      events.forEach(e => window.removeEventListener(e, reset));
+    };
+  }, [vaultState]);
+
+  const handleSetup = async (password) => {
+    const salt = generateSalt();
+    const key = await deriveKey(password, salt);
+    const verifier = await createVerifier(key);
+    await saveVaultConfig(workstationId, salt, verifier);
+    await setSessionKey(key);
+    setFingerprint(getSessionFingerprint());
+    setUnlockedAt(new Date());
+    setVaultState('unlocked');
+  };
+
+  const handleUnlock = async (password) => {
+    const cfg = await getVaultConfig(workstationId);
+    if (!cfg) throw new Error('No vault config found.');
+    const key = await deriveKey(password, cfg.salt);
+    const ok = await verifyKey(cfg.verifier, key);
+    if (!ok) throw new Error('Incorrect password.');
+    await setSessionKey(key);
+    setFingerprint(getSessionFingerprint());
+    setUnlockedAt(new Date());
+    setVaultState('unlocked');
+  };
+
+  const handleLock = () => {
+    clearSessionKey();
+    setRevealed({});
+    setDecrypted({});
+    setFingerprint(null);
+    setVaultState('locked');
+  };
+
+  const handleReset = async () => {
+    await resetVault(workstationId);
+    setVault([]);
+    clearSessionKey();
+    setFingerprint(null);
+    setVaultState('setup');
+  };
+
+  const handleChangePassword = async (currentPassword, newPassword) => {
+    const cfg = await getVaultConfig(workstationId);
+    if (!cfg) throw new Error('Vault config not found.');
+    const oldKey = await deriveKey(currentPassword, cfg.salt);
+    const ok = await verifyKey(cfg.verifier, oldKey);
+    if (!ok) throw new Error('Current password is incorrect.');
+
+    // Re-encrypt all items with the new key
+    const newSalt = generateSalt();
+    const newKey = await deriveKey(newPassword, newSalt);
+    const newVerifier = await createVerifier(newKey);
+
+    const updated = await Promise.all(vault.map(async (v) => {
+      let plain = v.value;
+      try { if (v.isEncrypted) plain = await decryptValue(v.value, oldKey); } catch { /* keep as-is */ }
+      const encrypted = await encryptValue(plain, newKey);
+      return updateVaultItem({ id: v.id, cat: v.cat, name: v.name, value: encrypted, isEncrypted: true });
+    }));
+
+    await saveVaultConfig(workstationId, newSalt, newVerifier);
+    await setSessionKey(newKey);
+    setVault(updated);
+    setFingerprint(getSessionFingerprint());
+    setRevealed({});
+    setDecrypted({});
+  };
+
+  const handleReveal = async (item) => {
+    const key = getSessionKey();
+    if (!key) return;
+    if (revealed[item.id]) {
+      setRevealed(r => { const n = { ...r }; delete n[item.id]; return n; });
+      return;
+    }
+    try {
+      const plain = item.isEncrypted ? await decryptValue(item.value, key) : item.value;
+      setDecrypted(d => ({ ...d, [item.id]: plain }));
+      setRevealed(r => ({ ...r, [item.id]: true }));
+    } catch {
+      setRevealed(r => ({ ...r, [item.id]: true }));
+    }
+  };
+
+  const handleCopy = async (item) => {
+    const key = getSessionKey();
+    if (!key) return;
+    try {
+      const plain = item.isEncrypted ? await decryptValue(item.value, key) : item.value;
+      await navigator.clipboard?.writeText(plain);
+    } catch {
+      navigator.clipboard?.writeText(item.value);
+    }
+  };
+
+  const handleAdd = async (form) => {
+    const key = getSessionKey();
+    const encrypted = key ? await encryptValue(form.value, key) : form.value;
+    const saved = await createVaultItem(
+      { cat: form.cat, name: form.name, value: encrypted, isEncrypted: !!key },
+      workstationId
+    );
+    setVault(prev => [saved, ...prev]);
+  };
+
+  const handleEdit = async (form) => {
+    const key = getSessionKey();
+    const encrypted = key ? await encryptValue(form.value, key) : form.value;
+    const updated = await updateVaultItem({
+      id: editItem.id,
+      cat: form.cat,
+      name: form.name,
+      value: encrypted,
+      isEncrypted: !!key,
+    });
+    setVault(prev => prev.map(v => v.id === updated.id ? updated : v));
+    setRevealed(r => { const n = { ...r }; delete n[editItem.id]; return n; });
+    setDecrypted(d => { const n = { ...d }; delete n[editItem.id]; return n; });
+  };
+
+  const handleDelete = async () => {
+    if (!deleteItem) return;
+    await deleteVaultItem(deleteItem.id);
+    setVault(prev => prev.filter(v => v.id !== deleteItem.id));
+    setDeleteItem(null);
+  };
+
+  const handleExport = async () => {
+    const key = getSessionKey();
+    if (!key) return;
+    const items = await Promise.all(vault.map(async v => {
+      let plain;
+      try { plain = v.isEncrypted ? await decryptValue(v.value, key) : v.value; }
+      catch { plain = '[decrypt error]'; }
+      return { cat: v.cat, name: v.name, value: plain, updated: v.updated };
+    }));
+    const json = JSON.stringify({ version: 1, exported: new Date().toISOString(), items }, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `orbit-vault-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportErr('');
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const items = parsed.items || (Array.isArray(parsed) ? parsed : null);
+      if (!items?.length) { setImportErr('No items found in file.'); return; }
+      const key = getSessionKey();
+      let added = 0;
+      for (const it of items) {
+        if (!it.name || !it.value) continue;
+        const encrypted = key ? await encryptValue(it.value, key) : it.value;
+        const saved = await createVaultItem(
+          { cat: it.cat || 'other', name: it.name, value: encrypted, isEncrypted: !!key },
+          workstationId
+        );
+        setVault(prev => [saved, ...prev]);
+        added++;
+      }
+      if (added === 0) setImportErr('No valid items to import.');
+    } catch (e) {
+      setImportErr('Failed to import: ' + (e.message || 'Invalid file.'));
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const getEditInitial = async (item) => {
+    if (!item) return null;
+    const key = getSessionKey();
+    let value = item.value;
+    try { if (item.isEncrypted && key) value = await decryptValue(item.value, key); }
+    catch { /* keep ciphertext */ }
+    return { name: item.name, cat: item.cat, value };
+  };
+
+  const [editInitial, setEditInitial] = useStateA(null);
+
+  const openEdit = async (item) => {
+    const initial = await getEditInitial(item);
+    setEditInitial(initial);
+    setEditItem(item);
+  };
+
+  const items = vault.filter(v =>
+    (cat === 'all' || v.cat === cat) &&
+    (!q || v.name.toLowerCase().includes(q.toLowerCase()))
+  );
+
+  const unlockedTime = unlockedAt
+    ? unlockedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  if (vaultState === 'loading') {
+    return <div className="page page-wide"><div style={{ padding: 40, color: 'var(--text-3)', fontSize: 12 }}>Loading vault…</div></div>;
+  }
+
+  if (vaultState === 'setup' || vaultState === 'locked') {
+    return (
+      <VaultLockScreen
+        hasConfig={vaultState === 'locked'}
+        onUnlock={handleUnlock}
+        onSetup={handleSetup}
+        onReset={handleReset}
+      />
+    );
+  }
+
+  return (
+    <div className="page page-wide">
+      <div className="page-head">
+        <div>
+          <div className="crumb">PERSONAL / VAULT</div>
+          <h1>Vault</h1>
+          <div className="sub">
+            {vault.length} secrets · AES-256-GCM{unlockedTime ? ` · unlocked ${unlockedTime}` : ''}
+          </div>
         </div>
         <div className="actions">
-          <button className="btn"><Icon name="download" size={12} /> Export</button>
+          {importErr && <span style={{ fontSize: 11, color: '#ef4444' }}>{importErr}</span>}
+          <input ref={importRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+          <button className="btn" onClick={() => importRef.current?.click()}><Icon name="upload" size={12} /> Import</button>
+          <button className="btn" onClick={handleExport}><Icon name="download" size={12} /> Export</button>
+          <button className="btn ghost" onClick={() => setShowChangePw(true)}><Icon name="key" size={12} /> Change password</button>
+          <button className="btn ghost" onClick={handleLock}><Icon name="lock" size={12} /> Lock</button>
           <button className="btn primary" onClick={() => setShowAdd(true)}>
             <Icon name="plus" size={12} /> New secret
           </button>
@@ -4509,7 +5187,7 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
 
       <div className="vault-warning">
         <Icon name="lock" size={12} />
-        This vault is local-only — not synced to any cloud service. Back up your encrypted export regularly.
+        Values are encrypted AES-256-GCM with your master password before reaching the database.
       </div>
 
       <div className="vault-layout">
@@ -4534,7 +5212,9 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
           })}
           <div style={{ marginTop: 12, padding: '12px 10px', borderTop: '1px solid var(--border)', fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.05em' }}>
             <div>VAULT FINGERPRINT</div>
-            <div style={{ color: 'var(--text-2)', marginTop: 4, wordBreak: 'break-all' }}>4a:7f:c2:9d:e1:8b:33:91</div>
+            <div style={{ color: 'var(--text-2)', marginTop: 4, wordBreak: 'break-all' }}>
+              {fingerprint || '—'}
+            </div>
             <div style={{ marginTop: 12 }}>ENCRYPTED AT REST</div>
             <div style={{ color: '#4ade80', marginTop: 4 }}>AES-256-GCM</div>
           </div>
@@ -4550,29 +5230,66 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
           </div>
           {items.map(v => {
             const isRev = revealed[v.id];
+            const plainVal = decrypted[v.id];
             return (
               <div key={v.id} className="vault-row">
                 <span style={{ color: 'var(--text-3)' }}><Icon name={catIcon(v.cat)} size={14} /></span>
                 <span className="name">{v.name}</span>
-                <span className={'val' + (isRev ? ' revealed' : '')}>{isRev ? v.value : '••••••••••••••••••••••'}</span>
-                <span className="date">{v.updated}</span>
+                <span className={'val' + (isRev ? ' revealed' : '')}>
+                  {isRev ? (plainVal ?? v.value) : '••••••••••••••••••••••'}
+                </span>
+                <span className="date">{v.updated ? new Date(v.updated).toLocaleDateString() : '—'}</span>
                 <span className="acts">
-                  <button className="iconbtn" onClick={() => setRevealed(r => ({ ...r, [v.id]: !isRev }))} title={isRev ? 'Hide' : 'Reveal'}>
+                  <button className="iconbtn" onClick={() => handleReveal(v)} title={isRev ? 'Hide' : 'Reveal'}>
                     <Icon name="eye" size={13} />
                   </button>
-                  <button className="iconbtn" title="Copy" onClick={() => navigator.clipboard?.writeText(v.value)}>
+                  <button className="iconbtn" title="Copy" onClick={() => handleCopy(v)}>
                     <Icon name="copy" size={13} />
                   </button>
-                  <button className="iconbtn" title="Edit"><Icon name="edit" size={13} /></button>
+                  <button className="iconbtn" title="Edit" onClick={() => openEdit(v)}>
+                    <Icon name="edit" size={13} />
+                  </button>
+                  <button className="iconbtn" title="Delete" onClick={() => setDeleteItem(v)}
+                    style={{ color: '#ef4444' }}>
+                    <Icon name="trash" size={13} />
+                  </button>
                 </span>
               </div>
             );
           })}
-          {items.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>No secrets match.</div>}
+          {items.length === 0 && (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+              No secrets match.
+            </div>
+          )}
         </div>
       </div>
 
-      <AddSecretPanel open={showAdd} onClose={() => setShowAdd(false)} onAdd={handleAdd} />
+      <SecretFormPanel
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        onSave={handleAdd}
+        title="New Secret"
+        subtitle="PERSONAL / VAULT / ADD"
+      />
+      <SecretFormPanel
+        open={!!editItem}
+        onClose={() => { setEditItem(null); setEditInitial(null); }}
+        onSave={handleEdit}
+        initial={editInitial}
+        title="Edit Secret"
+        subtitle="PERSONAL / VAULT / EDIT"
+      />
+      <DeleteConfirmDialog
+        item={deleteItem}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteItem(null)}
+      />
+      <ChangePasswordDialog
+        open={showChangePw}
+        onClose={() => setShowChangePw(false)}
+        onSave={handleChangePassword}
+      />
     </div>
   );
 };

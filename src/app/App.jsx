@@ -17,10 +17,12 @@ import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../p
 import { ProjectMgmtPage, NotesPage, TimerPage, EmailPage, ToolkitPage } from '../pages/tools.jsx';
 import { FlutterInitPage } from '../pages/flutter-init.jsx';
 import { GitHubPage } from '../pages/github.jsx';
+import { VercelPage } from '../pages/vercel.jsx';
 import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
 import { Settings } from '../pages/settings.jsx';
 import { AuthPage, ResetPasswordPage } from '../pages/auth.jsx';
+import { useRemoteConfig } from '../lib/useRemoteConfig.js';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#0099ff",
@@ -54,6 +56,7 @@ function PageRouter({ current, ...props }) {
     case 'toolkit':      return <ToolkitPage {...props} />;
     case 'flutter-init': return <FlutterInitPage {...props} />;
     case 'github':    return <GitHubPage {...props} />;
+    case 'vercel':    return <VercelPage {...props} />;
     case 'analytics': return <Analytics {...props} />;
     case 'collab':    return <Collaboration {...props} />;
     case 'settings':  return <Settings {...props} />;
@@ -72,6 +75,7 @@ const Loading = () => (
 
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const enabledModules = useRemoteConfig();
 
   // ── Auth ────────────────────────────────────────────────────────
   const [authUser,         setAuthUser]         = useStateApp(null);
@@ -97,33 +101,6 @@ export default function App() {
         setShowPasswordReset(true);
         setAuthLoading(false);
         return;
-      }
-
-      // GitHub OAuth callback — save provider_token to user_integrations
-      if (event === 'SIGNED_IN' && session?.provider_token && localStorage.getItem('orbit:gh_link') === '1') {
-        const storedUid = localStorage.getItem('orbit:pre_gh_uid');
-        localStorage.removeItem('orbit:gh_link');
-        localStorage.removeItem('orbit:pre_gh_uid');
-        // Use stored UID so we always write to the original user's row
-        const targetUid = storedUid || session.user.id;
-        try {
-          const ghUser = await fetch('https://api.github.com/user', {
-            headers: { Authorization: `Bearer ${session.provider_token}`, Accept: 'application/vnd.github+json' },
-          }).then(r => r.json());
-          await supabase.from('user_integrations').upsert({
-            user_id:      targetUid,
-            provider:     'github',
-            access_token: session.provider_token,
-            username:     ghUser.login,
-            display_name: ghUser.name,
-            avatar_url:   ghUser.avatar_url,
-            email:        ghUser.email,
-            scopes:       ['repo', 'read:user', 'user:email'],
-            metadata:     { html_url: ghUser.html_url, public_repos: ghUser.public_repos, followers: ghUser.followers, following: ghUser.following },
-          }, { onConflict: 'user_id,provider' });
-        } catch (e) {
-          console.error('GitHub token save failed:', e);
-        }
       }
 
       const hasUser = !!session?.user;
@@ -159,16 +136,16 @@ export default function App() {
     setTags([]);
   };
 
-  // ── Load GitHub token when user logs in ─────────────────────────
+  // ── Check whether GitHub is connected when user logs in ─────────
   useEffectApp(() => {
-    if (!authUser?.id) { setGithubToken(null); return; }
+    if (!authUser?.id) { setIsGithubConnected(false); return; }
     supabase.from('user_integrations')
-      .select('access_token')
+      .select('id')
       .eq('user_id', authUser.id)
       .eq('provider', 'github')
       .maybeSingle()
-      .then(({ data }) => setGithubToken(data?.access_token || null))
-      .catch(() => setGithubToken(null));
+      .then(({ data }) => setIsGithubConnected(!!data))
+      .catch(() => setIsGithubConnected(false));
   }, [authUser?.id]);
 
   // ── Load user context on login (profile + workstations + roles in one call) ──
@@ -262,10 +239,10 @@ export default function App() {
 
   const handleNewWs = () => setShowWsSetup(true);
 
-  // Navigation — redirect to settings if returning from GitHub OAuth
+  // Navigation — redirect to settings if returning from GitHub or Vercel OAuth
   const [current,   setCurrent]   = useStateApp(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('gh_callback') === '1') {
+    if (params.get('gh_callback') === '1' || params.get('vc_callback') === '1') {
       window.history.replaceState({}, '', window.location.pathname);
       return 'settings';
     }
@@ -294,10 +271,15 @@ export default function App() {
   const [emailTemplates, setEmailTemplates] = useStateApp([]);
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
-  const [githubToken,    setGithubToken]    = useStateApp(null);
+  const [isGithubConnected, setIsGithubConnected] = useStateApp(false);
 
   // Persist nav
   useEffectApp(() => { localStorage.setItem('orbit:nav', current); }, [current]);
+
+  // Redirect to home if the active page is disabled via Remote Config
+  useEffectApp(() => {
+    if (enabledModules[current] === false) setCurrent('home');
+  }, [enabledModules, current]);
 
   // Timer tick
   useEffectApp(() => {
@@ -316,9 +298,9 @@ export default function App() {
       if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
       if (e.key.toLowerCase() === 'g') {
         const handler = (e2) => {
-          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit',f:'flutter-init',g:'github',s:'settings' };
+          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit',f:'flutter-init',g:'github',k:'vercel',s:'settings' };
           const id = map[e2.key.toLowerCase()];
-          if (id) setCurrent(id);
+          if (id && enabledModules[id] !== false) setCurrent(id);
           window.removeEventListener('keydown', handler);
         };
         window.addEventListener('keydown', handler, { once: true });
@@ -510,6 +492,7 @@ export default function App() {
         activeWorkstation={activeWorkstation}
         onWsSwitch={handleWsSwitch}
         onNewWs={handleNewWs}
+        enabledModules={enabledModules}
       />
       <div className="main">
         <Topbar
@@ -548,11 +531,11 @@ export default function App() {
             onLogTime={handleLogManualTime}
             emailTemplates={emailTemplates} setEmailTemplates={setEmailTemplates}
             ganttTasks={ganttTasks}        setGanttTasks={setGanttTasks}
-            githubToken={githubToken}
+            isGithubConnected={isGithubConnected}
           />
         </div>
       </div>
-      <CmdPalette open={cmdkOpen} onClose={() => setCmdkOpen(false)} onNav={setCurrent} />
+      <CmdPalette open={cmdkOpen} onClose={() => setCmdkOpen(false)} onNav={setCurrent} enabledModules={enabledModules} />
 
       <TweaksPanel>
         <TweakSection label="Theme" />

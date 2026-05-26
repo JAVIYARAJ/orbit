@@ -91,11 +91,12 @@ const fromDbLearning = (r) => ({
 })
 
 const fromDbVault = (r) => ({
-  id:      r.id,
-  cat:     r.cat,
-  name:    r.name,
-  value:   r.value,
-  updated: r.updated_at,
+  id:          r.id,
+  cat:         r.cat,
+  name:        r.name,
+  value:       r.value,
+  isEncrypted: r.is_encrypted ?? false,
+  updated:     r.updated_at,
 })
 
 // ─── App → RPC payload builders ───────────────────────────────────
@@ -423,7 +424,7 @@ export const reorderNoteFolders = async (workstationId, folderIds) => {
 export const createVaultItem = async (item, workstationId) => {
   const { data, error } = await supabase.rpc('create_vault_item', {
     p_workstation_id: workstationId,
-    p_data: { cat: item.cat, name: item.name, value: item.value },
+    p_data: { cat: item.cat, name: item.name, value: item.value, is_encrypted: item.isEncrypted ?? false },
   })
   if (error) throw error
   return fromDbVault(data)
@@ -432,7 +433,7 @@ export const createVaultItem = async (item, workstationId) => {
 export const updateVaultItem = async (item) => {
   const { data, error } = await supabase.rpc('update_vault_item', {
     p_item_id: item.id,
-    p_data: { cat: item.cat, name: item.name, value: item.value },
+    p_data: { cat: item.cat, name: item.name, value: item.value, is_encrypted: item.isEncrypted ?? false },
   })
   if (error) throw error
   return fromDbVault(data)
@@ -440,6 +441,26 @@ export const updateVaultItem = async (item) => {
 
 export const deleteVaultItem = async (id) => {
   const { error } = await supabase.rpc('delete_vault_item', { p_item_id: id })
+  if (error) throw error
+}
+
+export const getVaultConfig = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_vault_config', { p_workstation_id: workstationId })
+  if (error) throw error
+  return data ? { salt: data.salt, verifier: data.verifier } : null
+}
+
+export const saveVaultConfig = async (workstationId, salt, verifier) => {
+  const { error } = await supabase.rpc('upsert_vault_config', {
+    p_workstation_id: workstationId,
+    p_salt: salt,
+    p_verifier: verifier,
+  })
+  if (error) throw error
+}
+
+export const resetVault = async (workstationId) => {
+  const { error } = await supabase.rpc('reset_vault', { p_workstation_id: workstationId })
   if (error) throw error
 }
 
