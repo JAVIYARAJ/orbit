@@ -138,14 +138,20 @@ export const Analytics = ({
 }) => {
   const [period, setPeriod] = useState('month');
 
-  const now = new Date();
+  const now   = new Date();
   const today = todayStr();
   const in7   = new Date(now); in7.setDate(now.getDate() + 7);
   const in7s  = in7.toISOString().split('T')[0];
 
   // ── Period window ────────────────────────────────────────────────
-  const periodStart = useMemo(() => getPeriodStart(period), [period]);
-  const periodEnd   = now;
+  // Re-derive when the calendar date changes (week/month/quarter boundary)
+  const periodStart = useMemo(() => getPeriodStart(period), [period, today]);
+  // End of today — so KPI totals count the full current day, not just up to render time
+  const periodEnd   = useMemo(() => {
+    const d = new Date();
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, [today]);
 
   // ── Filtered entries in the period ────────────────────────────────
   const periodEntries = useMemo(() =>
@@ -196,7 +202,17 @@ export const Analytics = ({
         .filter(e => e.status === 'completed' && dateInRange(e.endedAt, start, end))
         .reduce((s, e) => s + (e.totalSeconds || 0), 0) / 3600;
 
+    // Returns the Monday of the week containing `date`
+    const weekMonday = (date) => {
+      const d = new Date(date);
+      const day = d.getDay(); // 0=Sun … 6=Sat
+      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+
     if (period === 'week') {
+      // MON–SUN anchored to the real week start (Monday)
       const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
       const wkStart = new Date(periodStart);
       return DAYS.map((day, i) => {
@@ -207,76 +223,122 @@ export const Analytics = ({
     }
 
     if (period === 'month') {
-      return Array.from({ length: 4 }, (_, i) => {
-        const wEnd = new Date(now); wEnd.setDate(now.getDate() - (3 - i) * 7); wEnd.setHours(23, 59, 59);
-        const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate() - 6); wStart.setHours(0, 0, 0);
-        const label = wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        return { label, hours: +entryHoursInRange(wStart, wEnd).toFixed(2) };
-      });
+      // Calendar weeks (Mon–Sun) overlapping this month — the current week is always one full bar
+      const periodEndDate = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0, 23, 59, 59, 999);
+      const weeks = [];
+      let wStart = weekMonday(periodStart);
+      while (wStart <= periodEndDate) {
+        const wEnd = new Date(wStart); wEnd.setDate(wStart.getDate() + 6); wEnd.setHours(23, 59, 59, 999);
+        weeks.push({
+          label: wStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          hours: +entryHoursInRange(wStart, wEnd).toFixed(2),
+        });
+        wStart = new Date(wStart); wStart.setDate(wStart.getDate() + 7);
+      }
+      return weeks;
     }
 
     if (period === 'quarter') {
-      return Array.from({ length: 13 }, (_, i) => {
-        const wEnd = new Date(now); wEnd.setDate(now.getDate() - (12 - i) * 7); wEnd.setHours(23, 59, 59);
-        const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate() - 6); wStart.setHours(0, 0, 0);
-        return { label: wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), hours: +entryHoursInRange(wStart, wEnd).toFixed(2) };
-      });
+      // Calendar weeks (Mon–Sun) covering the full quarter — current week is always one full bar
+      const periodEndDate = new Date(periodStart.getFullYear(), periodStart.getMonth() + 3, 0, 23, 59, 59, 999);
+      const weeks = [];
+      let wStart = weekMonday(periodStart);
+      while (wStart <= periodEndDate) {
+        const wEnd = new Date(wStart); wEnd.setDate(wStart.getDate() + 6); wEnd.setHours(23, 59, 59, 999);
+        weeks.push({
+          label: wStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          hours: +entryHoursInRange(wStart, wEnd).toFixed(2),
+        });
+        wStart = new Date(wStart); wStart.setDate(wStart.getDate() + 7);
+      }
+      return weeks;
     }
 
-    // year — 12 months
+    // year — 12 calendar months anchored to Jan of the current year
     return Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
-      const s = new Date(d.getFullYear(), d.getMonth(), 1); s.setHours(0, 0, 0, 0);
-      const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); e.setHours(23, 59, 59);
+      const d  = new Date(periodStart.getFullYear(), periodStart.getMonth() + i, 1);
+      const s  = new Date(d.getFullYear(), d.getMonth(), 1); s.setHours(0, 0, 0, 0);
+      const e  = new Date(d.getFullYear(), d.getMonth() + 1, 0); e.setHours(23, 59, 59, 999);
       return { label: d.toLocaleDateString('en-US', { month: 'short' }), hours: +entryHoursInRange(s, e).toFixed(2) };
     });
   }, [timeEntries, period, periodStart]);
 
   // ── Learning chart data — mirrors activityData pattern ───────────
   const learningChartData = useMemo(() => {
+    // Look up total learning hours for a given local-midnight Date object
     const dayHrs = (d) => {
-      const iso = new Date(d).toISOString().split('T')[0];
+      // Build YYYY-MM-DD in local time (avoids UTC-offset flipping the date)
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const iso = `${y}-${m}-${day}`;
       return Number(learningActivity.find(r => r.date === iso)?.hours) || 0;
     };
 
+    // Returns the Monday of the week containing `date`
+    const weekMonday = (date) => {
+      const d = new Date(date);
+      const dow = d.getDay();
+      d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+
+    const sumWeek = (wStart, wEnd) => {
+      let total = 0;
+      for (let d = new Date(wStart); d <= wEnd; d.setDate(d.getDate() + 1)) total += dayHrs(d);
+      return +total.toFixed(2);
+    };
+
     if (period === 'week') {
+      // MON–SUN anchored to the real week start (Monday)
       const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
       return DAYS.map((day, i) => {
-        const d = new Date(periodStart); d.setDate(periodStart.getDate() + i);
+        const d = new Date(periodStart); d.setDate(periodStart.getDate() + i); d.setHours(0, 0, 0, 0);
         return { label: day, hours: +dayHrs(d).toFixed(2) };
       });
     }
 
     if (period === 'month') {
-      return Array.from({ length: 4 }, (_, i) => {
-        const wEnd = new Date(now); wEnd.setDate(now.getDate() - (3 - i) * 7); wEnd.setHours(23, 59, 59);
-        const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate() - 6); wStart.setHours(0, 0, 0);
-        const label = wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        let total = 0;
-        for (let d = new Date(wStart); d <= wEnd; d.setDate(d.getDate() + 1)) total += dayHrs(d);
-        return { label, hours: +total.toFixed(2) };
-      });
+      // Calendar weeks (Mon–Sun) overlapping this month — current week is always one full bar
+      const periodEndDate = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0, 23, 59, 59, 999);
+      const weeks = [];
+      let wStart = weekMonday(periodStart);
+      while (wStart <= periodEndDate) {
+        const wEnd = new Date(wStart); wEnd.setDate(wStart.getDate() + 6); wEnd.setHours(23, 59, 59, 999);
+        weeks.push({
+          label: wStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          hours: sumWeek(wStart, wEnd),
+        });
+        wStart = new Date(wStart); wStart.setDate(wStart.getDate() + 7);
+      }
+      return weeks;
     }
 
     if (period === 'quarter') {
-      return Array.from({ length: 13 }, (_, i) => {
-        const wEnd = new Date(now); wEnd.setDate(now.getDate() - (12 - i) * 7); wEnd.setHours(23, 59, 59);
-        const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate() - 6); wStart.setHours(0, 0, 0);
-        let total = 0;
-        for (let d = new Date(wStart); d <= wEnd; d.setDate(d.getDate() + 1)) total += dayHrs(d);
-        return { label: wEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), hours: +total.toFixed(2) };
-      });
+      // Calendar weeks (Mon–Sun) covering the full quarter — current week is always one full bar
+      const periodEndDate = new Date(periodStart.getFullYear(), periodStart.getMonth() + 3, 0, 23, 59, 59, 999);
+      const weeks = [];
+      let wStart = weekMonday(periodStart);
+      while (wStart <= periodEndDate) {
+        const wEnd = new Date(wStart); wEnd.setDate(wStart.getDate() + 6); wEnd.setHours(23, 59, 59, 999);
+        weeks.push({
+          label: wStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          hours: sumWeek(wStart, wEnd),
+        });
+        wStart = new Date(wStart); wStart.setDate(wStart.getDate() + 7);
+      }
+      return weeks;
     }
 
+    // year — 12 calendar months anchored to Jan of the current year
     return Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
-      const s = new Date(d.getFullYear(), d.getMonth(), 1);
-      const e = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-      let total = 0;
-      for (let day = new Date(s); day <= e; day.setDate(day.getDate() + 1)) total += dayHrs(day);
-      return { label: d.toLocaleDateString('en-US', { month: 'short' }), hours: +total.toFixed(2) };
+      const d = new Date(periodStart.getFullYear(), periodStart.getMonth() + i, 1);
+      const s = new Date(d.getFullYear(), d.getMonth(), 1); s.setHours(0, 0, 0, 0);
+      const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); e.setHours(23, 59, 59, 999);
+      return { label: d.toLocaleDateString('en-US', { month: 'short' }), hours: sumWeek(s, e) };
     });
-  }, [learningActivity, period, periodStart, now]);
+  }, [learningActivity, period, periodStart]);
 
   const learnTotal   = learningChartData.reduce((s, d) => s + d.hours, 0);
   const hasLearnData = learningChartData.some(d => d.hours > 0);
@@ -403,9 +465,14 @@ export const Analytics = ({
             </div>
             <div className="an-card-body">
               {!hasPeriodData ? (
-                <div style={{ height: 160, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
-                  <Icon name="timer" size={13} />
-                  <span>{hasEntries ? 'No entries this period — try a wider range.' : 'No time entries yet — start a timer session.'}</span>
+                <div style={{ height: 160 }}>
+                  <EmptyState
+                    icon="timer"
+                    title={hasEntries ? 'No data this period' : 'No time entries yet'}
+                    desc={hasEntries
+                      ? 'No completed sessions in this period. Try a wider range.'
+                      : 'Start a timer session to begin tracking your hours.'}
+                  />
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={160}>
@@ -440,9 +507,12 @@ export const Analytics = ({
             </div>
             <div className="an-card-body">
               {!hasLearnData ? (
-                <div style={{ height: 160, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 11, fontFamily: 'var(--f-mono)' }}>
-                  <Icon name="book" size={13} />
-                  <span>No learning sessions this period — head to Learning Path to start tracking.</span>
+                <div style={{ height: 160 }}>
+                  <EmptyState
+                    icon="book"
+                    title="No learning sessions"
+                    desc="No study time logged in this period. Head to Learning Path to start tracking."
+                  />
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={160}>
