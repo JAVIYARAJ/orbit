@@ -160,8 +160,14 @@ const WorkstationPanel = ({ open, onClose, workstations = [], active, onSwitch, 
               <div className="ws-item-glow" style={{ background: ws.color }} />
               <div className="ws-item-dot" style={{ background: ws.color }} />
               <div className="ws-item-content">
-                <div className="ws-item-name">{ws.name}</div>
-                <div className="ws-item-meta">{ws.id} · {active?.id === ws.id ? 'Current' : 'Select'}</div>
+                <div className="ws-item-name-row">
+                  <div className="ws-item-name">{ws.name}</div>
+                  {ws.role === 'owner'
+                    ? <span className="ws-role-tag ws-role-owner">Owner</span>
+                    : <span className="ws-role-tag ws-role-invited">Invited</span>
+                  }
+                </div>
+                <div className="ws-item-meta">{active?.id === ws.id ? 'Current workspace' : 'Click to switch'}</div>
               </div>
               {ws.id === active?.id && (
                 <div className="ws-item-check"><Icon name="check" size={14} /></div>

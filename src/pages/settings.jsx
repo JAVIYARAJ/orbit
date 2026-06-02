@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
 import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission } from '../lib/db.js';
-import { canDo, canModifyMember, assignableRoles, DEFAULT_PERMISSIONS, PERMISSION_LABELS, PERMISSION_GROUPS } from '../lib/permissions.js';
+import { canDo, canModifyMember, assignableRoles, DEFAULT_PERMISSIONS, PERMISSION_LABELS, PERMISSION_GROUPS, PERMISSION_WARNINGS } from '../lib/permissions.js';
 import { vcClearCache } from '../lib/vercel.js';
 
 const INTEGRATION_ICON = {
@@ -491,6 +491,7 @@ const MembersSection = ({ activeWorkstation, members, setMembers, pendingInvites
 // ── Permissions Section ────────────────────────────────────────────
 const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions }) => {
   const roles = ['admin', 'member', 'viewer'];
+  const [confirm, setConfirm] = useState(null); // { role, key, label, warning }
 
   const getValue = (role, key) => {
     const override = `${role}:${key}`;
@@ -498,7 +499,7 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
     return DEFAULT_PERMISSIONS[role]?.[key] ?? false;
   };
 
-  const handleToggle = async (role, key, newVal) => {
+  const applyToggle = async (role, key, newVal) => {
     const flatKey = `${role}:${key}`;
     setWsPermissions(prev => ({ ...prev, [flatKey]: newVal }));
     try {
@@ -508,23 +509,48 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
     }
   };
 
+  const handleToggle = (role, key, newVal) => {
+    const warn = PERMISSION_WARNINGS[key];
+    // Only confirm when enabling a dangerous permission
+    if (newVal && warn?.danger) {
+      setConfirm({ role, key, newVal, label: PERMISSION_LABELS[key], warning: warn.text });
+      return;
+    }
+    applyToggle(role, key, newVal);
+  };
+
+  // Group-level warning banners shown under the group header
+  const GROUP_BANNERS = {
+    'Team':   { icon: 'users',       text: 'Team permissions control who can invite, remove, or promote members. Changes take effect immediately for all affected users.' },
+    'Vault':  { icon: 'lock',        text: 'Vault stores sensitive credentials. Grant access only to members you fully trust.' },
+    'GitHub': { icon: 'git-branch',  text: 'GitHub write access lets members push changes directly to your repositories. Reviewers and viewers should remain read-only.' },
+  };
+
   return (
     <div className="settings-section-inner slide-in-up">
       <div className="section-group">
         <div className="section-group-h">
           <span>Role Permissions</span>
-          <p>Control what each role can do in this workspace. Owner always has full access.</p>
+          <p>Control what each role can do in this workspace. Owner always has full access and cannot be restricted.</p>
         </div>
+
+        {/* Top-level advisory */}
+        <div className="perm-advisory">
+          <Icon name="alert-triangle" size={14} />
+          <span>Permission changes are <strong>instant</strong> — members are affected the moment you toggle a setting. Review carefully before enabling destructive permissions.</span>
+        </div>
+
         <div className="card">
           <div className="card-pad">
             <div className="perm-grid">
               <div className="perm-row perm-header">
-                <div className="perm-action-col">Action</div>
+                <div className="perm-action-col">Permission</div>
                 {roles.map(r => (
                   <div key={r} className="perm-role-col">{ROLE_LABEL[r]}</div>
                 ))}
                 <div className="perm-role-col" style={{ color: 'var(--text-3)' }}>Owner</div>
               </div>
+
               {PERMISSION_GROUPS.map(group => (
                 <div key={group.label} className="perm-group">
                   <div className="perm-row perm-group-head">
@@ -532,36 +558,98 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
                     {roles.map(r => <div key={r} className="perm-role-col" />)}
                     <div className="perm-role-col" />
                   </div>
-                  {group.keys.map(key => (
-                    <div key={key} className="perm-row">
-                      <div className="perm-action-col">{PERMISSION_LABELS[key]}</div>
-                      {roles.map(role => {
-                        const val = getValue(role, key);
-                        return (
-                          <div key={role} className="perm-role-col">
-                            <button
-                              className={'perm-toggle' + (val ? ' on' : '')}
-                              onClick={() => handleToggle(role, key, !val)}
-                              title={val ? 'Allowed — click to revoke' : 'Not allowed — click to grant'}
-                            >
-                              {val ? <Icon name="check" size={12} /> : <Icon name="minus" size={12} />}
-                            </button>
+
+                  {/* Group-level warning banner */}
+                  {GROUP_BANNERS[group.label] && (
+                    <div className="perm-group-banner">
+                      <Icon name={GROUP_BANNERS[group.label].icon} size={13} />
+                      <span>{GROUP_BANNERS[group.label].text}</span>
+                    </div>
+                  )}
+
+                  {group.keys.map(key => {
+                    const warn = PERMISSION_WARNINGS[key];
+                    return (
+                      <div key={key} className={'perm-row' + (warn?.danger ? ' perm-row-danger' : '')}>
+                        <div className="perm-action-col">
+                          <div className="perm-label-wrap">
+                            <span className="perm-label-text">
+                              {PERMISSION_LABELS[key]}
+                              {warn?.danger && <span className="perm-danger-badge">sensitive</span>}
+                            </span>
+                            {warn?.text && (
+                              <span className="perm-label-desc">{warn.text}</span>
+                            )}
                           </div>
-                        );
-                      })}
-                      <div className="perm-role-col">
-                        <div className="perm-toggle on disabled" title="Owner always has access">
-                          <Icon name="check" size={12} />
+                        </div>
+                        {roles.map(role => {
+                          const val = getValue(role, key);
+                          return (
+                            <div key={role} className="perm-role-col">
+                              <button
+                                className={'perm-toggle' + (val ? ' on' : '') + (warn?.danger && !val ? ' perm-toggle-warn' : '')}
+                                onClick={() => handleToggle(role, key, !val)}
+                                title={val ? 'Allowed — click to revoke' : 'Not allowed — click to grant'}
+                              >
+                                {val ? <Icon name="check" size={12} /> : <Icon name="minus" size={12} />}
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <div className="perm-role-col">
+                          <div className="perm-toggle on disabled" title="Owner always has access">
+                            <Icon name="check" size={12} />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ))}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Confirmation dialog for dangerous permissions */}
+      {confirm && (
+        <div className="modal-overlay" onClick={() => setConfirm(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-hd">
+              <h3 style={{ margin: 0, color: '#f59e0b', flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: 8 }}>
+                  <Icon name="alert-triangle" size={16} />
+                </span>
+                Enable sensitive permission?
+              </h3>
+              <button className="modal-close" onClick={() => setConfirm(null)}>
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 12 }}>
+                You are granting <strong>{ROLE_LABEL[confirm.role]}s</strong> the ability to:
+              </p>
+              <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, fontSize: 13, color: 'var(--text)', marginBottom: 12 }}>
+                <strong>{confirm.label}</strong>
+              </div>
+              <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
+                {confirm.warning}
+              </p>
+            </div>
+            <div className="modal-ft">
+              <button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button>
+              <button
+                className="btn primary"
+                style={{ background: '#f59e0b', boxShadow: 'none' }}
+                onClick={() => { applyToggle(confirm.role, confirm.key, confirm.newVal); setConfirm(null); }}
+              >
+                Yes, grant permission
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -620,30 +708,31 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   const [ghDisconnecting, setGhDisconnecting] = useState(false);
 
   useEffect(() => {
-    if (!user?.id) return;
-
-    supabase.from('user_integrations').select('username, display_name, avatar_url, email, scopes, connected_at').eq('user_id', user.id).eq('provider', 'github').maybeSingle()
+    if (!activeWorkstation?.id) return;
+    supabase.from('workspace_integrations').select('username, display_name, avatar_url, email, scopes, connected_at').eq('workstation_id', activeWorkstation.id).eq('provider', 'github').maybeSingle()
       .then(({ data }) => setGithubInteg(data || null))
       .catch(() => setGithubInteg(null))
       .finally(() => setGhLoading(false));
-  }, [user?.id]);
+  }, [activeWorkstation?.id]);
 
   const connectGitHub = () => {
+    if (!activeWorkstation?.id) return;
     setGhError('');
     const EDGE_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-oauth`;
     const params = new URLSearchParams({
       client_id: 'Ov23li4xj01qD2wkGOPk',
       scope: 'repo delete_repo read:user user:email',
-      state: user.id,
+      state: `${activeWorkstation.id}:${user.id}`,
       redirect_uri: EDGE_FN,
     });
     window.location.href = `https://github.com/login/oauth/authorize?${params}`;
   };
 
   const disconnectGitHub = async () => {
+    if (!activeWorkstation?.id) return;
     setGhDisconnecting(true);
     try {
-      await supabase.from('user_integrations').delete().eq('user_id', user.id).eq('provider', 'github');
+      await supabase.from('workspace_integrations').delete().eq('workstation_id', activeWorkstation.id).eq('provider', 'github');
       setGithubInteg(null);
     } catch (e) {
       setGhError(e.message);
@@ -662,12 +751,12 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   const [vcSaving, setVcSaving] = useState(false);
 
   useEffect(() => {
-    if (!user?.id) return;
-    supabase.from('user_integrations').select('username, display_name, email, connected_at').eq('user_id', user.id).eq('provider', 'vercel').maybeSingle()
+    if (!activeWorkstation?.id) return;
+    supabase.from('workspace_integrations').select('username, display_name, email, connected_at').eq('workstation_id', activeWorkstation.id).eq('provider', 'vercel').maybeSingle()
       .then(({ data }) => setVercelInteg(data || null))
       .catch(() => setVercelInteg(null))
       .finally(() => setVcLoading(false));
-  }, [user?.id]);
+  }, [activeWorkstation?.id]);
 
   const connectVercel = () => {
     setVcError('');
@@ -678,11 +767,12 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   const saveVercelToken = async () => {
     const token = vcToken.trim();
     if (!token) { setVcError('Paste your Vercel token first.'); return; }
+    if (!activeWorkstation?.id) return;
     setVcSaving(true);
     setVcError('');
     try {
       const { data, error } = await supabase.functions.invoke('save-vercel-token', {
-        body: { token },
+        body: { token, workstation_id: activeWorkstation.id },
       });
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to connect Vercel.');
       vcClearCache();
@@ -697,9 +787,10 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   const disconnectVercel = async () => {
+    if (!activeWorkstation?.id) return;
     setVcDisconnecting(true);
     try {
-      await supabase.from('user_integrations').delete().eq('user_id', user.id).eq('provider', 'vercel');
+      await supabase.from('workspace_integrations').delete().eq('workstation_id', activeWorkstation.id).eq('provider', 'vercel');
       vcClearCache();
       setVercelInteg(null);
     } catch (e) {

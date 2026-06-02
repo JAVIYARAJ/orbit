@@ -762,7 +762,7 @@ const RepoSelector = ({ repos, loading, value, onChange, takenRepos = {} }) => {
   );
 };
 
-const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], isGithubConnected = false, projects = [] }) => {
+const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], isGithubConnected = false, canGithubWrite = false, projects = [] }) => {
   const isEdit = !!initial;
 
   const toForm = (p) => p ? {
@@ -960,8 +960,8 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
                   </div>
                 )}
               </div>
-              {/* Card: Create new */}
-              <div className="branch-opt">
+              {/* Card: Create new — write permission required */}
+              {canGithubWrite && <div className="branch-opt">
                 <label className="branch-opt-toggle" onClick={() => setRepoMode('new')}>
                   <span className={'branch-opt-check' + (repoMode === 'new' ? ' on' : '')}>
                     {repoMode === 'new' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3" /></svg>}
@@ -989,7 +989,7 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
                     </label>
                   </>
                 )}
-              </div>
+              </div>}
             </div>
           </>
         ) : (
@@ -1028,7 +1028,7 @@ const timeAgo = (dateStr) => {
   return new Date(dateStr).toLocaleDateString();
 };
 
-const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], isGithubConnected = false, timer = null, canEdit = true, canDelete = true }) => {
+const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], isGithubConnected = false, timer = null, canEdit = true, canDelete = true, canGithubWrite = false }) => {
   // All hooks unconditionally before any early return
   const [lastCommit, setLastCommit] = useStateA(null);
   const [commitLoading, setCommitLoading] = useStateA(false);
@@ -1305,14 +1305,14 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
           )}
 
           {/* Scope pre-flight warning */}
-          {repoFullName && isGithubConnected && !hasDeleteScope && (
+          {repoFullName && isGithubConnected && canGithubWrite && !hasDeleteScope && (
             <div style={{ fontSize: 11, marginBottom: 8, padding: '8px 12px', background: '#f59e0b10', border: '1px solid #f59e0b30', borderRadius: 8, lineHeight: 1.6, color: '#f59e0b' }}>
               Your GitHub token is missing the <code style={{ fontFamily: 'var(--f-mono)', background: '#f59e0b20', padding: '1px 4px', borderRadius: 3 }}>delete_repo</code> scope — repo deletion will fail. Go to <strong>Settings → Integrations</strong> and reconnect GitHub to grant it.
             </div>
           )}
 
-          {/* Optional: also delete the linked GitHub repo */}
-          {repoFullName && isGithubConnected && (
+          {/* Optional: also delete the linked GitHub repo — write permission required */}
+          {repoFullName && isGithubConnected && canGithubWrite && (
             <div
               className={'danger-repo-opt' + (deleteRepo ? ' active' : '')}
               onClick={() => { setDeleteRepo(d => !d); setRepoDeleteErr(''); }}
@@ -1418,6 +1418,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
   const canCreate = canDo(myRole, 'create_project', wsPermissions);
   const canEdit = canDo(myRole, 'edit_project', wsPermissions);
   const canDelete = canDo(myRole, 'delete_project', wsPermissions);
+  const canGithubWrite = canDo(myRole, 'github_write', wsPermissions);
   const NO_PERM = "You don't have permission";
   const [view, setView] = useStateA('card');
   const [filter, setFilter] = useStateA('all');
@@ -1625,9 +1626,10 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         onDelete={handleDelete}
         canEdit={canEdit}
         canDelete={canDelete}
+        canGithubWrite={canGithubWrite}
       />
-      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} isGithubConnected={isGithubConnected} projects={projects} />
-      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} isGithubConnected={isGithubConnected} initial={editing} projects={projects} />
+      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} projects={projects} />
+      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} initial={editing} projects={projects} />
     </div>
   );
 };
@@ -2027,7 +2029,7 @@ const TaskDetailModal = ({
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
   onLogTime, isGithubConnected = false, onBranchUpdate, onDelete,
   members = [],
-  canEdit = true, canDelete = true, canAssign = true,
+  canEdit = true, canDelete = true, canAssign = true, canGithubWrite = false,
 }) => {
   const NO_PERM = "You don't have permission";
   // Keyed by status UUID so lookups work after task.col became a UUID
@@ -3000,8 +3002,8 @@ const TaskDetailModal = ({
                   </a>
                 )}
 
-                {/* Toggle: switch to existing */}
-                <div className="branch-opt" style={{ marginTop: 2 }}>
+                {/* Toggle: switch to existing — write permission required */}
+                {canGithubWrite && <div className="branch-opt" style={{ marginTop: 2 }}>
                   <label className="branch-opt-toggle"
                     onClick={() => {
                       if (branchMode === 'switch') {
@@ -3066,10 +3068,10 @@ const TaskDetailModal = ({
                       </div>
                     </div>
                   )}
-                </div>
+                </div>}
 
-                {/* Toggle: create new branch */}
-                <div className="branch-opt" style={{ marginTop: 4 }}>
+                {/* Toggle: create new branch — write permission required */}
+                {canGithubWrite && <div className="branch-opt" style={{ marginTop: 4 }}>
                   <label className="branch-opt-toggle"
                     onClick={() => {
                       if (branchMode === 'create') {
@@ -3115,10 +3117,10 @@ const TaskDetailModal = ({
                       </div>
                     </div>
                   )}
-                </div>
+                </div>}
 
-                {/* Disconnect branch */}
-                {task.ghBranch && (
+                {/* Disconnect branch — write permission required */}
+                {canGithubWrite && task.ghBranch && (
                   <div className="branch-opt" style={{ marginTop: 4 }}>
                     <button
                       className="branch-opt-toggle"
@@ -3222,7 +3224,7 @@ const TaskDetailModal = ({
 const toBranchName = (title) =>
   'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, isGithubConnected = false, onBranchCreated }) => {
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, isGithubConnected = false, canGithubWrite = false, onBranchCreated }) => {
   const empty = { title: '', proj: projects[0]?.id || '', p: priorities[0]?.id || null, col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
@@ -3245,7 +3247,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
   const projRepoFull = selectedProj?.repo && selectedProj.repo !== '—'
     ? selectedProj.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
     : null;
-  const showBranchOption = !!isGithubConnected && !!projRepoFull;
+  const showBranchOption = !!isGithubConnected && !!projRepoFull && !!canGithubWrite;
 
   // Auto-generate branch name from title unless user has manually edited it
   const handleTitleChange = (v) => {
@@ -3537,6 +3539,7 @@ const BranchToast = ({ info, onDismiss }) => {
 export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem, members = [], myRole = 'viewer', wsPermissions = {} }) => {
   const canCreateTask = canDo(myRole, 'create_task', wsPermissions);
   const canEditTask = canDo(myRole, 'edit_task', wsPermissions);
+  const canGithubWrite = canDo(myRole, 'github_write', wsPermissions);
   const canDeleteTask = canDo(myRole, 'delete_task', wsPermissions);
   const canAssignTask = canDo(myRole, 'assign_task', wsPermissions);
   const NO_PERM = "You don't have permission";
@@ -4240,7 +4243,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       <AddTaskPanel
         open={showAdd} onClose={() => { setShowAdd(false); setAddParentId(null); }} onAdd={handleAdd}
         projects={projects} defaultCol={addCol} defaultParentId={addParentId} statuses={cols} priorities={priorities}
-        allTags={tags} onCreateTag={handleCreateTag} isGithubConnected={isGithubConnected}
+        allTags={tags} onCreateTag={handleCreateTag} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite}
         onBranchCreated={({ branchName, url, task }) => {
           // Update local task state with the saved branch
           setTasks(prev => prev.map(t => t.id === task.id ? task : t));
@@ -4273,6 +4276,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           onUnlinkNote={(noteId) => handleUnlinkNote(viewingTask._dbId, noteId)}
           onLogTime={handleLogTime}
           isGithubConnected={isGithubConnected}
+          canGithubWrite={canGithubWrite}
           onBranchUpdate={handleBranchUpdate}
           onDelete={handleTaskDelete}
           members={members}

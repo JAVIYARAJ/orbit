@@ -17,7 +17,8 @@
       "Bash(grep -n \"const renderMdCore\\\\|export const renderMd\\\\|const NoteLinkMenu\\\\|const NoteCard\\\\|return \\(\\\\|\\);$\" /Users/rajjaviya/Documents/Product/dev_os_dashboard/dev_os_dashboard/src/pages/tools.jsx)",
       "Bash(find /Users/rajjaviya -name \"vercel-proxy\" -o -name \"vercel-proxy.ts\" 2>/dev/null | grep -v node_modules | head -10)",
       "Read(//Users/rajjaviya/**)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "mcp__claude_ai_Supabase__deploy_edge_function"
     ]
   }
 }

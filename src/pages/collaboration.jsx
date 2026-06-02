@@ -301,7 +301,7 @@ export const Collaboration = ({
           <div className="sub">Manage members, invites, and workspace access levels</div>
         </div>
         {canInvite && (
-          <button className="btn primary" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 20px', height: 44, borderRadius: 22, fontWeight: 600, background: 'linear-gradient(135deg, #0099ff, #00d4ff)', boxShadow: '0 4px 15px rgba(0, 153, 255, 0.3)' }} onClick={() => setShowInvite(true)}>
+          <button className="btn primary collab-invite-btn" onClick={() => setShowInvite(true)}>
             <Icon name="user-plus" size={16} /> <span style={{ position: 'relative', top: 1 }}>Invite Member</span>
           </button>
         )}

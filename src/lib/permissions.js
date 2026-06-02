@@ -23,6 +23,7 @@ export const DEFAULT_PERMISSIONS = {
     view_learning:  true,
     view_vault:     false,
     // actions
+    github_write:   true,
     invite_member:  true,
     remove_member:  true,
     change_role:    false,
@@ -50,6 +51,7 @@ export const DEFAULT_PERMISSIONS = {
     view_vercel:    true,
     view_learning:  true,
     view_vault:     false,
+    github_write:   false,
     invite_member:  false,
     remove_member:  false,
     change_role:    false,
@@ -77,6 +79,7 @@ export const DEFAULT_PERMISSIONS = {
     view_vercel:    false,
     view_learning:  true,
     view_vault:     false,
+    github_write:   false,
     invite_member:  false,
     remove_member:  false,
     change_role:    false,
@@ -105,6 +108,7 @@ export const PERMISSION_LABELS = {
   view_flutter:   'Flutter Init',
   view_github:    'GitHub Hub',
   view_vercel:    'Vercel',
+  github_write:   'GitHub write (create/delete branches & repos)',
   view_learning:  'Learning Path',
   view_vault:     'Vault',
   // actions
@@ -153,10 +157,48 @@ export const PERMISSION_GROUPS = [
   { label: 'Projects', keys: ['create_project', 'edit_project', 'delete_project'] },
   { label: 'Tasks',    keys: ['create_task', 'edit_task', 'delete_task', 'assign_task'] },
   { label: 'Vault',    keys: ['manage_vault'] },
+  { label: 'GitHub',   keys: ['github_write'] },
   { label: 'Team',     keys: ['invite_member', 'remove_member', 'change_role'] },
 ];
 
 export const PERMISSION_KEYS = Object.keys(PERMISSION_LABELS);
+
+// Short description + optional danger flag shown in the permissions matrix.
+// danger: true → requires a confirmation dialog before enabling.
+export const PERMISSION_WARNINGS = {
+  // Module access
+  view_projects:  { text: 'Can view and open all projects in this workspace.' },
+  view_tasks:     { text: 'Can see the task board and all task details.' },
+  view_pm:        { text: 'Can access the Project Management board and Gantt chart.' },
+  view_analytics: { text: 'Can see workspace-wide metrics, charts, and time reports.' },
+  view_collab:    { text: 'Can view team members and pending invites.' },
+  view_timer:     { text: 'Can use the time tracker and log hours.' },
+  view_notes:     { text: 'Can read and write notes in the workspace.' },
+  view_email:     { text: 'Can access and manage email templates.' },
+  view_toolkit:   { text: 'Can access the developer toolkit.' },
+  view_flutter:   { text: 'Can use the Flutter project initialiser.' },
+  view_github:    { text: 'Can browse repos, PRs, issues, and activity in the GitHub Hub.' },
+  view_vercel:    { text: 'Can view Vercel deployments and project status.' },
+  view_learning:  { text: 'Can view and update the learning path.' },
+  view_vault:     { text: 'Can open and read stored credentials and secrets.', danger: true },
+  // Projects
+  create_project: { text: 'Can create new projects and link GitHub repos.' },
+  edit_project:   { text: 'Can rename, recolor, and reconfigure any project.' },
+  delete_project: { text: 'Permanently deletes a project and all its tasks. This cannot be undone.', danger: true },
+  // Tasks
+  create_task:    { text: 'Can add new tasks to any project column.' },
+  edit_task:      { text: 'Can edit task titles, descriptions, status, priority, and due dates.' },
+  delete_task:    { text: 'Permanently removes tasks from the board. This cannot be undone.', danger: true },
+  assign_task:    { text: 'Can assign or reassign tasks to any workspace member.' },
+  // Vault
+  manage_vault:   { text: 'Full read and write access to credentials and secrets. Only grant to fully trusted members.', danger: true },
+  // GitHub
+  github_write:   { text: 'Can create and delete branches and repositories directly on GitHub.', danger: true },
+  // Team
+  invite_member:  { text: 'Can send invites to bring new people into this workspace.' },
+  remove_member:  { text: 'Can permanently remove members, instantly revoking their access.', danger: true },
+  change_role:    { text: 'Can promote members up to Admin. Admins inherit all admin-level permissions.', danger: true },
+};
 
 // wsPermissions is the flat object from get_workspace_permissions RPC:
 // { 'admin:invite_member': true, 'member:create_project': false, ... }

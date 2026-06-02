@@ -3551,7 +3551,7 @@ body.texture-grid::before {
 /* ───── Premium Collaboration Redesign ───── */
 .collab-hero {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 20px;
   margin-bottom: 30px;
 }
@@ -3633,7 +3633,7 @@ body.texture-grid::before {
   align-items: start;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1300px) {
   .collab-main-layout {
     grid-template-columns: 1fr;
   }
@@ -3825,6 +3825,33 @@ body.texture-grid::before {
     opacity: 1;
     transform: none;
   }
+
+  .collab-hero {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .collab-stat-card {
+    padding: 14px 16px;
+    gap: 10px;
+  }
+
+  .collab-stat-value {
+    font-size: 22px;
+  }
+
+  .collab-invite-actions {
+    flex-wrap: wrap;
+  }
+
+  .collab-invite-actions button {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 80px;
+  }
+
+  .collab-members-grid {
+    gap: 10px;
+  }
 }
 
 .collab-role-pill {
@@ -4000,6 +4027,28 @@ button.collab-role-pill:hover:not(:disabled) {
   background-repeat: no-repeat;
   background-position: right 8px center;
   cursor: pointer;
+}
+
+.collab-invite-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  height: 44px;
+  border-radius: 22px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #0099ff, #00d4ff);
+  box-shadow: 0 4px 15px rgba(0, 153, 255, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .collab-invite-btn {
+    width: 100%;
+    justify-content: center;
+    border-radius: 12px;
+  }
 }
 
 /* ───── Settings ───── */
@@ -12352,16 +12401,49 @@ body.scanlines::after {
   min-width: 0;
 }
 
+.ws-item-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .ws-item-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-role-tag {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.ws-role-owner {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.ws-role-invited {
+  background: rgba(139, 92, 246, 0.12);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.25);
 }
 
 .ws-item-meta {
   font-size: 10px;
   color: var(--text-4);
   font-family: var(--f-mono);
+  margin-top: 2px;
 }
 
 .ws-item-check {
@@ -18682,6 +18764,35 @@ body.scanlines::after {
     padding: 20px;
   }
 
+  /* Collab: compact stat cards on medium screens */
+  .collab-stat-card {
+    padding: 16px 18px;
+    gap: 12px;
+  }
+
+  .collab-stat-value {
+    font-size: 26px;
+  }
+
+  .collab-stat-label {
+    font-size: 12px;
+  }
+
+  .collab-stat-icon-wrapper {
+    width: 34px;
+    height: 34px;
+  }
+
+  /* Collab: stack panels to single column on medium Mac screens */
+  .collab-main-layout {
+    grid-template-columns: 1fr;
+  }
+
+  /* Collab panel tighter padding */
+  .collab-panel {
+    padding: 18px;
+  }
+
   /* Timer page side panel min-width guard */
   .timer-side-col {
     min-width: 0;
@@ -19352,7 +19463,7 @@ button.role-badge:hover {
   display: grid;
   grid-template-columns: 1fr repeat(4, 80px);
   align-items: center;
-  padding: 10px 4px;
+  padding: 12px 4px;
   border-bottom: 1px solid var(--border);
   gap: 8px;
 }
@@ -19428,6 +19539,93 @@ button.role-badge:hover {
   cursor: default;
   opacity: 0.5;
   pointer-events: none;
+}
+
+/* Permissions — warn state for dangerous off→on toggle */
+.perm-toggle-warn:hover {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  color: #f59e0b;
+}
+
+/* Permissions — row highlight for dangerous keys */
+.perm-row-danger {
+  background: rgba(245, 158, 11, 0.03);
+}
+
+/* Permissions — label + description stack */
+.perm-label-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.perm-label-text {
+  font-size: 12px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.perm-label-desc {
+  font-size: 10px;
+  color: var(--text-4);
+  line-height: 1.45;
+}
+
+.perm-danger-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+/* Permissions — group-level warning banner */
+.perm-group-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 0 2px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.perm-group-banner svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #818cf8;
+}
+
+/* Permissions — top-level advisory banner */
+.perm-advisory {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+.perm-advisory svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #f59e0b;
 }
 
 /* Collab page inline empty state (smaller than page-level .empty-state) */

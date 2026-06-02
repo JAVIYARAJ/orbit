@@ -5,6 +5,8 @@ import {
   TweakToggle, TweakSelect, TweakButton, useTweaks,
 } from '../components/tweaks-panel.jsx';
 import { supabase } from '../lib/supabase.js';
+import { ghSetWorkstationId, ghClearCache } from '../lib/github.js';
+import { vcSetWorkstationId, vcClearCache } from '../lib/vercel.js';
 import {
   loadUserData, getMyContext, updateMyAvatar,
   setActiveWorkstation as persistActiveWs, loadTaskNoteLinks,
@@ -138,17 +140,22 @@ export default function App() {
     setTags([]);
   };
 
-  // ── Check whether GitHub is connected when user logs in ─────────
+  // ── Check GitHub + Vercel connection at workspace level ──────────
+  // All workspace members see the same connection status — tokens are workspace-scoped.
   useEffectApp(() => {
-    if (!authUser?.id) { setIsGithubConnected(false); return; }
-    supabase.from('user_integrations')
-      .select('id')
-      .eq('user_id', authUser.id)
-      .eq('provider', 'github')
-      .maybeSingle()
-      .then(({ data }) => setIsGithubConnected(!!data))
+    if (!authUser?.id || !activeWorkstation?.id) { setIsGithubConnected(false); return; }
+    ghSetWorkstationId(activeWorkstation.id);
+    vcSetWorkstationId(activeWorkstation.id);
+    supabase
+      .from('workspace_integrations')
+      .select('provider')
+      .eq('workstation_id', activeWorkstation.id)
+      .then(({ data }) => {
+        const providers = (data || []).map(r => r.provider);
+        setIsGithubConnected(providers.includes('github'));
+      })
       .catch(() => setIsGithubConnected(false));
-  }, [authUser?.id]);
+  }, [authUser?.id, activeWorkstation?.id]);
 
   // ── Load user context on login (profile + workstations + roles in one call) ──
   useEffectApp(() => {
@@ -236,6 +243,34 @@ export default function App() {
     getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(console.error);
   }, [activeWorkstation?.id]);
 
+  // Realtime: update members and pending invites when someone accepts an invite
+  useEffectApp(() => {
+    if (!activeWorkstation?.id) return;
+    const wsId = activeWorkstation.id;
+
+    const channel = supabase
+      .channel(`collab-${wsId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'workstation_members',
+        filter: `workstation_id=eq.${wsId}`,
+      }, () => {
+        listWorkspaceMembers(wsId).then(setMembers).catch(() => {});
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'workspace_invites',
+        filter: `workstation_id=eq.${wsId}`,
+      }, () => {
+        getPendingInvites(wsId).then(setPendingInvites).catch(() => {});
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [activeWorkstation?.id]);
+
   // Refresh my role + workspace permissions when the tab regains focus. Lets a
   // role change or permission toggle an owner makes while you're active take effect
   // without a full reload (the server is the real gate; this keeps the UI honest).
@@ -247,6 +282,8 @@ export default function App() {
       timer = setTimeout(() => {
         getMyContext().then(ctx => setWorkstations(ctx.workstations)).catch(() => {});
         getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(() => {});
+        listWorkspaceMembers(activeWorkstation.id).then(setMembers).catch(() => {});
+        getPendingInvites(activeWorkstation.id).then(setPendingInvites).catch(() => {});
       }, 300);
     };
     const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
@@ -269,7 +306,11 @@ export default function App() {
   const handleWsSwitch = (ws) => {
     if (ws.id === activeWorkstation?.id) return;
     setActiveWorkstation(ws);
-    persistActiveWs(ws.id).catch(console.error); // fire-and-forget RPC
+    ghSetWorkstationId(ws.id);
+    vcSetWorkstationId(ws.id);
+    ghClearCache();
+    vcClearCache();
+    persistActiveWs(ws.id).catch(console.error);
   };
 
   const handleNewWs = () => setShowWsSetup(true);
