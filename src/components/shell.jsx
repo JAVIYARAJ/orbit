@@ -1,6 +1,7 @@
 // shell.jsx — Sidebar, Topbar, Command Palette, SlidePanel
 
 import { useState, useEffect, useRef } from 'react';
+import { canAccessModule } from '../lib/permissions.js';
 
 // ─── Icons (inline SVG, 16px viewbox) ─────────────────────────────
 export const Icon = ({ name, size = 16 }) => {
@@ -27,7 +28,7 @@ export const Icon = ({ name, size = 16 }) => {
     chev: <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     chevD: <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     chevU: <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
-    trash: <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 3h3"/><path d="M2.5 5.5h11"/><path d="M5 5.5l.8 7.5h4.4l.8-7.5"/></g>,
+    trash: <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 3h3" /><path d="M2.5 5.5h11" /><path d="M5 5.5l.8 7.5h4.4l.8-7.5" /></g>,
     git: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="4" cy="4" r="1.5" /><circle cx="4" cy="12" r="1.5" /><circle cx="12" cy="8" r="1.5" /><path d="M4 5.5V10.5M5.5 12H10.5C10.5 9.5 4 11 4 6" /></g>,
     pin: <path d="M8 2L11 5L10 6L11 7L9 9L8 14L7 9L5 7L6 6L5 5L8 2Z" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />,
     tag: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M2 7L7 2H13V8L8 13L2 7Z" /><circle cx="10" cy="6" r="0.8" fill="currentColor" /></g>,
@@ -69,6 +70,9 @@ export const Icon = ({ name, size = 16 }) => {
     'alert-circle': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="8" cy="8" r="6" /><path d="M8 5V8.5" strokeLinecap="round" /><circle cx="8" cy="11" r="0.6" fill="currentColor" /></g>,
     'external-link': <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M7 3H3V13H13V9M9 2H14V7M14 2L8 8" strokeLinecap="round" strokeLinejoin="round" /></g>,
     upload: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M8 11V2M4 6L8 2L12 6M2 14H14" strokeLinecap="round" strokeLinejoin="round" /></g>,
+    'user-plus': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="3" /><path d="M1 14C1 11.24 3.24 9 6 9C8.76 9 11 11.24 11 14" /><path d="M13 6V10M11 8H15" /></g>,
+    'user-minus': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="3" /><path d="M1 14C1 11.24 3.24 9 6 9C8.76 9 11 11.24 11 14" /><path d="M11 8H15" /></g>,
+    shield: <path d="M8 1L2 3V7.5C2 11.5 4.5 14.5 8 16C11.5 14.5 14 11.5 14 7.5V3L8 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
@@ -186,16 +190,17 @@ export const Sidebar = ({
   user, onLogout,
   workstations, activeWorkstation, onWsSwitch, onNewWs,
   enabledModules = {},
+  myRole = 'viewer', wsPermissions = {},
 }) => {
   const [panelOpen, setPanelOpen] = useState(false);
 
   return (
     <aside className="sb">
       <div className="sb-brand">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{flexShrink:0}}>
-          <circle cx="9" cy="9" r="3" fill="currentColor"/>
-          <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none"/>
-          <circle cx="9" cy="3" r="1.5" fill="currentColor"/>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
+          <circle cx="9" cy="9" r="3" fill="currentColor" />
+          <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
+          <circle cx="9" cy="3" r="1.5" fill="currentColor" />
         </svg>
         <span className="label">Orbit</span>
         <span className="v">v1.0</span>
@@ -203,7 +208,11 @@ export const Sidebar = ({
 
       <div className="sb-scroll">
         {NAV.map(g => {
-          const visibleItems = g.items.filter(it => enabledModules[it.id] !== false);
+          // Hide modules the user can't access (or that are disabled by remote config) —
+          // an unclickable nav item has no reason to be shown. CRUD action buttons inside
+          // pages stay visible-but-disabled; navigation is hidden.
+          const visibleItems = g.items.filter(it =>
+            enabledModules[it.id] !== false && canAccessModule(myRole, it.id, wsPermissions));
           if (visibleItems.length === 0) return null;
           return (
             <div key={g.section}>
@@ -340,21 +349,24 @@ export const SlidePanel = ({ open, onClose, title, subtitle, children, width = 5
 };
 
 // ─── Cmd+K Palette ────────────────────────────────────────────────
-export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchData = {}, onSearchSelect }) => {
+export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchData = {}, onSearchSelect, myRole = 'viewer', wsPermissions = {} }) => {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
 
   useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => inputRef.current?.focus(), 50); } }, [open]);
 
-  const isEnabled = (id) => enabledModules[id] !== false;
+  // A module shows in the palette only if it's enabled by remote config AND the
+  // current role is permitted to access it.
+  const isEnabled = (id) =>
+    enabledModules[id] !== false && canAccessModule(myRole, id, wsPermissions);
 
   const ACTIONS = [
-    { type: 'action', label: 'Start new timer', hint: 'T S', icon: 'play', moduleId: 'timer',    do: () => { onNav('timer'); onClose(); } },
-    { type: 'action', label: 'New task',         hint: 'T N', icon: 'plus', moduleId: 'tasks',    do: () => { onNav('tasks'); onClose(); } },
-    { type: 'action', label: 'New note',         hint: 'N N', icon: 'plus', moduleId: 'notes',    do: () => { onNav('notes'); onClose(); } },
-    { type: 'action', label: 'New project',      hint: 'P N', icon: 'plus', moduleId: 'projects', do: () => { onNav('projects'); onClose(); } },
-    { type: 'action', label: 'Reveal vault item', hint: '',   icon: 'eye',  moduleId: 'vault',    do: () => { onNav('vault'); onClose(); } },
+    { type: 'action', label: 'Start new timer', hint: 'T S', icon: 'play', moduleId: 'timer', do: () => { onNav('timer'); onClose(); } },
+    { type: 'action', label: 'New task', hint: 'T N', icon: 'plus', moduleId: 'tasks', do: () => { onNav('tasks'); onClose(); } },
+    { type: 'action', label: 'New note', hint: 'N N', icon: 'plus', moduleId: 'notes', do: () => { onNav('notes'); onClose(); } },
+    { type: 'action', label: 'New project', hint: 'P N', icon: 'plus', moduleId: 'projects', do: () => { onNav('projects'); onClose(); } },
+    { type: 'action', label: 'Reveal vault item', hint: '', icon: 'eye', moduleId: 'vault', do: () => { onNav('vault'); onClose(); } },
   ].filter(a => isEnabled(a.moduleId));
 
   const NAV_ITEMS = NAV_FLAT
@@ -379,7 +391,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
 
     const results = [];
 
-    tasks
+    (isEnabled('tasks') ? tasks : [])
       .filter(t => !t.deleted && (
         t.title?.toLowerCase().includes(lq) ||
         t.description?.toLowerCase().includes(lq) ||
@@ -393,7 +405,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
         do: () => { onSearchSelect?.('tasks', t._dbId); onClose(); },
       }));
 
-    projects
+    (isEnabled('projects') ? projects : [])
       .filter(p => !p.deleted && (
         p.name?.toLowerCase().includes(lq) ||
         p.client?.toLowerCase().includes(lq) ||
@@ -408,7 +420,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
         do: () => { onSearchSelect?.('projects', p.id); onClose(); },
       }));
 
-    notes
+    (isEnabled('notes') ? notes : [])
       .filter(n => !n.deleted && (
         n.title?.toLowerCase().includes(lq) ||
         n.body?.toLowerCase().includes(lq)
@@ -421,7 +433,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
         do: () => { onSearchSelect?.('notes', n.id); onClose(); },
       }));
 
-    emailTemplates
+    (isEnabled('email') ? emailTemplates : [])
       .filter(e => (
         e.name?.toLowerCase().includes(lq) ||
         e.subject?.toLowerCase().includes(lq) ||
@@ -436,11 +448,11 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
       }));
 
     const STATUS_LABEL = { toLearn: 'To Learn', inProgress: 'In Progress', completed: 'Completed' };
-    [
+    (isEnabled('learning') ? [
       ...toLearn.map(i => ({ ...i, _status: 'toLearn' })),
       ...inProgress.map(i => ({ ...i, _status: 'inProgress' })),
       ...completed.map(i => ({ ...i, _status: 'completed' })),
-    ]
+    ] : [])
       .filter(item => (
         item.topic?.toLowerCase().includes(lq) ||
         item.notes?.toLowerCase().includes(lq) ||
@@ -483,7 +495,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
   });
 
   const actions = filteredCmds.filter(a => a.type === 'action');
-  const navs    = filteredCmds.filter(a => a.type === 'nav');
+  const navs = filteredCmds.filter(a => a.type === 'nav');
 
   let idx = -1;
   const renderRow = (a) => {

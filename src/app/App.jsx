@@ -11,6 +11,7 @@ import {
   startTimeEntry, pauseTimeEntry, resumeTimeEntry,
   completeTimeEntry, discardTimeEntry, getTimeEntries, getActiveTimeEntry,
   logManualTime, getLearningActivity,
+  listWorkspaceMembers, getPendingInvites, getWorkspacePermissions,
 } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
@@ -21,8 +22,9 @@ import { VercelPage } from '../pages/vercel.jsx';
 import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
 import { Settings } from '../pages/settings.jsx';
-import { AuthPage, ResetPasswordPage } from '../pages/auth.jsx';
+import { AuthPage, ResetPasswordPage, InviteAcceptPage } from '../pages/auth.jsx';
 import { useRemoteConfig } from '../lib/useRemoteConfig.js';
+import { canAccessModule } from '../lib/permissions.js';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#0099ff",
@@ -227,7 +229,35 @@ export default function App() {
     const yearAgo = new Date(); yearAgo.setFullYear(yearAgo.getFullYear() - 1);
     getLearningActivity(activeWorkstation.id, yearAgo.toISOString().split('T')[0])
       .then(setLearningActivity).catch(console.error);
+
+    // Load team collaboration data
+    listWorkspaceMembers(activeWorkstation.id).then(setMembers).catch(console.error);
+    getPendingInvites(activeWorkstation.id).then(setPendingInvites).catch(console.error);
+    getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(console.error);
   }, [activeWorkstation?.id]);
+
+  // Refresh my role + workspace permissions when the tab regains focus. Lets a
+  // role change or permission toggle an owner makes while you're active take effect
+  // without a full reload (the server is the real gate; this keeps the UI honest).
+  useEffectApp(() => {
+    if (!authUser?.id || !activeWorkstation?.id) return;
+    let timer;
+    const refresh = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        getMyContext().then(ctx => setWorkstations(ctx.workstations)).catch(() => {});
+        getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(() => {});
+      }, 300);
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [authUser?.id, activeWorkstation?.id]);
 
   // Workstation handlers
   const handleWsCreated = (ws) => {
@@ -244,6 +274,20 @@ export default function App() {
 
   const handleNewWs = () => setShowWsSetup(true);
 
+  // Re-pull roles + permissions + members for the active workstation. Called after
+  // actions that change the current user's standing (e.g. ownership transfer) so the
+  // UI reflects the new role immediately instead of waiting for the next focus refresh.
+  const refreshWorkspaceContext = async () => {
+    try {
+      const ctx = await getMyContext();
+      setWorkstations(ctx.workstations);
+    } catch { /* non-fatal */ }
+    if (activeWorkstation?.id) {
+      getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(() => {});
+      listWorkspaceMembers(activeWorkstation.id).then(setMembers).catch(() => {});
+    }
+  };
+
   // Navigation — redirect to settings if returning from GitHub or Vercel OAuth
   const [jumpToItem, setJumpToItem] = useStateApp(null);
 
@@ -252,6 +296,14 @@ export default function App() {
     if (params.get('gh_callback') === '1' || params.get('vc_callback') === '1') {
       window.history.replaceState({}, '', window.location.pathname);
       return 'settings';
+    }
+    const inviteToken = params.get('invite');
+    if (inviteToken) {
+      localStorage.setItem('orbit:pendingInvite', inviteToken);
+      // Strip only the invite param, preserving any other query params.
+      params.delete('invite');
+      const rest = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
     return localStorage.getItem('orbit:nav') || 'home';
   });
@@ -281,13 +333,30 @@ export default function App() {
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
   const [isGithubConnected, setIsGithubConnected] = useStateApp(false);
 
+  // ── Team collaboration ──────────────────────────────────────────
+  const [members,        setMembers]        = useStateApp([]);
+  const [pendingInvites, setPendingInvites] = useStateApp([]);
+  const [wsPermissions,  setWsPermissions]  = useStateApp({});
+
+  // Derive current user's role in the active workstation (used for permission gating)
+  const myRole = activeWorkstation
+    ? (workstations.find(w => w.id === activeWorkstation.id)?.role || 'viewer')
+    : 'viewer';
+
+  // Invite token from URL (?invite=TOKEN) — stored in localStorage across auth redirects
+  const [pendingInviteToken, setPendingInviteToken] = useStateApp(
+    () => localStorage.getItem('orbit:pendingInvite') || null
+  );
+
   // Persist nav
   useEffectApp(() => { localStorage.setItem('orbit:nav', current); }, [current]);
 
   // Redirect to home if the active page is disabled via Remote Config
+  // or the current role isn't permitted to access it.
   useEffectApp(() => {
-    if (enabledModules[current] === false) setCurrent('home');
-  }, [enabledModules, current]);
+    if (enabledModules[current] === false) { setCurrent('home'); return; }
+    if (!canAccessModule(myRole, current, wsPermissions)) setCurrent('home');
+  }, [enabledModules, current, myRole, wsPermissions]);
 
   // Timer tick
   useEffectApp(() => {
@@ -308,7 +377,7 @@ export default function App() {
         const handler = (e2) => {
           const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit',f:'flutter-init',g:'github',k:'vercel',s:'settings' };
           const id = map[e2.key.toLowerCase()];
-          if (id && enabledModules[id] !== false) setCurrent(id);
+          if (id && enabledModules[id] !== false && canAccessModule(myRole, id, wsPermissions)) setCurrent(id);
           window.removeEventListener('keydown', handler);
         };
         window.addEventListener('keydown', handler, { once: true });
@@ -317,7 +386,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cmdkOpen]);
+  }, [cmdkOpen, enabledModules, myRole, wsPermissions]);
 
   // Apply tweaks via CSS vars
   useEffectApp(() => {
@@ -406,6 +475,35 @@ export default function App() {
   );
 
   if (!authUser)                return <AuthPage onAuth={handleAuth} />;
+
+  // A pending invite takes precedence over first-run workspace setup — otherwise a
+  // brand-new user invited to a workspace would be forced to create one of their own
+  // (with no way to cancel) before they could accept.
+  if (pendingInviteToken) return (
+    <InviteAcceptPage
+      token={pendingInviteToken}
+      user={authUser}
+      onAccepted={async (result) => {
+        localStorage.removeItem('orbit:pendingInvite');
+        setPendingInviteToken(null);
+        // Reload workstations so the newly joined one appears
+        const ctx = await getMyContext();
+        const list = ctx.workstations;
+        setWorkstations(list);
+        // Activate the workspace we just joined (match by id, don't assume ordering)
+        const joinedId = result?.workstation_id || result?.workspace_id;
+        const joined = (joinedId && list.find(w => w.id === joinedId)) || list[list.length - 1];
+        if (joined) {
+          setActiveWorkstation(joined);
+          setShowWsSetup(false);
+        }
+      }}
+      onDeclined={() => {
+        localStorage.removeItem('orbit:pendingInvite');
+        setPendingInviteToken(null);
+      }}
+    />
+  );
 
   if (showWsSetup) return (
     <WorkstationSetup
@@ -507,6 +605,8 @@ export default function App() {
         onWsSwitch={handleWsSwitch}
         onNewWs={handleNewWs}
         enabledModules={enabledModules}
+        myRole={myRole}
+        wsPermissions={wsPermissions}
       />
       <div className="main">
         <Topbar
@@ -548,6 +648,11 @@ export default function App() {
             ganttTasks={ganttTasks}        setGanttTasks={setGanttTasks}
             isGithubConnected={isGithubConnected}
             jumpToItem={jumpToItem}
+            members={members}             setMembers={setMembers}
+            pendingInvites={pendingInvites} setPendingInvites={setPendingInvites}
+            wsPermissions={wsPermissions}  setWsPermissions={setWsPermissions}
+            myRole={myRole}
+            refreshWorkspaceContext={refreshWorkspaceContext}
           />
         </div>
       </div>
@@ -558,6 +663,8 @@ export default function App() {
         enabledModules={enabledModules}
         searchData={{ tasks, projects, notes, noteFolders, emailTemplates, learning }}
         onSearchSelect={handleSearchSelect}
+        myRole={myRole}
+        wsPermissions={wsPermissions}
       />
 
       <TweaksPanel>

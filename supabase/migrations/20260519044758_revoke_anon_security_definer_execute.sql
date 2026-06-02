@@ -1,0 +1,57 @@
+-- Fix: anon_security_definer_function_executable
+-- Revokes EXECUTE on all SECURITY DEFINER functions from the anon role.
+-- Anonymous users should never be able to call these privileged functions.
+
+REVOKE EXECUTE ON FUNCTION public.check_workstation_empty(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.complete_time_entry(uuid, integer, text) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_email_template(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_learning_item(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_my_workstation(text, text) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_note(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_project(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_project_type(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_tag(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_task(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_task_status(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.create_vault_item(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_email_template(text) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_note(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_project(text) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_project_type(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_tag(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_task(text) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_task_status(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.delete_vault_item(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.discard_time_entry(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_active_time_entry(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_deleted_notes(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_my_context() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_my_workstations() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_task_note_links(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_task_status_logs(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_time_entries(uuid, integer) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.link_note_to_task(uuid, uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.load_workstation_data(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.log_manual_time(uuid, uuid, uuid, integer, text) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.pause_time_entry(uuid, integer) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.purge_note(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.reorder_project_types(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.reorder_task_statuses(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.restore_note(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.resume_time_entry(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.seed_default_statuses() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.seed_workstation_data(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.start_time_entry(uuid, uuid, uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.switch_active_workstation(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.te_json(uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.unlink_note_from_task(uuid, uuid) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_email_template(text, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_my_avatar(text) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_note(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_project(text, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_project_type(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_tag(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_task(text, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_task_status(uuid, jsonb) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.update_vault_item(uuid, jsonb) FROM anon;

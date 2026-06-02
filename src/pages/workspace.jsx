@@ -18,6 +18,7 @@ import {
   setSessionKey, getSessionKey, getSessionFingerprint, clearSessionKey, isVaultUnlocked,
 } from '../lib/vault-crypto.js';
 import { VAULT_AUTO_LOCK_MS } from '../lib/constants.js';
+import { canDo } from '../lib/permissions.js';
 import { renderMd } from './tools.jsx';
 import { supabase } from '../lib/supabase.js';
 import { ghGetRepos, ghGetLastCommit, ghCreateBranch, ghGetBranches, ghCreateRepo, ghDeleteRepo, ghDeleteBranch, ghGetTokenScopes } from '../lib/github.js';
@@ -1027,7 +1028,7 @@ const timeAgo = (dateStr) => {
   return new Date(dateStr).toLocaleDateString();
 };
 
-const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], isGithubConnected = false, timer = null }) => {
+const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], isGithubConnected = false, timer = null, canEdit = true, canDelete = true }) => {
   // All hooks unconditionally before any early return
   const [lastCommit, setLastCommit] = useStateA(null);
   const [commitLoading, setCommitLoading] = useStateA(false);
@@ -1351,9 +1352,11 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
 
           {!showDeleteConfirm ? (
             <button
-              className="btn danger"
+              className={'btn danger' + (canDelete ? '' : ' perm-denied')}
               style={{ fontSize: 12, width: '100%' }}
               onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); }}
+              disabled={!canDelete}
+              title={canDelete ? '' : "You don't have permission"}
             >
               Delete project{deleteRepo && repoFullName && isGithubConnected ? ' & repository' : ''}
             </button>
@@ -1403,7 +1406,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
       </div>
       <div className="sp-footer">
         <button className="btn ghost" onClick={onClose}>Close</button>
-        <button className="btn primary" onClick={onEdit}>
+        <button className={'btn primary' + (canEdit ? '' : ' perm-denied')} onClick={onEdit} disabled={!canEdit} title={canEdit ? '' : "You don't have permission"}>
           <Icon name="edit" size={12} /> Edit project
         </button>
       </div>
@@ -1411,7 +1414,11 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null, jumpToItem }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null, jumpToItem, myRole = 'viewer', wsPermissions = {} }) => {
+  const canCreate = canDo(myRole, 'create_project', wsPermissions);
+  const canEdit = canDo(myRole, 'edit_project', wsPermissions);
+  const canDelete = canDo(myRole, 'delete_project', wsPermissions);
+  const NO_PERM = "You don't have permission";
   const [view, setView] = useStateA('card');
   const [filter, setFilter] = useStateA('all');
   const [search, setSearch] = useStateA('');
@@ -1477,7 +1484,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
             <button className={view === 'card' ? 'active' : ''} onClick={() => setView('card')}>CARDS</button>
             <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>LIST</button>
           </div>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>
+          <button className={'btn primary' + (canCreate ? '' : ' perm-denied')} onClick={() => setShowAdd(true)} disabled={!canCreate} title={canCreate ? 'New project' : NO_PERM}>
             <Icon name="plus" size={12} /> New project
           </button>
         </div>
@@ -1519,7 +1526,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
           <Icon name="folder" size={32} />
           <div className="empty-title">No projects yet</div>
           <div className="empty-sub">Create your first project to start tracking work, hours, and progress.</div>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>
+          <button className={'btn primary' + (canCreate ? '' : ' perm-denied')} onClick={() => setShowAdd(true)} disabled={!canCreate} title={canCreate ? 'New project' : NO_PERM}>
             <Icon name="plus" size={12} /> New project
           </button>
         </div>
@@ -1540,9 +1547,10 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                     <div className="pc-actions">
                       <StatusPill status={p.status} />
                       <button
-                        className="btn sm ghost pc-edit"
+                        className={'btn sm ghost pc-edit' + (canEdit ? '' : ' perm-denied')}
                         onClick={e => { e.stopPropagation(); setEditing(p); }}
-                        title="Edit project"
+                        disabled={!canEdit}
+                        title={canEdit ? 'Edit project' : NO_PERM}
                       >
                         <Icon name="edit" size={12} />
                       </button>
@@ -1593,7 +1601,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                   <td className="mono">{fmtHours(p.hoursLogged)}</td>
                   <td className="mono">{fmtDate(p.end)}</td>
                   <td>
-                    <button className="btn sm ghost" onClick={e => { e.stopPropagation(); setEditing(p); }} title="Edit project">
+                    <button className={'btn sm ghost' + (canEdit ? '' : ' perm-denied')} onClick={e => { e.stopPropagation(); setEditing(p); }} disabled={!canEdit} title={canEdit ? 'Edit project' : NO_PERM}>
                       <Icon name="edit" size={12} />
                     </button>
                   </td>
@@ -1615,6 +1623,8 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         timer={timer}
         onEdit={() => { setEditing(viewing); setViewing(null); }}
         onDelete={handleDelete}
+        canEdit={canEdit}
+        canDelete={canDelete}
       />
       <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} isGithubConnected={isGithubConnected} projects={projects} />
       <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} isGithubConnected={isGithubConnected} initial={editing} projects={projects} />
@@ -1724,12 +1734,17 @@ const TagPicker = ({ selectedIds = [], onChange, allTags = [], onCreateTag }) =>
   );
 };
 
-const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities = [], onDragStart, onDragEnd, onClick }) => {
+const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities = [], members = [], onDragStart, onDragEnd, onClick }) => {
   const proj = projects.find(p => p.id === t.proj);
   const subs = tasks ? tasks.filter(s => s.parentId === t._dbId) : [];
   const subsDone = doneStatusId ? subs.filter(s => s.col === doneStatusId).length : 0;
   const isDone = doneStatusId && t.col === doneStatusId;
   const prioObj = priorities.find(pr => pr.id === t.p);
+  const assignee = t.assigneeId ? members.find(m => m.userId === t.assigneeId) : null;
+
+  const avaColors = ['#0099ff', '#7c3aed', '#16a34a', '#d97706', '#ef4444', '#06b6d4', '#ec4899'];
+  const avaColor = (str = '') => { let h = 0; for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h); return avaColors[Math.abs(h) % avaColors.length]; };
+
   return (
     <div
       className={'tcard' + (isDone ? ' tcard-done' : getDueClass(t.due).includes('overdue') ? ' overdue' : '')}
@@ -1754,6 +1769,14 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities =
       <div className="foot">
         {subs.length > 0 && (
           <div className="subs"><Icon name="list" size={10} /> {subsDone}/{subs.length}</div>
+        )}
+        {assignee && (
+          <div className="tcard-assignee" title={assignee.name}>
+            {assignee.avatarUrl
+              ? <img src={assignee.avatarUrl} className="assignee-ava" alt={assignee.name} />
+              : <div className="assignee-ava assignee-ava-init" style={{ background: avaColor(assignee.name) }}>{assignee.avatar}</div>
+            }
+          </div>
         )}
       </div>
     </div>
@@ -2003,7 +2026,10 @@ const TaskDetailModal = ({
   allTags = [], onCreateTag,
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
   onLogTime, isGithubConnected = false, onBranchUpdate, onDelete,
+  members = [],
+  canEdit = true, canDelete = true, canAssign = true,
 }) => {
+  const NO_PERM = "You don't have permission";
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
   const COL_LABEL = Object.fromEntries(statuses.map(s => [s.id, s.label]));
@@ -2031,6 +2057,7 @@ const TaskDetailModal = ({
       tagIds: t.tags || [],
       estH: totalMin > 0 ? String(Math.floor(totalMin / 60)) : '',
       estM: totalMin > 0 ? String(totalMin % 60) : '',
+      assigneeId: t.assigneeId || '',
     };
   };
 
@@ -2260,6 +2287,7 @@ const TaskDetailModal = ({
         due: form.due || '—',
         tags: form.tagIds,
         estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
+        assigneeId: form.assigneeId || null,
       });
     } catch (e) {
       setErr(e.message || 'Failed to save.');
@@ -2747,6 +2775,25 @@ const TaskDetailModal = ({
               />
             </div>
 
+            {/* Assignee */}
+            {members.length > 0 && (
+              <div className="tpanel-prop">
+                <div className="tpanel-prop-label">Assignee</div>
+                <select
+                  className={'tpanel-sel' + (canAssign ? '' : ' perm-denied')}
+                  value={form.assigneeId || ''}
+                  onChange={e => set('assigneeId', e.target.value || '')}
+                  disabled={!canAssign}
+                  title={canAssign ? '' : NO_PERM}
+                >
+                  <option value="">Unassigned</option>
+                  {members.map(m => (
+                    <option key={m.userId} value={m.userId}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Tags */}
             <div className="tpanel-prop">
               <div className="tpanel-prop-label">Tags</div>
@@ -3093,7 +3140,7 @@ const TaskDetailModal = ({
             )}
 
             {/* Delete zone */}
-            {onDelete && (
+            {onDelete && canDelete && (
               <div className="tpanel-prop" style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--border)' }}>
                 {!showDeleteConfirm ? (
                   <button
@@ -3158,7 +3205,7 @@ const TaskDetailModal = ({
         <div className="task-panel-footer">
           {err && <span style={{ flex: 1, fontSize: 12, color: '#ef4444' }}>{err}</span>}
           <button className="btn ghost" onClick={onClose} disabled={saving}>Close</button>
-          <button className="btn primary" onClick={handleSave} disabled={saving || !form.title.trim()}>
+          <button className={'btn primary' + (canEdit ? '' : ' perm-denied')} onClick={handleSave} disabled={saving || !form.title.trim() || !canEdit} title={canEdit ? '' : NO_PERM}>
             <Icon name="check" size={12} /> {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
@@ -3487,7 +3534,12 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem, members = [], myRole = 'viewer', wsPermissions = {} }) => {
+  const canCreateTask = canDo(myRole, 'create_task', wsPermissions);
+  const canEditTask = canDo(myRole, 'edit_task', wsPermissions);
+  const canDeleteTask = canDo(myRole, 'delete_task', wsPermissions);
+  const canAssignTask = canDo(myRole, 'assign_task', wsPermissions);
+  const NO_PERM = "You don't have permission";
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view, setView] = useStateA('board');
@@ -3643,6 +3695,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 
   // ── Drag handlers ─────────────────────────────────────────────────
   const handleDragStart = (e, task) => {
+    // Moving a card between columns changes its status — that's an edit.
+    if (!canEditTask) { e.preventDefault(); return; }
     dragTaskRef.current = task;
     setDraggingFromKey(task.col);
     e.dataTransfer.effectAllowed = 'move';
@@ -3772,7 +3826,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
             <button className={view === 'board' ? 'active' : ''} onClick={() => setView('board')}>BOARD</button>
             <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>LIST</button>
           </div>
-          <button className="btn primary" onClick={() => openAdd()}>
+          <button className={'btn primary' + (canCreateTask ? '' : ' perm-denied')} onClick={() => openAdd()} disabled={!canCreateTask} title={canCreateTask ? 'New task' : NO_PERM}>
             <Icon name="plus" size={12} /> New task
           </button>
         </div>
@@ -3900,7 +3954,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           <Icon name="list" size={32} />
           <div className="empty-title">No tasks yet</div>
           <div className="empty-sub">Add your first task to start tracking work across your projects.</div>
-          <button className="btn primary" onClick={() => openAdd()}>
+          <button className={'btn primary' + (canCreateTask ? '' : ' perm-denied')} onClick={() => openAdd()} disabled={!canCreateTask} title={canCreateTask ? 'New task' : NO_PERM}>
             <Icon name="plus" size={12} /> New task
           </button>
         </div>
@@ -4003,14 +4057,15 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                         >
                           {items.map(t => (
                             <TaskCard key={t.id} t={t} tasks={tasks} projects={projects} allTags={tags}
-                              doneStatusId={doneStatusId} priorities={priorities} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+                              doneStatusId={doneStatusId} priorities={priorities} members={members} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
                               onClick={() => setViewingTask(t)} />
                           ))}
                           {items.length === 0 && <div className="sg-col-empty" />}
                           <button
-                            className="btn ghost"
+                            className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
                             style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed', margin: '4px 0' }}
-                            onClick={() => openAdd(col.id, parentId)}>
+                            onClick={() => openAdd(col.id, parentId)}
+                            disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
                             <Icon name="plus" size={10} /> Add task
                           </button>
                         </div>
@@ -4051,15 +4106,17 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       allTags={tags}
                       doneStatusId={doneStatusId}
                       priorities={priorities}
+                      members={members}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       onClick={() => setViewingTask(t)}
                     />
                   ))}
                   <button
-                    className="btn ghost"
+                    className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
                     style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed' }}
-                    onClick={() => openAdd(col.id)}>
+                    onClick={() => openAdd(col.id)}
+                    disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
                     <Icon name="plus" size={10} /> Add task
                   </button>
                 </div>
@@ -4131,9 +4188,10 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       <tr key={`add-${parentId}`}>
                         <td colSpan={7} style={{ paddingLeft: 32, paddingTop: 4, paddingBottom: 4 }}>
                           <button
-                            className="btn ghost"
+                            className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
                             style={{ fontSize: 11, padding: '4px 10px', color: 'var(--text-3)', borderStyle: 'dashed' }}
-                            onClick={() => openAdd(cols[0]?.id, parentId)}>
+                            onClick={() => openAdd(cols[0]?.id, parentId)}
+                            disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
                             <Icon name="plus" size={10} /> Add task
                           </button>
                         </td>
@@ -4217,6 +4275,10 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           isGithubConnected={isGithubConnected}
           onBranchUpdate={handleBranchUpdate}
           onDelete={handleTaskDelete}
+          members={members}
+          canEdit={canEditTask}
+          canDelete={canDeleteTask}
+          canAssign={canAssignTask}
         />
       )}
     </div>
@@ -4227,11 +4289,11 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 //  4. LEARNING PATH
 // ═══════════════════════════════════════════════════════════════════
 const LEARN_COLS = [
-  { key: 'toLearn',    label: 'TO LEARN',    dot: 'var(--text-3)' },
+  { key: 'toLearn', label: 'TO LEARN', dot: 'var(--text-3)' },
   { key: 'inProgress', label: 'IN PROGRESS', dot: 'var(--accent)' },
-  { key: 'completed',  label: 'COMPLETED',   dot: '#4ade80' },
+  { key: 'completed', label: 'COMPLETED', dot: '#4ade80' },
 ];
-const TAG_PALETTE = ['#54C5F8','#4ade80','#a855f7','#f97316','#ec4899','#f59e0b','#06b6d4','#84cc16','#ef4444','#fb923c'];
+const TAG_PALETTE = ['#54C5F8', '#4ade80', '#a855f7', '#f97316', '#ec4899', '#f59e0b', '#06b6d4', '#84cc16', '#ef4444', '#fb923c'];
 const getTagColor = (tag) => {
   if (!tag) return '#6b7280';
   let h = 0;
@@ -4267,7 +4329,7 @@ const LearnCard = ({ item, stage, onEdit, onDelete, onMove, onToggleRev, onLogHo
   const [menuOpen, setMenuOpen] = useStateA(false);
   const menuRef = useRefA(null);
   const color = getTagColor(item.cat);
-  const prog  = item.prog || 0;
+  const prog = item.prog || 0;
   const otherCols = LEARN_COLS.filter(c => c.key !== stage);
 
   useEffectA(() => {
@@ -4291,7 +4353,7 @@ const LearnCard = ({ item, stage, onEdit, onDelete, onMove, onToggleRev, onLogHo
       {selectMode && (
         <div className="lcard-cb-wrap">
           <span className={`lcard-cb${isSelected ? ' checked' : ''}`}>
-            {isSelected && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            {isSelected && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
           </span>
         </div>
       )}
@@ -4392,7 +4454,7 @@ const LearnCard = ({ item, stage, onEdit, onDelete, onMove, onToggleRev, onLogHo
 
 // ── Tag dropdown ─────────────────────────────────────────────────
 const TagDropdown = ({ value, onChange, allTags }) => {
-  const [open,   setOpen]   = useStateA(false);
+  const [open, setOpen] = useStateA(false);
   const [search, setSearch] = useStateA('');
   const ref = useRefA(null);
 
@@ -4403,9 +4465,9 @@ const TagDropdown = ({ value, onChange, allTags }) => {
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
-  const q        = search.trim().toLowerCase();
+  const q = search.trim().toLowerCase();
   const filtered = allTags.filter(t => !q || t.toLowerCase().includes(q));
-  const isNew    = search.trim() && !allTags.some(t => t.toLowerCase() === search.trim().toLowerCase());
+  const isNew = search.trim() && !allTags.some(t => t.toLowerCase() === search.trim().toLowerCase());
 
   const select = (tag) => { onChange(tag); setOpen(false); };
 
@@ -4482,12 +4544,12 @@ const TopicFormPanel = ({ open, onClose, onSave, initial, mode, allTags }) => {
     if (!open) return;
     setErr('');
     setForm(initial ? {
-      topic:        initial.topic        || '',
-      cat:          initial.cat          || '',
-      column:       initial._col         || 'toLearn',
-      est:          String(initial.est   || '4'),
-      link:         (initial.link === '—' ? '' : initial.link) || '',
-      note:         initial.note         || '',
+      topic: initial.topic || '',
+      cat: initial.cat || '',
+      column: initial._col || 'toLearn',
+      est: String(initial.est || '4'),
+      link: (initial.link === '—' ? '' : initial.link) || '',
+      note: initial.note || '',
       difficulty: initial.difficulty || null,
     } : empty);
   }, [open]);
@@ -4498,17 +4560,17 @@ const TopicFormPanel = ({ open, onClose, onSave, initial, mode, allTags }) => {
     if (!form.topic.trim()) { setErr('Topic name is required.'); return; }
     const item = {
       ...(initial || {}),
-      topic:        form.topic.trim(),
-      cat:          form.cat,
-      est:          parseFloat(form.est) || 4,
-      link:         form.link.trim() || '—',
-      note:         form.note.trim(),
+      topic: form.topic.trim(),
+      cat: form.cat,
+      est: parseFloat(form.est) || 4,
+      link: form.link.trim() || '—',
+      note: form.note.trim(),
       difficulty: form.difficulty || null,
     };
     if (mode === 'add') {
       item.rev = false;
       if (form.column === 'inProgress') { item.actual = 0; item.prog = 0; }
-      if (form.column === 'completed')  { item.actual = 0; item.lastReviewed = lTodayStr(); }
+      if (form.column === 'completed') { item.actual = 0; item.lastReviewed = lTodayStr(); }
     }
     setSaving(true);
     try { await onSave(form.column, item); onClose(); }
@@ -4586,7 +4648,7 @@ const TopicFormPanel = ({ open, onClose, onSave, initial, mode, allTags }) => {
 // ── Sessions panel ───────────────────────────────────────────────
 const SessionsPanel = ({ item, stage, onClose, onLogHours, onSessionDeleted }) => {
   const [sessions, setSessions] = useStateA(null);
-  const [loading,  setLoading]  = useStateA(false);
+  const [loading, setLoading] = useStateA(false);
   const [deleting, setDeleting] = useStateA(null);
 
   useEffectA(() => {
@@ -4654,18 +4716,18 @@ const SessionsPanel = ({ item, stage, onClose, onLogHours, onSessionDeleted }) =
 
 // ── Log Hours dialog ─────────────────────────────────────────────
 const LogHoursDialog = ({ item, onSave, onClose }) => {
-  const [hrs,  setHrs]  = useStateA('1');
+  const [hrs, setHrs] = useStateA('1');
   const [note, setNote] = useStateA('');
-  const [err,  setErr]  = useStateA('');
+  const [err, setErr] = useStateA('');
   const [busy, setBusy] = useStateA(false);
 
   useEffectA(() => { if (item) { setHrs('1'); setNote(''); setErr(''); } }, [item]);
   if (!item) return null;
 
-  const val     = parseFloat(hrs);
+  const val = parseFloat(hrs);
   const newActual = (item.actual || 0) + (isNaN(val) ? 0 : val);
-  const newProg   = item.est > 0 ? Math.min(100, Math.round((newActual / item.est) * 100)) : (item.prog || 0);
-  const color     = getTagColor(item.cat);
+  const newProg = item.est > 0 ? Math.min(100, Math.round((newActual / item.est) * 100)) : (item.prog || 0);
+  const color = getTagColor(item.cat);
 
   const adjustHrs = (amount) => {
     const current = parseFloat(hrs) || 0;
@@ -4691,17 +4753,17 @@ const LogHoursDialog = ({ item, onSave, onClose }) => {
           <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{item.topic}</span>
         </div>
         {err && <div className="modal-err" style={{ marginTop: 12 }}>{err}</div>}
-        
+
         {/* Large custom hrs stepper */}
         <div className="log-stepper-row">
           <button type="button" className="log-step-btn" onClick={() => adjustHrs(-0.5)}>
             <Icon name="minus" size={14} />
           </button>
           <div className="log-hrs-input-wrap">
-            <input 
-              type="number" 
-              value={hrs} 
-              min="0.25" 
+            <input
+              type="number"
+              value={hrs}
+              min="0.25"
               step="0.25"
               autoFocus
               onChange={e => { setHrs(e.target.value); setErr(''); }}
@@ -4718,9 +4780,9 @@ const LogHoursDialog = ({ item, onSave, onClose }) => {
         {/* Quick select presets */}
         <div className="log-presets">
           {[0.5, 1, 2, 4].map(preset => (
-            <button 
-              key={preset} 
-              type="button" 
+            <button
+              key={preset}
+              type="button"
               className="log-preset-btn"
               onClick={() => { setHrs(String(preset)); setErr(''); }}
             >
@@ -4762,10 +4824,10 @@ const LogHoursDialog = ({ item, onSave, onClose }) => {
           <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
             What did you work on? <span className="opt-label">(optional)</span>
           </label>
-          <textarea 
+          <textarea
             className="log-notes-input"
-            value={note} 
-            onChange={e => setNote(e.target.value)} 
+            value={note}
+            onChange={e => setNote(e.target.value)}
             placeholder="e.g. completed core API integration, reviewed documentation"
             rows={2}
           />
@@ -4805,24 +4867,24 @@ const LearnDeleteDialog = ({ item, onConfirm, onCancel }) => {
 
 // ── Main LearningPage ────────────────────────────────────────────
 export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem }) => {
-  const [showAdd,      setShowAdd]      = useStateA(false);
-  const [editItem,     setEditItem]     = useStateA(null);
+  const [showAdd, setShowAdd] = useStateA(false);
+  const [editItem, setEditItem] = useStateA(null);
   const [deleteTarget, setDeleteTarget] = useStateA(null);
   const [logHoursItem, setLogHoursItem] = useStateA(null);
   const [sessionsItem, setSessionsItem] = useStateA(null);
-  const [sessionsStage,setSessStage]    = useStateA(null);
-  const [streak,       setStreak]       = useStateA(() => lReadStreak());
+  const [sessionsStage, setSessStage] = useStateA(null);
+  const [streak, setStreak] = useStateA(() => lReadStreak());
   const [showReEngage, setShowReEngage] = useStateA(() => lShouldReEngage());
-  const [searchQ,      setSearchQ]      = useStateA('');
-  const [sortBy,       setSortBy]       = useStateA('date');
-  const [sortOpen,     setSortOpen]     = useStateA(false);
-  const [selectMode,   setSelectMode]   = useStateA(false);
-  const [selected,     setSelected]     = useStateA(new Set());
-  const [weeklyHours,  setWeeklyHours]  = useStateA(0);
-  const [weeklyGoal,   setWeeklyGoal]   = useStateA(() => Number(localStorage.getItem('orbit:learn:weeklyGoal')) || 10);
-  const [goalEdit,     setGoalEdit]     = useStateA(false);
-  const [goalInput,    setGoalInput]    = useStateA('');
-  const [overviewTab,  setOverviewTab]  = useStateA('revision');
+  const [searchQ, setSearchQ] = useStateA('');
+  const [sortBy, setSortBy] = useStateA('date');
+  const [sortOpen, setSortOpen] = useStateA(false);
+  const [selectMode, setSelectMode] = useStateA(false);
+  const [selected, setSelected] = useStateA(new Set());
+  const [weeklyHours, setWeeklyHours] = useStateA(0);
+  const [weeklyGoal, setWeeklyGoal] = useStateA(() => Number(localStorage.getItem('orbit:learn:weeklyGoal')) || 10);
+  const [goalEdit, setGoalEdit] = useStateA(false);
+  const [goalInput, setGoalInput] = useStateA('');
+  const [overviewTab, setOverviewTab] = useStateA('revision');
   const sortRef = useRefA(null);
 
   useEffectA(() => {
@@ -4832,7 +4894,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   }, []);
 
   useEffectA(() => {
-    getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => {});
+    getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => { });
   }, [workstationId]);
 
   // Jump to a learning item from global search
@@ -4843,9 +4905,9 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
     if (target) setEditItem(target);
   }, [jumpToItem?.ts]);
 
-  const total    = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
-  const done     = learning.completed.length;
-  const pct      = total > 0 ? Math.round((done / total) * 100) : 0;
+  const total = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
+  const done = learning.completed.length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const totalEst = [...learning.toLearn, ...learning.inProgress, ...learning.completed]
     .reduce((s, i) => s + (i.est || 0), 0);
   const totalLogged =
@@ -4860,7 +4922,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   });
 
   const allItems = [...learning.toLearn, ...learning.inProgress, ...learning.completed];
-  const allTags  = [...new Set(allItems.map(i => i.cat).filter(Boolean))].sort();
+  const allTags = [...new Set(allItems.map(i => i.cat).filter(Boolean))].sort();
 
   const tagBreakdown = allTags.map(tag => {
     const items = allItems.filter(i => i.cat === tag);
@@ -4873,7 +4935,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   }).filter(t => t.hours > 0).sort((a, b) => b.hours - a.hours);
   const tagMaxHours = tagBreakdown[0]?.hours || 1;
 
-  const weekGoalPct  = weeklyGoal > 0 ? Math.min(100, Math.round((weeklyHours / weeklyGoal) * 100)) : 0;
+  const weekGoalPct = weeklyGoal > 0 ? Math.min(100, Math.round((weeklyHours / weeklyGoal) * 100)) : 0;
   const saveGoal = () => {
     const v = parseFloat(goalInput);
     if (!isNaN(v) && v > 0) { setWeeklyGoal(v); localStorage.setItem('orbit:learn:weeklyGoal', String(v)); }
@@ -4883,23 +4945,23 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   const R = 38, CIRC = 2 * Math.PI * R;
   const off = CIRC - (pct / 100) * CIRC;
 
-  const recordActivity    = () => { setStreak(lTouchStreak()); lTouchActive(); setShowReEngage(false); };
-  const refreshWeeklyHours = () => getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => {});
-  const reloadLearning = () => loadUserData(workstationId).then(d => { setLearning(d.learning); refreshWeeklyHours(); }).catch(() => {});
+  const recordActivity = () => { setStreak(lTouchStreak()); lTouchActive(); setShowReEngage(false); };
+  const refreshWeeklyHours = () => getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => { });
+  const reloadLearning = () => loadUserData(workstationId).then(d => { setLearning(d.learning); refreshWeeklyHours(); }).catch(() => { });
 
   const SORT_LABELS = { date: 'Date added', est: 'Est. hours', tag: 'Tag', diff: 'Difficulty' };
-  const DIFF_ORDER  = { hard: 0, medium: 1, easy: 2 };
+  const DIFF_ORDER = { hard: 0, medium: 1, easy: 2 };
   const applySearch = (items) => !searchQ.trim() ? items : items.filter(i => i.topic.toLowerCase().includes(searchQ.toLowerCase()));
-  const applySort   = (items) => {
+  const applySort = (items) => {
     const arr = [...items];
-    if (sortBy === 'est')  return arr.sort((a, b) => (b.est || 0) - (a.est || 0));
-    if (sortBy === 'tag')  return arr.sort((a, b) => (a.cat || '').localeCompare(b.cat || ''));
+    if (sortBy === 'est') return arr.sort((a, b) => (b.est || 0) - (a.est || 0));
+    if (sortBy === 'tag') return arr.sort((a, b) => (a.cat || '').localeCompare(b.cat || ''));
     if (sortBy === 'diff') return arr.sort((a, b) => (DIFF_ORDER[a.difficulty] ?? 3) - (DIFF_ORDER[b.difficulty] ?? 3));
     return arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   };
   const processItems = (items) => applySort(applySearch(items));
 
-  const toggleSelect   = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggleSelect = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); };
 
   const handleBulkMove = async (toCol) => {
@@ -4937,9 +4999,9 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   const handleEditOpen = (item, column) => setEditItem({ item: { ...item, _col: column }, column });
 
   const handleEditSave = async (newColumn, updatedItem) => {
-    const oldColumn  = editItem.column;
+    const oldColumn = editItem.column;
     const colChanged = newColumn !== oldColumn;
-    const toSave     = { ...updatedItem };
+    const toSave = { ...updatedItem };
     if (colChanged && newColumn === 'completed' && !toSave.lastReviewed) toSave.lastReviewed = lTodayStr();
     const { item: saved } = await updateLearningItem(toSave, colChanged ? newColumn : null);
     setLearning(prev => {
@@ -4960,12 +5022,12 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   const handleMove = async (item, fromCol, toCol) => {
     const toSave = { ...item };
     if (toCol === 'inProgress') { toSave.actual = toSave.actual ?? 0; toSave.prog = toSave.prog ?? 0; }
-    if (toCol === 'completed')  toSave.lastReviewed = lTodayStr();
+    if (toCol === 'completed') toSave.lastReviewed = lTodayStr();
     const { item: saved } = await updateLearningItem(toSave, toCol);
     setLearning(prev => {
       const next = { ...prev };
       next[fromCol] = next[fromCol].filter(x => x._dbId !== item._dbId);
-      next[toCol]   = [...next[toCol], saved];
+      next[toCol] = [...next[toCol], saved];
       return next;
     });
     recordActivity();
@@ -5079,7 +5141,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
               ) : (
                 <button className="learn-goal-edit-btn" onClick={() => { setGoalInput(String(weeklyGoal)); setGoalEdit(true); }} title="Set weekly goal">
                   {weeklyHours}h / {weeklyGoal}h goal
-                  <svg viewBox="0 0 12 12" fill="none"><path d="M8.5 1.5l2 2L4 10H2V8L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
+                  <svg viewBox="0 0 12 12" fill="none"><path d="M8.5 1.5l2 2L4 10H2V8L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg>
                 </button>
               )}
             </div>
@@ -5141,7 +5203,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
       {weekGoalPct >= 100 && (
         <div className="learn-goal-achieved">
           <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-            <path d="M8 1.5l1.6 3.2 3.5.5-2.55 2.5.6 3.5L8 9.5l-3.15 1.7.6-3.5L3 5.2l3.5-.5z" fill="#4ade80" stroke="#4ade80" strokeWidth="0.8" strokeLinejoin="round"/>
+            <path d="M8 1.5l1.6 3.2 3.5.5-2.55 2.5.6 3.5L8 9.5l-3.15 1.7.6-3.5L3 5.2l3.5-.5z" fill="#4ade80" stroke="#4ade80" strokeWidth="0.8" strokeLinejoin="round" />
           </svg>
           <span><strong>Weekly goal reached!</strong> {weeklyHours}h logged this week — you&apos;re on a roll.</span>
         </div>
@@ -5151,8 +5213,8 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
       <div className="learn-toolbar">
         <div className="learn-search-wrap">
           <svg viewBox="0 0 16 16" fill="none">
-            <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
           <input
             className="learn-search"
@@ -5162,23 +5224,23 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
           />
           {searchQ && (
             <button className="learn-search-clear" onClick={() => setSearchQ('')}>
-              <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
             </button>
           )}
         </div>
 
         <div ref={sortRef} className="learn-sort-wrap">
           <button className={`learn-sort-btn${sortOpen ? ' open' : ''}`} onClick={() => setSortOpen(o => !o)}>
-            <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+            <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
             {SORT_LABELS[sortBy]}
-            <svg viewBox="0 0 16 16" fill="none" className="learn-sort-chev"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" className="learn-sort-chev"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
           {sortOpen && (
             <div className="learn-sort-menu">
               {Object.entries(SORT_LABELS).map(([k, v]) => (
                 <button key={k} className={`learn-sort-item${sortBy === k ? ' active' : ''}`}
                   onClick={() => { setSortBy(k); setSortOpen(false); }}>
-                  {sortBy === k && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  {sortBy === k && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                   {v}
                 </button>
               ))}
@@ -5190,7 +5252,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
           className={`learn-select-btn${selectMode ? ' active' : ''}`}
           onClick={() => { selectMode ? exitSelectMode() : setSelectMode(true); }}
         >
-          <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg>
+          <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /></svg>
           {selectMode ? 'Cancel' : 'Select'}
         </button>
       </div>
@@ -5253,9 +5315,9 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
         </div>
       )}
 
-      <TopicFormPanel open={showAdd}    onClose={() => setShowAdd(false)}  onSave={handleAdd}      mode="add"  allTags={allTags} />
-      <TopicFormPanel open={!!editItem} onClose={() => setEditItem(null)}  onSave={handleEditSave} mode="edit" initial={editItem?.item} allTags={allTags} />
-      <LogHoursDialog   item={logHoursItem}       onSave={handleLogHoursSave}    onClose={() => setLogHoursItem(null)} />
+      <TopicFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSave={handleAdd} mode="add" allTags={allTags} />
+      <TopicFormPanel open={!!editItem} onClose={() => setEditItem(null)} onSave={handleEditSave} mode="edit" initial={editItem?.item} allTags={allTags} />
+      <LogHoursDialog item={logHoursItem} onSave={handleLogHoursSave} onClose={() => setLogHoursItem(null)} />
       <LearnDeleteDialog item={deleteTarget?.item} onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} />
       <SessionsPanel
         item={sessionsItem}
@@ -5741,7 +5803,9 @@ const DeleteConfirmDialog = ({ item, onConfirm, onCancel }) => {
   );
 };
 
-export const VaultPage = ({ vault, setVault, workstationId }) => {
+export const VaultPage = ({ vault, setVault, workstationId, myRole = 'viewer', wsPermissions = {} }) => {
+  const canManage = canDo(myRole, 'manage_vault', wsPermissions);
+  const NO_PERM = "You don't have permission";
   const [vaultState, setVaultState] = useStateA('loading'); // loading | setup | locked | unlocked
   const [cat, setCat] = useStateA('all');
   const [revealed, setRevealed] = useStateA({});
@@ -6030,7 +6094,7 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
           <button className="btn" onClick={handleExport}><Icon name="download" size={12} /> Export</button>
           <button className="btn ghost" onClick={() => setShowChangePw(true)}><Icon name="key" size={12} /> Change password</button>
           <button className="btn ghost" onClick={handleLock}><Icon name="lock" size={12} /> Lock</button>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>
+          <button className={'btn primary' + (canManage ? '' : ' perm-denied')} onClick={() => setShowAdd(true)} disabled={!canManage} title={canManage ? 'New secret' : NO_PERM}>
             <Icon name="plus" size={12} /> New secret
           </button>
         </div>
@@ -6097,13 +6161,17 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
                   <button className="iconbtn" title="Copy" onClick={() => handleCopy(v)}>
                     <Icon name="copy" size={13} />
                   </button>
-                  <button className="iconbtn" title="Edit" onClick={() => openEdit(v)}>
-                    <Icon name="edit" size={13} />
-                  </button>
-                  <button className="iconbtn" title="Delete" onClick={() => setDeleteItem(v)}
-                    style={{ color: '#ef4444' }}>
-                    <Icon name="trash" size={13} />
-                  </button>
+                  {canManage && (
+                    <>
+                      <button className="iconbtn" title="Edit" onClick={() => openEdit(v)}>
+                        <Icon name="edit" size={13} />
+                      </button>
+                      <button className="iconbtn" title="Delete" onClick={() => setDeleteItem(v)}
+                        style={{ color: '#ef4444' }}>
+                        <Icon name="trash" size={13} />
+                      </button>
+                    </>
+                  )}
                 </span>
               </div>
             );

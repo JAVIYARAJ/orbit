@@ -57,6 +57,7 @@ const fromDbTask = (r) => ({
   loggedMinutes: r.logged_minutes || 0,
   ghBranch:      r.gh_branch      || '',
   deletedAt:     r.deleted_at     || null,
+  assigneeId:    r.assignee_id    || null,
 })
 
 const fromDbNote = (r) => ({
@@ -135,6 +136,7 @@ const taskPayload = (t) => ({
   parent_task_id:   t.parentId    || null,
   est_minutes:      t.estMinutes  || 0,
   gh_branch:        t.ghBranch    || null,
+  assignee_id:      t.assigneeId  || null,
 })
 
 const learningPayload = (i) => ({
@@ -896,5 +898,110 @@ export const getLearningActivity = async (workstationId, startDate = null, endDa
   const { data, error } = await supabase.rpc('get_learning_activity', params)
   if (error) throw error
   return (data || []).map(r => ({ date: r.activity_date, hours: Number(r.total_hours) || 0 }))
+}
+
+// ─── Team / Members ───────────────────────────────────────────────
+
+const fromDbMember = (r) => ({
+  userId:    r.user_id,
+  role:      r.role,
+  name:      r.name || r.email?.split('@')[0] || 'Unknown',
+  email:     r.email,
+  avatar:    r.avatar || (r.name?.[0] || '?').toUpperCase(),
+  avatarUrl: r.avatar_url || null,
+  joinedAt:  r.joined_at,
+})
+
+const fromDbInvite = (r) => ({
+  id:        r.id,
+  email:     r.email,
+  role:      r.role,
+  token:     r.token,
+  createdAt: r.created_at,
+  expiresAt: r.expires_at,
+})
+
+export const listWorkspaceMembers = async (workstationId) => {
+  const { data, error } = await supabase.rpc('list_workspace_members', { p_workstation_id: workstationId })
+  if (error) throw error
+  return (data || []).map(fromDbMember)
+}
+
+export const inviteMember = async (workstationId, email, role, workspaceName, inviterName) => {
+  const { data, error } = await supabase.rpc('invite_member', {
+    p_workstation_id: workstationId,
+    p_email:          email,
+    p_role:           role,
+    p_workspace_name: workspaceName,
+    p_inviter_name:   inviterName,
+  })
+  if (error) throw error
+  return data
+}
+
+export const acceptInvite = async (token) => {
+  const { data, error } = await supabase.rpc('accept_invite', { p_token: token })
+  if (error) throw error
+  return data
+}
+
+export const cancelInvite = async (inviteId) => {
+  const { error } = await supabase.rpc('cancel_invite', { p_invite_id: inviteId })
+  if (error) throw error
+}
+
+export const getPendingInvites = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_pending_invites', { p_workstation_id: workstationId })
+  if (error) throw error
+  return (data || []).map(fromDbInvite)
+}
+
+export const getInviteByToken = async (token) => {
+  const { data, error } = await supabase.rpc('get_invite_by_token', { p_token: token })
+  if (error) throw error
+  return data
+}
+
+export const updateMemberRole = async (workstationId, userId, role) => {
+  const { error } = await supabase.rpc('update_member_role', {
+    p_workstation_id: workstationId,
+    p_user_id:        userId,
+    p_role:           role,
+  })
+  if (error) throw error
+}
+
+export const removeMember = async (workstationId, userId) => {
+  const { error } = await supabase.rpc('remove_member', {
+    p_workstation_id: workstationId,
+    p_user_id:        userId,
+  })
+  if (error) throw error
+}
+
+export const transferOwnership = async (workstationId, newOwnerId) => {
+  const { error } = await supabase.rpc('transfer_ownership', {
+    p_workstation_id: workstationId,
+    p_new_owner_id:   newOwnerId,
+  })
+  if (error) throw error
+}
+
+// ─── Workspace Permissions ────────────────────────────────────────
+
+export const getWorkspacePermissions = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_workspace_permissions', { p_workstation_id: workstationId })
+  if (error) throw error
+  return data || {}
+}
+
+export const upsertPermission = async (workstationId, role, key, allowed) => {
+  const { error } = await supabase.rpc('upsert_permission', {
+    p_workstation_id: workstationId,
+    p_role:           role,
+    p_key:            key,
+    p_allowed:        allowed,
+  })
+  if (error) throw error
 }
 

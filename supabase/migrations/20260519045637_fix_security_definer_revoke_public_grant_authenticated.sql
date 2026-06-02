@@ -1,0 +1,115 @@
+-- Fix: anon_security_definer_function_executable
+-- Revoke EXECUTE from PUBLIC (which includes anon), then explicitly grant to authenticated only.
+-- This prevents anonymous users from calling privileged SECURITY DEFINER functions.
+
+-- Revoke from PUBLIC
+REVOKE EXECUTE ON FUNCTION public.check_workstation_empty(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.complete_time_entry(uuid, integer, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_email_template(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_learning_item(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_my_workstation(text, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_note(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_project(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_project_type(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_tag(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_task(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_task_status(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.create_vault_item(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_email_template(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_note(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_project(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_project_type(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_tag(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_task(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_task_status(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.delete_vault_item(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.discard_time_entry(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_active_time_entry(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_deleted_notes(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_my_context() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_my_workstations() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_task_note_links(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_task_status_logs(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_time_entries(uuid, integer) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.link_note_to_task(uuid, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.load_workstation_data(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.log_manual_time(uuid, uuid, uuid, integer, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.pause_time_entry(uuid, integer) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.purge_note(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.reorder_project_types(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.reorder_task_statuses(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.restore_note(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.resume_time_entry(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.seed_default_statuses() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.seed_workstation_data(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.start_time_entry(uuid, uuid, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.switch_active_workstation(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.te_json(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.unlink_note_from_task(uuid, uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_email_template(text, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_my_avatar(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_note(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_project(text, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_project_type(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_tag(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_task(text, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_task_status(uuid, jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.update_vault_item(uuid, jsonb) FROM PUBLIC;
+
+-- Grant EXECUTE only to authenticated users (app callers)
+GRANT EXECUTE ON FUNCTION public.check_workstation_empty(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_time_entry(uuid, integer, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_email_template(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_learning_item(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_my_workstation(text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_note(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_project(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_project_type(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_tag(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_task(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_task_status(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_vault_item(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_email_template(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_note(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_project(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_project_type(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_tag(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_task(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_task_status(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_vault_item(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.discard_time_entry(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_active_time_entry(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_deleted_notes(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_my_context() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_my_workstations() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_task_note_links(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_task_status_logs(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_time_entries(uuid, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.handle_new_user() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.link_note_to_task(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.load_workstation_data(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.log_manual_time(uuid, uuid, uuid, integer, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.pause_time_entry(uuid, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.purge_note(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reorder_project_types(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reorder_task_statuses(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.restore_note(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.resume_time_entry(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.seed_workstation_data(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.start_time_entry(uuid, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.switch_active_workstation(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.te_json(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.unlink_note_from_task(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_email_template(text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_my_avatar(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_note(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_project(text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_project_type(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_tag(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_task(text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_task_status(uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_vault_item(uuid, jsonb) TO authenticated;
+-- Note: seed_default_statuses and handle_new_user are trigger functions — 
+-- they are invoked by triggers (as owner), not directly by users.
+-- No GRANT needed for authenticated on them.

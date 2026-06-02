@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
-import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities } from '../lib/db.js';
+import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission } from '../lib/db.js';
+import { canDo, canModifyMember, assignableRoles, DEFAULT_PERMISSIONS, PERMISSION_LABELS, PERMISSION_GROUPS } from '../lib/permissions.js';
 import { vcClearCache } from '../lib/vercel.js';
 
 const INTEGRATION_ICON = {
@@ -24,8 +25,8 @@ const formatJoined = (ts) => {
 
 // ── Tag settings row — color + inline name editing ───────────────
 const TagSettingsRow = ({ tag, onUpdate, onDelete, totalCount }) => {
-  const [name,   setName]   = useState(tag.name);
-  const [color,  setColor]  = useState(tag.color);
+  const [name, setName] = useState(tag.name);
+  const [color, setColor] = useState(tag.color);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { setName(tag.name); setColor(tag.color); }, [tag.id, tag.name, tag.color]);
@@ -127,8 +128,8 @@ const ProjectTypeRow = ({ type, index, total, onUpdate, onDelete, onMoveUp, onMo
 
 // ── Priority row — inline label + color editing, drag to reorder ──
 const PriorityRow = ({ priority, index, total, onUpdate, onDelete, onMoveUp, onMoveDown, onDragStart, onDragOver, onDragEnd, isDragging }) => {
-  const [label,  setLabel]  = useState(priority.label);
-  const [color,  setColor]  = useState(priority.color);
+  const [label, setLabel] = useState(priority.label);
+  const [color, setColor] = useState(priority.color);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { setLabel(priority.label); setColor(priority.color); }, [priority.id, priority.label, priority.color]);
@@ -291,7 +292,281 @@ const StatusRow = ({ status, index, total, onUpdate, onDelete, onMoveUp, onMoveD
 const genKey = (label) =>
   label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32) || 'status';
 
-export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags, priorities = [], setPriorities }) => {
+// ── Members Section ────────────────────────────────────────────────
+const avatarColor = (str = '') => {
+  const colors = ['#0099ff', '#7c3aed', '#16a34a', '#d97706', '#ef4444', '#06b6d4', '#ec4899'];
+  let h = 0; for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return colors[Math.abs(h) % colors.length];
+};
+
+const MembersSection = ({ activeWorkstation, members, setMembers, pendingInvites, setPendingInvites, myRole, wsPermissions = {}, currentUserId, setTasks }) => {
+  const [busy, setBusy] = useState({});
+  const [removeConfirm, setRemoveConfirm] = useState(null);
+  // Respect custom workspace permission overrides (previously passed {} here, which
+  // silently ignored them and disagreed with the Collaboration page).
+  const canChange = canDo(myRole, 'change_role', wsPermissions);
+  const canRemove = canDo(myRole, 'remove_member', wsPermissions);
+
+  const handleRoleChange = async (member, newRole) => {
+    setBusy(b => ({ ...b, [member.userId]: true }));
+    try {
+      await updateMemberRole(activeWorkstation.id, member.userId, newRole);
+      setMembers(prev => prev.map(m => m.userId === member.userId ? { ...m, role: newRole } : m));
+    } finally {
+      setBusy(b => ({ ...b, [member.userId]: false }));
+    }
+  };
+
+  const handleRemove = async (member) => {
+    setRemoveConfirm(member);
+  };
+
+  const confirmRemove = async () => {
+    const member = removeConfirm;
+    if (!member) return;
+    setRemoveConfirm(null);
+    setBusy(b => ({ ...b, [member.userId]: true }));
+    try {
+      await removeMember(activeWorkstation.id, member.userId);
+      setMembers(prev => prev.filter(m => m.userId !== member.userId));
+      // Mirror the server-side assignment clear so the UI doesn't keep a removed assignee.
+      setTasks?.(prev => prev.map(t => t.assigneeId === member.userId ? { ...t, assigneeId: null } : t));
+    } finally {
+      setBusy(b => ({ ...b, [member.userId]: false }));
+    }
+  };
+
+  const handleCancelInvite = async (invite) => {
+    setBusy(b => ({ ...b, [invite.id]: true }));
+    try {
+      await cancelInvite(invite.id);
+      setPendingInvites(prev => prev.filter(i => i.id !== invite.id));
+    } finally {
+      setBusy(b => ({ ...b, [invite.id]: false }));
+    }
+  };
+
+  return (
+    <div className="settings-section-inner slide-in-up">
+      <div className="section-group">
+        <div className="section-group-h">
+          <span>Team Members</span>
+          <p>People with access to this workspace.</p>
+        </div>
+        <div className="card" style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}>
+          <div className="card-pad" style={{ padding: 0 }}>
+            {members.length === 0 ? (
+              <div className="empty-state">No members yet. Use the Collaboration page to invite someone.</div>
+            ) : (
+              <div className="collab-members-grid">
+                {members.map(member => (
+                  <div key={member.userId} className="collab-member-card">
+                    <div className="collab-member-top">
+                      <div className="collab-member-avatar-container">
+                        <div style={{ width: 48, height: 48, borderRadius: '50%', background: member.avatarUrl ? 'var(--bg-3)' : avatarColor(member.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 600, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                          {member.avatarUrl
+                            ? <img src={member.avatarUrl} alt={member.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : member.avatar
+                          }
+                        </div>
+                        <div className={`collab-member-status-dot ${member.userId !== currentUserId && Math.random() > 0.5 ? 'offline' : ''}`} />
+                      </div>
+
+                      <div className="collab-member-info">
+                        <div className="collab-member-name">
+                          {member.name}
+                          {member.userId === currentUserId && <span className="collab-member-you-badge">You</span>}
+                        </div>
+                        <div className="collab-member-email">{member.email}</div>
+                      </div>
+                    </div>
+
+                    <div className="collab-member-bottom">
+                      {canChange && canModifyMember(myRole, member, currentUserId) ? (
+                        <select
+                          className="collab-role-select"
+                          value={member.role}
+                          onChange={e => handleRoleChange(member, e.target.value)}
+                          disabled={busy[member.userId]}
+                        >
+                          {assignableRoles(myRole, wsPermissions).map(r => (
+                            <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`collab-role-pill role-${member.role}`}>
+                          {ROLE_LABEL[member.role]}
+                        </span>
+                      )}
+
+                      <div className="collab-member-actions">
+                        {canRemove && canModifyMember(myRole, member, currentUserId) && (
+                          <button
+                            className="collab-action-icon danger"
+                            onClick={() => handleRemove(member)}
+                            disabled={busy[member.userId]}
+                            title="Remove member"
+                          >
+                            <Icon name="user-minus" size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {pendingInvites.length > 0 && (
+        <div className="section-group">
+          <div className="section-group-h">
+            <span>Pending Invites</span>
+            <p>These users haven't accepted yet.</p>
+          </div>
+          <div className="card" style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}>
+            <div className="card-pad" style={{ padding: 0 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {pendingInvites.map(invite => {
+                  const inviteUrl = `${window.location.origin}${window.location.pathname}?invite=${invite.token}`;
+                  return (
+                    <div key={invite.id} className="collab-invite-card">
+                      <div className="collab-invite-header">
+                        <div className="collab-invite-icon">
+                          <Icon name="mail" size={16} />
+                        </div>
+                        <div className="collab-invite-info">
+                          <div className="collab-invite-email">{invite.email}</div>
+                          <div className="collab-invite-meta">
+                            <span style={{ textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-2)' }}>{ROLE_LABEL[invite.role]}</span>
+                            <span style={{ opacity: 0.5 }}>•</span>
+                            <span>Expires {new Date(invite.expiresAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="collab-invite-actions">
+                        <button onClick={() => navigator.clipboard.writeText(inviteUrl)} title="Copy link">
+                          <Icon name="copy" size={14} /> Copy Link
+                        </button>
+                        <button className="cancel-btn" onClick={() => handleCancelInvite(invite)} disabled={busy[invite.id]} title="Cancel invite">
+                          <Icon name="x" size={14} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Remove Confirmation Modal */}
+      {removeConfirm && (
+        <div className="modal-overlay" onClick={() => setRemoveConfirm(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-hd">
+              <h3>Remove Team Member</h3>
+              <button className="modal-close" onClick={() => setRemoveConfirm(null)}>
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>Are you sure you want to remove <strong className="highlight">{removeConfirm.name}</strong> from this workspace? They will instantly lose access to all projects and tasks.</p>
+            </div>
+            <div className="modal-ft">
+              <button className="btn ghost" onClick={() => setRemoveConfirm(null)}>Cancel</button>
+              <button className="btn primary danger" onClick={confirmRemove}>Remove Member</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Permissions Section ────────────────────────────────────────────
+const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions }) => {
+  const roles = ['admin', 'member', 'viewer'];
+
+  const getValue = (role, key) => {
+    const override = `${role}:${key}`;
+    if (override in wsPermissions) return wsPermissions[override] === true || wsPermissions[override] === 'true';
+    return DEFAULT_PERMISSIONS[role]?.[key] ?? false;
+  };
+
+  const handleToggle = async (role, key, newVal) => {
+    const flatKey = `${role}:${key}`;
+    setWsPermissions(prev => ({ ...prev, [flatKey]: newVal }));
+    try {
+      await upsertPermission(activeWorkstation.id, role, key, newVal);
+    } catch {
+      setWsPermissions(prev => ({ ...prev, [flatKey]: !newVal }));
+    }
+  };
+
+  return (
+    <div className="settings-section-inner slide-in-up">
+      <div className="section-group">
+        <div className="section-group-h">
+          <span>Role Permissions</span>
+          <p>Control what each role can do in this workspace. Owner always has full access.</p>
+        </div>
+        <div className="card">
+          <div className="card-pad">
+            <div className="perm-grid">
+              <div className="perm-row perm-header">
+                <div className="perm-action-col">Action</div>
+                {roles.map(r => (
+                  <div key={r} className="perm-role-col">{ROLE_LABEL[r]}</div>
+                ))}
+                <div className="perm-role-col" style={{ color: 'var(--text-3)' }}>Owner</div>
+              </div>
+              {PERMISSION_GROUPS.map(group => (
+                <div key={group.label} className="perm-group">
+                  <div className="perm-row perm-group-head">
+                    <div className="perm-action-col">{group.label}</div>
+                    {roles.map(r => <div key={r} className="perm-role-col" />)}
+                    <div className="perm-role-col" />
+                  </div>
+                  {group.keys.map(key => (
+                    <div key={key} className="perm-row">
+                      <div className="perm-action-col">{PERMISSION_LABELS[key]}</div>
+                      {roles.map(role => {
+                        const val = getValue(role, key);
+                        return (
+                          <div key={role} className="perm-role-col">
+                            <button
+                              className={'perm-toggle' + (val ? ' on' : '')}
+                              onClick={() => handleToggle(role, key, !val)}
+                              title={val ? 'Allowed — click to revoke' : 'Not allowed — click to grant'}
+                            >
+                              {val ? <Icon name="check" size={12} /> : <Icon name="minus" size={12} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <div className="perm-role-col">
+                        <div className="perm-toggle on disabled" title="Owner always has access">
+                          <Icon name="check" size={12} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags, priorities = [], setPriorities, members = [], setMembers, pendingInvites = [], setPendingInvites, wsPermissions = {}, setWsPermissions, myRole = 'viewer', setTasks }) => {
   const fileRef = useRef(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
@@ -339,9 +614,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   // ── GitHub integration ──────────────────────────────────────────────
-  const [githubInteg,  setGithubInteg]  = useState(null);
-  const [ghLoading,    setGhLoading]    = useState(true);
-  const [ghError,      setGhError]      = useState('');
+  const [githubInteg, setGithubInteg] = useState(null);
+  const [ghLoading, setGhLoading] = useState(true);
+  const [ghError, setGhError] = useState('');
   const [ghDisconnecting, setGhDisconnecting] = useState(false);
 
   useEffect(() => {
@@ -357,9 +632,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
     setGhError('');
     const EDGE_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-oauth`;
     const params = new URLSearchParams({
-      client_id:    'Ov23li4xj01qD2wkGOPk',
-      scope:        'repo delete_repo read:user user:email',
-      state:        user.id,
+      client_id: 'Ov23li4xj01qD2wkGOPk',
+      scope: 'repo delete_repo read:user user:email',
+      state: user.id,
       redirect_uri: EDGE_FN,
     });
     window.location.href = `https://github.com/login/oauth/authorize?${params}`;
@@ -378,13 +653,13 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   // ── Vercel integration ──────────────────────────────────────────────
-  const [vercelInteg,     setVercelInteg]     = useState(null);
-  const [vcLoading,       setVcLoading]       = useState(true);
+  const [vercelInteg, setVercelInteg] = useState(null);
+  const [vcLoading, setVcLoading] = useState(true);
   const [vcDisconnecting, setVcDisconnecting] = useState(false);
-  const [vcError,         setVcError]         = useState('');
-  const [vcPATOpen,       setVcPATOpen]       = useState(false);
-  const [vcToken,         setVcToken]         = useState('');
-  const [vcSaving,        setVcSaving]        = useState(false);
+  const [vcError, setVcError] = useState('');
+  const [vcPATOpen, setVcPATOpen] = useState(false);
+  const [vcToken, setVcToken] = useState('');
+  const [vcSaving, setVcSaving] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -611,9 +886,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   // ── Tag management ────────────────────────────────────────────────
-  const [newTagName,  setNewTagName]  = useState('');
+  const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#0099ff');
-  const [tagAddErr,   setTagAddErr]   = useState('');
+  const [tagAddErr, setTagAddErr] = useState('');
   const [tagAddSaving, setTagAddSaving] = useState(false);
   const [tagDeleteConfirm, setTagDeleteConfirm] = useState({ isOpen: false, id: null, name: '' });
 
@@ -664,9 +939,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
 
   const [newPriorityLabel, setNewPriorityLabel] = useState('');
   const [newPriorityColor, setNewPriorityColor] = useState('#888888');
-  const [priorityAddErr,   setPriorityAddErr]   = useState('');
+  const [priorityAddErr, setPriorityAddErr] = useState('');
   const [priorityAddSaving, setPriorityAddSaving] = useState(false);
-  const [priorityDragIdx, setPriorityDragIdx]   = useState(null);
+  const [priorityDragIdx, setPriorityDragIdx] = useState(null);
   const [priorityDeleteConfirm, setPriorityDeleteConfirm] = useState({ isOpen: false, id: null, label: '' });
 
   const handleUpdatePriority = async (id, label, color) => {
@@ -776,17 +1051,19 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   const navItems = [
     { id: 'profile', label: 'Profile & General', icon: 'users' },
     { id: 'workspace', label: 'Workspace', icon: 'layers' },
-    { 
-      id: 'kanban', 
-      label: 'Task Kanban', 
+    {
+      id: 'kanban',
+      label: 'Task Kanban',
       icon: 'list',
       children: [
-        { id: 'kanban-cols',       label: 'Column Management' },
-        { id: 'kanban-types',      label: 'Project Types' },
-        { id: 'kanban-tags',       label: 'Task Tags' },
+        { id: 'kanban-cols', label: 'Column Management' },
+        { id: 'kanban-types', label: 'Project Types' },
+        { id: 'kanban-tags', label: 'Task Tags' },
         { id: 'kanban-priorities', label: 'Priority Types' },
       ]
     },
+    { id: 'members', label: 'Members', icon: 'users' },
+    ...(myRole === 'owner' ? [{ id: 'permissions', label: 'Permissions', icon: 'shield' }] : []),
     { id: 'integrations', label: 'Integrations', icon: 'link' },
   ];
 
@@ -854,7 +1131,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     <span>{item.label}</span>
                     {isActive && !item.children && <div className="active-indicator" />}
                   </button>
-                  
+
                   {isActive && item.children && (
                     <div className="settings-nav-sub">
                       {item.children.map(child => (
@@ -1265,6 +1542,28 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
               </div>
             )}
 
+            {activeTab === 'members' && (
+              <MembersSection
+                activeWorkstation={activeWorkstation}
+                members={members}
+                setMembers={setMembers}
+                pendingInvites={pendingInvites}
+                setPendingInvites={setPendingInvites}
+                myRole={myRole}
+                wsPermissions={wsPermissions}
+                currentUserId={user?.id}
+                setTasks={setTasks}
+              />
+            )}
+
+            {activeTab === 'permissions' && myRole === 'owner' && (
+              <PermissionsSection
+                activeWorkstation={activeWorkstation}
+                wsPermissions={wsPermissions}
+                setWsPermissions={setWsPermissions}
+              />
+            )}
+
             {activeTab === 'integrations' && (
               <div className="settings-section-inner slide-in-up">
                 <div className="section-group">
@@ -1364,9 +1663,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
 
                   <div className="intg-coming-soon-grid">
                     {[
-                      { name: 'Slack',  icon: 'message-square', color: '#4A154B' },
-                      { name: 'Linear', icon: 'layers',          color: '#5E6AD2' },
-                      { name: 'Stripe', icon: 'credit-card',     color: '#0070BA' },
+                      { name: 'Slack', icon: 'message-square', color: '#4A154B' },
+                      { name: 'Linear', icon: 'layers', color: '#5E6AD2' },
+                      { name: 'Stripe', icon: 'credit-card', color: '#0070BA' },
                     ].map(p => (
                       <div key={p.name} className="intg-soon-card">
                         <div className="intg-soon-icon" style={{ color: p.color }}>
