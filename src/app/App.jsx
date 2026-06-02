@@ -14,6 +14,7 @@ import {
   completeTimeEntry, discardTimeEntry, getTimeEntries, getActiveTimeEntry,
   logManualTime, getLearningActivity,
   listWorkspaceMembers, getPendingInvites, getWorkspacePermissions,
+  getNotifications, markNotificationsRead, getUnreadNotificationsCount,
 } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
@@ -193,6 +194,26 @@ export default function App() {
         }
       })
       .catch(e => { console.error(e); setWsLoading(false); });
+
+    // Load notifications on login
+    getNotifications().then(setNotifications).catch(() => {});
+    getUnreadNotificationsCount().then(setUnreadCount).catch(() => {});
+  }, [authUser?.id]);
+
+  // ── Realtime: notification inserts for the current user ─────────
+  useEffectApp(() => {
+    if (!authUser?.id) return;
+    const ch = supabase
+      .channel(`notifications-${authUser.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'notifications',
+        filter: `user_id=eq.${authUser.id}`,
+      }, () => {
+        getNotifications().then(setNotifications).catch(() => {});
+        getUnreadNotificationsCount().then(setUnreadCount).catch(() => {});
+      })
+      .subscribe();
+    return () => supabase.removeChannel(ch);
   }, [authUser?.id]);
 
   // ── Load data when active workstation changes ───────────────────
@@ -297,6 +318,13 @@ export default function App() {
   }, [authUser?.id, activeWorkstation?.id]);
 
   // Workstation handlers
+  const handleMarkRead = async (ids) => {
+    if (!ids?.length) return;
+    await markNotificationsRead(ids).catch(() => {});
+    setNotifications(prev => prev.map(n => ids.includes(n.id) ? { ...n, readAt: new Date().toISOString() } : n));
+    setUnreadCount(prev => Math.max(0, prev - ids.filter(id => notifications.find(n => n.id === id && !n.readAt)).length));
+  };
+
   const handleWsCreated = (ws) => {
     setWorkstations(prev => [...prev, ws]);
     setActiveWorkstation(ws);
@@ -373,6 +401,8 @@ export default function App() {
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
   const [isGithubConnected, setIsGithubConnected] = useStateApp(false);
+  const [notifications,     setNotifications]     = useStateApp([]);
+  const [unreadCount,       setUnreadCount]       = useStateApp(0);
 
   // ── Team collaboration ──────────────────────────────────────────
   const [members,        setMembers]        = useStateApp([]);
@@ -656,6 +686,10 @@ export default function App() {
           onTimerJump={() => setCurrent('timer')}
           theme={t.theme || 'dark'}
           onThemeToggle={() => setTweak('theme', t.theme === 'light' ? 'dark' : 'light')}
+          notifications={notifications}
+          unreadCount={unreadCount}
+          onMarkRead={handleMarkRead}
+          onNav={setCurrent}
         />
         <div className="content" key={current}>
           <PageRouter

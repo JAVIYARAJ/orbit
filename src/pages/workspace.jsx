@@ -11,6 +11,7 @@ import {
   createLearningSession, listLearningSessions, deleteLearningSession, getWeeklyLearningHours,
   createTag,
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
+  getTaskComments, addTaskComment, updateTaskComment, deleteTaskComment,
 } from '../lib/db.js';
 import {
   deriveKey, generateSalt, encryptValue, decryptValue,
@@ -27,6 +28,13 @@ import {
 } from 'recharts';
 
 // ─── Helpers ──────────────────────────────────────────────────────
+const _avaColors = ['#0099ff', '#7c3aed', '#16a34a', '#d97706', '#ef4444', '#06b6d4', '#ec4899'];
+const avaColor = (str = '') => {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return _avaColors[Math.abs(h) % _avaColors.length];
+};
+
 const getDueClass = (date) => {
   if (!date || date === '—') return '';
 
@@ -1744,8 +1752,6 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities =
   const prioObj = priorities.find(pr => pr.id === t.p);
   const assignee = t.assigneeId ? members.find(m => m.userId === t.assigneeId) : null;
 
-  const avaColors = ['#0099ff', '#7c3aed', '#16a34a', '#d97706', '#ef4444', '#06b6d4', '#ec4899'];
-  const avaColor = (str = '') => { let h = 0; for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h); return avaColors[Math.abs(h) % avaColors.length]; };
 
   return (
     <div
@@ -2029,6 +2035,8 @@ const TaskDetailModal = ({
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
   onLogTime, isGithubConnected = false, onBranchUpdate, onDelete,
   members = [],
+  currentUserId = null,
+  myRole = 'viewer',
   canEdit = true, canDelete = true, canAssign = true, canGithubWrite = false,
 }) => {
   const NO_PERM = "You don't have permission";
@@ -2201,6 +2209,192 @@ const TaskDetailModal = ({
   const [deleteBranch, setDeleteBranch] = useStateA(false);
   const [deletingTask, setDeletingTask] = useStateA(false);
   const [deleteErr, setDeleteErr] = useStateA('');
+
+  // ── Comments ──────────────────────────────────────────────────────
+  const MAX_COMMENT = 5000;
+  const [comments, setComments] = useStateA([]);
+  const [commentsLoading, setCommentsLoading] = useStateA(false);
+  const [newCommentBody, setNewCommentBody] = useStateA('');
+  const [commentSubmitting, setCommentSubmitting] = useStateA(false);
+  const [editingCommentId, setEditingCommentId] = useStateA(null);
+  const [editingCommentBody, setEditingCommentBody] = useStateA('');
+  const [editSaving, setEditSaving] = useStateA(false);
+  const [deleteConfirmCommentId, setDeleteConfirmCommentId] = useStateA(null);
+  const [commentErr, setCommentErr] = useStateA('');
+
+  // ── Mention picker ────────────────────────────────────────────────
+  const [mentionQuery, setMentionQuery] = useStateA('');
+  const [mentionOpen, setMentionOpen] = useStateA(false);
+  const [mentionIndex, setMentionIndex] = useStateA(0);
+  const [pendingMentions, setPendingMentions] = useStateA([]);
+  const commentTextareaRef = useRefA(null);
+
+  const mentionMembers = members.filter(m =>
+    mentionQuery === '' ? true : m.name.toLowerCase().includes(mentionQuery.toLowerCase())
+  ).slice(0, 6);
+
+  const handleCommentInput = (e) => {
+    const val = e.target.value;
+    setNewCommentBody(val);
+    const cursor = e.target.selectionStart;
+    const textBefore = val.slice(0, cursor);
+    const match = textBefore.match(/@(\w*)$/);
+    if (match) {
+      setMentionQuery(match[1]);
+      setMentionOpen(true);
+      setMentionIndex(0);
+    } else {
+      setMentionOpen(false);
+      setMentionQuery('');
+    }
+  };
+
+  const handleMentionSelect = (member) => {
+    const cursor = commentTextareaRef.current?.selectionStart ?? newCommentBody.length;
+    const before = newCommentBody.slice(0, cursor);
+    const after  = newCommentBody.slice(cursor);
+    const replaced = before.replace(/@(\w*)$/, `@${member.name} `);
+    setNewCommentBody(replaced + after);
+    setMentionOpen(false);
+    setMentionQuery('');
+    setPendingMentions(prev =>
+      prev.find(m => m.userId === member.userId) ? prev : [...prev, { userId: member.userId, name: member.name }]
+    );
+    setTimeout(() => commentTextareaRef.current?.focus(), 0);
+  };
+
+  const renderCommentBody = (body) => {
+    const parts = body.split(/(@[\w][\w ]*)/g);
+    return parts.map((part, i) =>
+      part.startsWith('@')
+        ? <span key={i} className="mention-highlight">{part}</span>
+        : part
+    );
+  };
+
+  // ── Reply state ───────────────────────────────────────────────────
+  const [replyToId, setReplyToId] = useStateA(null);   // comment id being replied to
+  const [replyBody, setReplyBody] = useStateA('');
+  const [replySubmitting, setReplySubmitting] = useStateA(false);
+  const [replyMentions, setReplyMentions] = useStateA([]);
+  const [replyMentionQuery, setReplyMentionQuery] = useStateA('');
+  const [replyMentionOpen, setReplyMentionOpen] = useStateA(false);
+  const [replyMentionIndex, setReplyMentionIndex] = useStateA(0);
+  const replyTextareaRef = useRefA(null);
+
+  const replyMentionMembers = members.filter(m =>
+    replyMentionQuery === '' ? true : m.name.toLowerCase().includes(replyMentionQuery.toLowerCase())
+  ).slice(0, 6);
+
+  const handleReplyInput = (e) => {
+    const val = e.target.value;
+    setReplyBody(val);
+    const cursor = e.target.selectionStart;
+    const match = val.slice(0, cursor).match(/@(\w*)$/);
+    if (match) { setReplyMentionQuery(match[1]); setReplyMentionOpen(true); setReplyMentionIndex(0); }
+    else { setReplyMentionOpen(false); setReplyMentionQuery(''); }
+  };
+
+  const handleReplyMentionSelect = (member) => {
+    const cursor = replyTextareaRef.current?.selectionStart ?? replyBody.length;
+    const replaced = replyBody.slice(0, cursor).replace(/@(\w*)$/, `@${member.name} `) + replyBody.slice(cursor);
+    setReplyBody(replaced);
+    setReplyMentionOpen(false);
+    setReplyMentionQuery('');
+    setReplyMentions(prev => prev.find(m => m.userId === member.userId) ? prev : [...prev, { userId: member.userId, name: member.name }]);
+    setTimeout(() => replyTextareaRef.current?.focus(), 0);
+  };
+
+  const handleSubmitReply = async () => {
+    const body = replyBody.trim();
+    if (!body || body.length > MAX_COMMENT) return;
+    setReplySubmitting(true);
+    setCommentErr('');
+    try {
+      const comment = await addTaskComment(task._dbId, body, replyMentions.map(m => m.userId), replyToId);
+      setComments(prev => [...prev, comment]);
+      setReplyToId(null);
+      setReplyBody('');
+      setReplyMentions([]);
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to post reply.');
+    } finally {
+      setReplySubmitting(false);
+    }
+  };
+
+  // Group comments into threads: top-level + their replies
+  const commentThreads = comments
+    .filter(c => !c.parentId)
+    .map(parent => ({
+      ...parent,
+      replies: comments.filter(c => c.parentId === parent.id),
+    }));
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    setCommentsLoading(true);
+    getTaskComments(task._dbId)
+      .then(setComments)
+      .catch(() => setComments([]))
+      .finally(() => setCommentsLoading(false));
+  }, [task._dbId]);
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    const ch = supabase
+      .channel(`task-comments-${task._dbId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` },
+        () => getTaskComments(task._dbId).then(setComments).catch(() => {}))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` },
+        () => getTaskComments(task._dbId).then(setComments).catch(() => {}))
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [task._dbId]);
+
+  const handleAddComment = async () => {
+    const body = newCommentBody.trim();
+    if (!body || body.length > MAX_COMMENT) return;
+    setCommentSubmitting(true);
+    setCommentErr('');
+    try {
+      const comment = await addTaskComment(task._dbId, body, pendingMentions.map(m => m.userId));
+      setComments(prev => [...prev, comment]);
+      setNewCommentBody('');
+      setPendingMentions([]);
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to post comment.');
+    } finally {
+      setCommentSubmitting(false);
+    }
+  };
+
+  const handleEditComment = async (commentId) => {
+    const body = editingCommentBody.trim();
+    if (!body || body.length > MAX_COMMENT) return;
+    setEditSaving(true);
+    setCommentErr('');
+    try {
+      const updated = await updateTaskComment(commentId, body);
+      setComments(prev => prev.map(c => c.id === commentId ? updated : c));
+      setEditingCommentId(null);
+      setEditingCommentBody('');
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to update comment.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    try {
+      await deleteTaskComment(commentId);
+      setComments(prev => prev.filter(c => c.id !== commentId));
+      setDeleteConfirmCommentId(null);
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to delete comment.');
+    }
+  };
 
   useEffectA(() => {
     if (!showBranchSection || branchMode !== 'switch' || !branchOpen) return;
@@ -2722,6 +2916,222 @@ const TaskDetailModal = ({
                   )}
                 </div>
               )}
+            </div>
+
+            {/* ── Comments ── */}
+            <div style={{ marginTop: 8 }}>
+              <div className="tpanel-section">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="message-square" size={12} />
+                  Comments
+                  {comments.length > 0 && <span className="subtasks-count">{comments.length}</span>}
+                </span>
+              </div>
+
+              {commentsLoading ? (
+                <div className="subtasks-empty">Loading…</div>
+              ) : comments.length === 0 ? (
+                <div className="subtasks-empty">No comments yet — start the conversation.</div>
+              ) : (
+                <div className="task-comments-list">
+                  {commentThreads.map(thread => {
+                    const renderCommentRow = (c, isReply = false) => {
+                      const isOwn = c.userId === currentUserId;
+                      const canRemove = isOwn || myRole === 'owner';
+                      const isEditing = editingCommentId === c.id;
+                      const isConfirming = deleteConfirmCommentId === c.id;
+                      return (
+                        <div key={c.id} className={'task-comment-row' + (isReply ? ' task-comment-reply' : '')}>
+                          <div className="task-comment-avatar">
+                            {c.authorAvatarUrl
+                              ? <img src={c.authorAvatarUrl} className="assignee-ava" alt={c.authorName} style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28 }} />
+                              : <div className="assignee-ava assignee-ava-init" style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28, fontSize: isReply ? 9 : 10, background: avaColor(c.authorName) }}>
+                                  {c.authorAvatar || c.authorName?.[0]?.toUpperCase() || '?'}
+                                </div>
+                            }
+                          </div>
+                          <div className="task-comment-content">
+                            <div className="task-comment-header">
+                              <span className="task-comment-author">{c.authorName}</span>
+                              <span className="task-comment-time">{timeAgo(c.createdAt)}</span>
+                              {c.editedAt && <span className="task-comment-edited">Edited</span>}
+                            </div>
+                            {isEditing ? (
+                              <div className="task-comment-edit-form">
+                                <textarea className="task-comment-textarea" value={editingCommentBody}
+                                  onChange={e => setEditingCommentBody(e.target.value)} rows={2} autoFocus />
+                                <div className="task-comment-edit-actions">
+                                  <span className="task-comment-char-count" style={{ color: editingCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                                    {editingCommentBody.length}/{MAX_COMMENT}
+                                  </span>
+                                  <button className="btn sm ghost" onClick={() => { setEditingCommentId(null); setEditingCommentBody(''); }}>Cancel</button>
+                                  <button className="btn sm primary" onClick={() => handleEditComment(c.id)}
+                                    disabled={editSaving || !editingCommentBody.trim() || editingCommentBody.length > MAX_COMMENT}>
+                                    {editSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : isConfirming ? (
+                              <div className="task-comment-delete-confirm">
+                                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Delete this comment?</span>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                  <button className="btn sm ghost" onClick={() => setDeleteConfirmCommentId(null)}>Cancel</button>
+                                  <button className="btn sm" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                                    onClick={() => handleDeleteComment(c.id)}>Delete</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="task-comment-body">{renderCommentBody(c.body)}</div>
+                                <div className="task-comment-actions">
+                                  {!isReply && (
+                                    <button className="task-comment-action-btn"
+                                      onClick={() => { setReplyToId(c.id); setReplyBody(''); setTimeout(() => replyTextareaRef.current?.focus(), 50); }}>
+                                      Reply
+                                    </button>
+                                  )}
+                                  {isOwn && (
+                                    <button className="task-comment-action-btn"
+                                      onClick={() => { setEditingCommentId(c.id); setEditingCommentBody(c.body); }}>
+                                      Edit
+                                    </button>
+                                  )}
+                                  {canRemove && (
+                                    <button className="task-comment-action-btn danger"
+                                      onClick={() => setDeleteConfirmCommentId(c.id)}>
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <div key={thread.id} className="task-comment-thread">
+                        {renderCommentRow(thread, false)}
+
+                        {/* Replies */}
+                        {thread.replies.length > 0 && (
+                          <div className="task-comment-replies">
+                            {thread.replies.map(r => renderCommentRow(r, true))}
+                          </div>
+                        )}
+
+                        {/* Inline reply composer */}
+                        {replyToId === thread.id && (
+                          <div className="task-comment-reply-composer">
+                            <div style={{ position: 'relative' }}>
+                              <textarea
+                                ref={replyTextareaRef}
+                                className="task-comment-textarea"
+                                placeholder={`Reply to ${thread.authorName}… (@ to mention)`}
+                                value={replyBody}
+                                onChange={handleReplyInput}
+                                rows={2}
+                                onKeyDown={e => {
+                                  if (replyMentionOpen) {
+                                    if (e.key === 'ArrowDown') { e.preventDefault(); setReplyMentionIndex(i => Math.min(i + 1, replyMentionMembers.length - 1)); return; }
+                                    if (e.key === 'ArrowUp')   { e.preventDefault(); setReplyMentionIndex(i => Math.max(i - 1, 0)); return; }
+                                    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (replyMentionMembers[replyMentionIndex]) handleReplyMentionSelect(replyMentionMembers[replyMentionIndex]); return; }
+                                    if (e.key === 'Escape') { setReplyMentionOpen(false); return; }
+                                  }
+                                  if (e.key === 'Escape') { setReplyToId(null); setReplyBody(''); }
+                                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmitReply();
+                                }}
+                              />
+                              {replyMentionOpen && replyMentionMembers.length > 0 && (
+                                <div className="mention-dropdown">
+                                  {replyMentionMembers.map((m, i) => (
+                                    <div key={m.userId} className={'mention-item' + (i === replyMentionIndex ? ' active' : '')}
+                                      onMouseDown={e => { e.preventDefault(); handleReplyMentionSelect(m); }}>
+                                      {m.avatarUrl
+                                        ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 20, height: 20 }} alt={m.name} />
+                                        : <div className="assignee-ava assignee-ava-init" style={{ width: 20, height: 20, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                                      }
+                                      <div className="mention-item-info">
+                                        <span className="mention-item-name">{m.name}</span>
+                                        <span className="mention-item-role">{m.role}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="task-comment-composer-footer">
+                              <span className="task-comment-char-count" style={{ color: replyBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                                {replyBody.length}/{MAX_COMMENT}
+                              </span>
+                              <button className="btn sm ghost" onClick={() => { setReplyToId(null); setReplyBody(''); }}>Cancel</button>
+                              <button className="btn sm primary" onClick={handleSubmitReply}
+                                disabled={replySubmitting || !replyBody.trim() || replyBody.length > MAX_COMMENT}>
+                                {replySubmitting ? 'Posting…' : 'Reply'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {commentErr && <div style={{ fontSize: 11, color: '#ef4444', margin: '4px 0' }}>{commentErr}</div>}
+
+              {/* Composer */}
+              <div className="task-comment-composer">
+                <div style={{ position: 'relative' }}>
+                  <textarea
+                    ref={commentTextareaRef}
+                    className="task-comment-textarea"
+                    placeholder="Write a comment… type @ to mention (Ctrl+Enter to submit)"
+                    value={newCommentBody}
+                    onChange={handleCommentInput}
+                    rows={3}
+                    onKeyDown={e => {
+                      if (mentionOpen) {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionMembers.length - 1)); return; }
+                        if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (mentionMembers[mentionIndex]) handleMentionSelect(mentionMembers[mentionIndex]); return; }
+                        if (e.key === 'Escape')    { setMentionOpen(false); return; }
+                      }
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment();
+                    }}
+                  />
+                  {mentionOpen && mentionMembers.length > 0 && (
+                    <div className="mention-dropdown">
+                      {mentionMembers.map((m, i) => (
+                        <div
+                          key={m.userId}
+                          className={'mention-item' + (i === mentionIndex ? ' active' : '')}
+                          onMouseDown={e => { e.preventDefault(); handleMentionSelect(m); }}
+                        >
+                          {m.avatarUrl
+                            ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 24, height: 24 }} alt={m.name} />
+                            : <div className="assignee-ava assignee-ava-init" style={{ width: 24, height: 24, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                          }
+                          <div className="mention-item-info">
+                            <span className="mention-item-name">{m.name}</span>
+                            <span className="mention-item-role">{m.role}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="task-comment-composer-footer">
+                  <span className="task-comment-char-count" style={{ color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                    {newCommentBody.length}/{MAX_COMMENT}
+                  </span>
+                  <button className="btn sm primary" onClick={handleAddComment}
+                    disabled={commentSubmitting || !newCommentBody.trim() || newCommentBody.length > MAX_COMMENT}>
+                    {commentSubmitting ? 'Posting…' : 'Comment'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3536,7 +3946,7 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem, members = [], myRole = 'viewer', wsPermissions = {} }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem, members = [], myRole = 'viewer', wsPermissions = {}, user = null }) => {
   const canCreateTask = canDo(myRole, 'create_task', wsPermissions);
   const canEditTask = canDo(myRole, 'edit_task', wsPermissions);
   const canGithubWrite = canDo(myRole, 'github_write', wsPermissions);
@@ -4280,6 +4690,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           onBranchUpdate={handleBranchUpdate}
           onDelete={handleTaskDelete}
           members={members}
+          currentUserId={user?.id}
+          myRole={myRole}
           canEdit={canEditTask}
           canDelete={canDeleteTask}
           canAssign={canAssignTask}

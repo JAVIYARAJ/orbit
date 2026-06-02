@@ -1,6 +1,7 @@
 // shell.jsx — Sidebar, Topbar, Command Palette, SlidePanel
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { canAccessModule } from '../lib/permissions.js';
 
 // ─── Icons (inline SVG, 16px viewbox) ─────────────────────────────
@@ -285,8 +286,44 @@ export const Sidebar = ({
 };
 
 // ─── Topbar ────────────────────────────────────────────────────────
-export const Topbar = ({ onOpenCmdK, timer, onTimerJump, theme = 'dark', onThemeToggle }) => {
+const timeAgo = (dateStr) => {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 2)   return 'just now';
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30)  return `${d}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+};
+
+export const Topbar = ({
+  onOpenCmdK, timer, onTimerJump, theme = 'dark', onThemeToggle,
+  notifications = [], unreadCount = 0, onMarkRead, onNav,
+}) => {
   const isLight = theme === 'light';
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
+  const bellRef = useRef(null);
+
+  const handleBellClick = (e) => {
+    e.stopPropagation();
+    if (bellRef.current) {
+      const rect = bellRef.current.getBoundingClientRect();
+      setPanelPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+    }
+    setNotifOpen(o => !o);
+  };
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handler = () => setNotifOpen(false);
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, [notifOpen]);
+
   return (
     <header className="tb">
       <button className="tb-search" onClick={onOpenCmdK}>
@@ -317,10 +354,72 @@ export const Topbar = ({ onOpenCmdK, timer, onTimerJump, theme = 'dark', onTheme
           </svg>
         )}
       </button>
-      <button className="tb-icon-btn" title="Notifications">
+
+      {/* Bell button */}
+      <button
+        ref={bellRef}
+        className="tb-icon-btn"
+        title="Notifications"
+        onClick={handleBellClick}
+      >
         <Icon name="bell" size={14} />
-        <span className="badge"></span>
+        {unreadCount > 0 && <span className="badge" />}
       </button>
+
+      {/* Notification panel — rendered via portal to escape stacking context */}
+      {notifOpen && createPortal(
+        <div
+          className="notif-panel"
+          style={{ position: 'fixed', top: panelPos.top, right: panelPos.right }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="notif-panel-hd">
+            <span>Notifications</span>
+            {unreadCount > 0 && (
+              <button
+                className="notif-mark-all"
+                onClick={() => onMarkRead?.(notifications.filter(n => !n.readAt).map(n => n.id))}
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          {notifications.length === 0 ? (
+            <div className="notif-empty">No notifications yet.</div>
+          ) : (
+            <div className="notif-list">
+              {notifications.map(n => (
+                <div
+                  key={n.id}
+                  className={'notif-row' + (n.readAt ? '' : ' unread')}
+                  onClick={() => {
+                    if (!n.readAt) onMarkRead?.([n.id]);
+                    setNotifOpen(false);
+                    onNav?.('tasks');
+                  }}
+                >
+                  <div className="notif-avatar">
+                    {n.actorAvatarUrl
+                      ? <img src={n.actorAvatarUrl} className="notif-ava" alt={n.actorName} />
+                      : <div className="notif-ava notif-ava-init">{n.actorName?.[0]?.toUpperCase() || '?'}</div>
+                    }
+                  </div>
+                  <div className="notif-content">
+                    <div className="notif-text">
+                      <strong>{n.actorName}</strong> mentioned you in <strong>{n.taskTitle || 'a task'}</strong>
+                    </div>
+                    {n.preview && <div className="notif-preview">"{n.preview}"</div>}
+                    <div className="notif-time">{timeAgo(n.createdAt)}</div>
+                  </div>
+                  {!n.readAt && <div className="notif-dot" />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </header>
   );
 };

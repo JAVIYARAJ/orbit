@@ -829,6 +829,84 @@ export const getTaskStatusLogs = async (taskDbId) => {
   }))
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// TASK COMMENTS
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbComment = (r) => ({
+  id:             r.id,
+  parentId:       r.parentId       || null,
+  userId:         r.userId,
+  authorName:     r.authorName     || 'Unknown',
+  authorAvatar:   r.authorAvatar   || null,
+  authorAvatarUrl:r.authorAvatarUrl|| null,
+  body:           r.body,
+  createdAt:      r.createdAt,
+  editedAt:       r.editedAt       || null,
+})
+
+export const getTaskComments = async (taskDbId) => {
+  const { data, error } = await supabase.rpc('get_task_comments', { p_task_id: taskDbId })
+  if (error) throw error
+  return (data || []).map(fromDbComment)
+}
+
+export const addTaskComment = async (taskDbId, body, mentionedUserIds = [], parentId = null) => {
+  const { data, error } = await supabase.rpc('add_task_comment', {
+    p_task_id:   taskDbId,
+    p_body:      body,
+    p_mentions:  mentionedUserIds,
+    p_parent_id: parentId,
+  })
+  if (error) throw error
+  return fromDbComment(data)
+}
+
+export const updateTaskComment = async (commentId, body) => {
+  const { data, error } = await supabase.rpc('update_task_comment', { p_comment_id: commentId, p_body: body })
+  if (error) throw error
+  return fromDbComment(data)
+}
+
+export const deleteTaskComment = async (commentId) => {
+  const { error } = await supabase.rpc('delete_task_comment', { p_comment_id: commentId })
+  if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbNotification = (r) => ({
+  id:             r.id,
+  type:           r.type,
+  readAt:         r.readAt         || null,
+  createdAt:      r.createdAt,
+  actorName:      r.actorName      || 'Unknown',
+  actorAvatarUrl: r.actorAvatarUrl || null,
+  taskTitle:      r.taskTitle      || '',
+  taskDbId:       r.taskDbId       || null,
+  commentId:      r.commentId      || null,
+  preview:        r.preview        || '',
+})
+
+export const getNotifications = async (limit = 30) => {
+  const { data, error } = await supabase.rpc('get_notifications', { p_limit: limit })
+  if (error) throw error
+  return (data || []).map(fromDbNotification)
+}
+
+export const markNotificationsRead = async (ids) => {
+  const { error } = await supabase.rpc('mark_notifications_read', { p_ids: ids })
+  if (error) throw error
+}
+
+export const getUnreadNotificationsCount = async () => {
+  const { data, error } = await supabase.rpc('get_unread_notifications_count')
+  if (error) return 0
+  return data || 0
+}
+
 export const createLearningItem = async (item, column, workstationId) => {
   const { data, error } = await supabase.rpc('create_learning_item', {
     p_workstation_id: workstationId,
