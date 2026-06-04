@@ -188,15 +188,34 @@ async function runSync(admin: any, token: string, workstationId: string) {
       const link = linkByGid[ev.id]
       if (kind === 'event' && link && ev.updated && ev.updated !== link.google_updated_at && ev.status !== 'cancelled') {
         // Changed in Google since our last sync (and not re-pushed this run) → apply back.
+        const orbitMeetLink =
+          ev.hangoutLink ||
+          ev.conferenceData?.entryPoints?.find((ep: any) => ep.entryPointType === 'video')?.uri ||
+          null
         await admin.rpc('apply_google_to_event', { p_workstation_id: workstationId, p_data: {
           orbit_id: owned, title: ev.summary || '(no title)', description: ev.description || '',
           location: ev.location || null, starts_at: startsAt, ends_at: endsAt, all_day: allDay,
-          etag: ev.etag || null, google_updated_at: ev.updated || null,
+          etag: ev.etag || null, google_updated_at: ev.updated || null, meet_link: orbitMeetLink,
         }})
         pulled++
       }
       continue // never cache Orbit-owned events
     }
+
+    // Extract Google Meet link: prefer hangoutLink, fall back to conferenceData video entry.
+    const meetLink: string | null =
+      ev.hangoutLink ||
+      ev.conferenceData?.entryPoints?.find((ep: any) => ep.entryPointType === 'video')?.uri ||
+      null
+
+    // Normalise attendees to a compact shape (no PII beyond what Google already returns).
+    const attendees = (ev.attendees as any[] | undefined)?.map((a: any) => ({
+      email:          a.email        || null,
+      displayName:    a.displayName  || null,
+      responseStatus: a.responseStatus || 'needsAction',
+      organizer:      a.organizer    === true,
+      self:           a.self         === true,
+    })) ?? null
 
     // Standalone Google event → display-only cache.
     rows.push({
@@ -205,6 +224,7 @@ async function runSync(admin: any, token: string, workstationId: string) {
       starts_at: startsAt, ends_at: endsAt,
       all_day: allDay, html_link: ev.htmlLink || null, etag: ev.etag || null,
       google_updated_at: ev.updated || null, status: ev.status || 'confirmed',
+      attendees, meet_link: meetLink,
     })
     pulled++
   }

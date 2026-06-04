@@ -5275,7 +5275,7 @@ const LogHoursDialog = ({ item, onSave, onClose }) => {
 
   return createPortal(
     <div className="modal-overlay">
-      <div className="modal-box" style={{ width: 380, borderRadius: 16 }}>
+      <div className="modal-box" style={{ width: 380, maxWidth: '100%', borderRadius: 16 }}>
         <div className="modal-title" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>Log session</div>
         <div className="modal-sub" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
           <span className="tag-dot" style={{ background: color, width: 6, height: 6, borderRadius: '50%' }} />
@@ -5379,7 +5379,7 @@ const LearnDeleteDialog = ({ item, onConfirm, onCancel }) => {
   if (!item) return null;
   return createPortal(
     <div className="modal-overlay">
-      <div className="modal-box" style={{ width: 320 }}>
+      <div className="modal-box" style={{ width: 320, maxWidth: '100%' }}>
         <div className="modal-title">Delete topic?</div>
         <div style={{ fontSize: 13, color: 'var(--text-2)', margin: '8px 0 20px' }}>
           <strong>{item.topic}</strong> will be permanently deleted.

@@ -76,11 +76,22 @@ const dateKey = (d) => {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 };
 
+function useWindowWidth() {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const handler = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return width;
+}
+
 export function CalendarPage({ workstationId, projects = [], priorities = [], tasks = [], setTasks, statuses = [], onNav, onJump, myRole, wsPermissions }) {
   // Whether this member may create/edit/delete native calendar events.
   const canManage = canDo(myRole, 'manage_calendar', wsPermissions);
   // Dragging a task on the calendar reschedules its due date — gated by edit_task.
   const canEditTask = canDo(myRole, 'edit_task', wsPermissions);
+  const windowWidth = useWindowWidth();
   const [connected, setConnected] = useState(null);   // null = unknown
   const [loading, setLoading]     = useState(false);
   const [syncing, setSyncing]     = useState(false);
@@ -88,6 +99,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
   const [data, setData]   = useState({ events: [], google: [], tasks: [], projects: [] });
   const [range, setRange] = useState(null);
   const [enabled, setEnabled] = useState({ event: true, task: true, project: false, google: true });
+  const [currentView, setCurrentView] = useState('dayGridMonth');
 
   const [draft, setDraft]       = useState(null);   // create/edit native event modal
   const [detail, setDetail]     = useState(null);   // read-only detail modal
@@ -222,9 +234,29 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
       .slice(0, 10);
   }, [items, enabled]);
 
+  // Busy overlay: background events from Google meetings in time-grid views only.
+  // Background events dim the time cell so users see conflicts before scheduling.
+  const isTimeGrid = currentView === 'timeGridWeek' || currentView === 'timeGridDay';
+  const busyOverlays = useMemo(() => {
+    if (!isTimeGrid || !enabled.google) return [];
+    return data.google
+      .filter(g => !g.all_day && g.starts_at && g.ends_at)
+      .map(g => ({
+        id: `busy:${g.google_event_id}`,
+        start: g.starts_at,
+        end: g.ends_at,
+        display: 'background',
+        color: SOURCE_COLOR.google,
+        classNames: ['cal-busy-overlay'],
+      }));
+  }, [data.google, enabled.google, isTimeGrid]);
+
+  const allFcEvents = useMemo(() => [...fcEvents, ...busyOverlays], [fcEvents, busyOverlays]);
+
   // ── Interaction handlers ───────────────────────────────────────────
   const handleDatesSet = (arg) => {
     setRange({ start: arg.start.toISOString(), end: arg.end.toISOString() });
+    setCurrentView(arg.view.type);
   };
 
   const openCreate = (start, end, allDay) => {
@@ -389,9 +421,9 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
         
         <div className="cal-filter-bar-premium">
           {Object.keys(SOURCE_LABEL).map(s => (
-            <button 
-              key={s} 
-              className={`cal-filter-pill ${enabled[s] ? 'active' : ''}`} 
+            <button
+              key={s}
+              className={`cal-filter-pill ${enabled[s] ? 'active' : ''}`}
               onClick={() => toggleSource(s)}
               style={{ '--theme-color': SOURCE_COLOR[s] }}
             >
@@ -399,6 +431,9 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
                 {enabled[s] && <Icon name="check" size={12} />}
               </div>
               <span>{SOURCE_LABEL[s]}</span>
+              {s === 'google' && isTimeGrid && enabled.google && busyOverlays.length > 0 && (
+                <span className="cal-busy-pill-badge" title="Busy blocks visible in time grid">busy</span>
+              )}
               <span className="cal-filter-count-badge">{counts[s]}</span>
             </button>
           ))}
@@ -411,14 +446,26 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
             ref={calRef}
             plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
             initialView="dayGridMonth"
-            headerToolbar={{
+            headerToolbar={windowWidth < 540 ? {
+              left: 'prev,next',
+              center: 'title',
+              right: 'dayGridMonth,listWeek',
+            } : windowWidth < 820 ? {
+              left: 'prev,next today',
+              center: 'title',
+              right: 'dayGridMonth,listWeek',
+            } : windowWidth < 1560 ? {
+              left: 'prev,next today',
+              center: 'title',
+              right: 'dayGridMonth,timeGridWeek,listWeek',
+            } : {
               left: 'prev,next today',
               center: 'title',
               right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek',
             }}
             buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day', list: 'Agenda' }}
             height="auto"
-            events={fcEvents}
+            events={allFcEvents}
             eventDisplay="block"
             displayEventTime={false}
             editable={canManage}
@@ -454,7 +501,9 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
         </div>
 
         <aside className="cal-sidebar-premium">
-          <MiniMonth marked={markedDates} onPick={goToDate} />
+          <div className="cal-mini-wrapper">
+            <MiniMonth marked={markedDates} onPick={goToDate} />
+          </div>
 
           <div className="cal-sidebar-header">
             <h3>Upcoming</h3>
@@ -469,7 +518,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
               </div>
             )}
             {upcoming.map(i => (
-              <div key={i.key} className="cal-agenda-card" onClick={() => openItem(i.source, i.raw)}>
+              <div key={i.key} className="cal-agenda-card" onClick={() => openItem(i.source, i.raw)} title={i.title}>
                 <div className="cal-agenda-glow" style={{ background: i.color }}></div>
                 <div className="cal-agenda-card-content">
                   <div className="cal-agenda-time">
@@ -477,7 +526,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
                      <span className="cal-agenda-month">{new Date(i.start).toLocaleDateString('en-US', { month: 'short' })}</span>
                   </div>
                   <div className="cal-agenda-details">
-                    <div className="cal-agenda-title">{i.title}</div>
+                    <div className="cal-agenda-title" title={i.title}>{i.title}</div>
                     <div className="cal-agenda-meta">
                       <span className="cal-agenda-source" style={{ color: i.color }}>{SOURCE_LABEL[i.source]}</span>
                       {!i.allDay && <span className="cal-agenda-hour">{new Date(i.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
@@ -552,7 +601,7 @@ function CalendarEventModal({ draft, setDraft, projects, onSave, onDelete, onClo
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal-box" style={{ width: 440 }} onMouseDown={e => e.stopPropagation()}>
+      <div className="modal-box" style={{ width: 480, maxWidth: '100%' }} onMouseDown={e => e.stopPropagation()}>
         <div className="modal-title">{draft.id ? 'Edit event' : 'New event'}</div>
         {err && <div className="modal-err" style={{ marginTop: 10 }}>{err}</div>}
 
@@ -597,6 +646,13 @@ function CalendarEventModal({ draft, setDraft, projects, onSave, onDelete, onClo
         <textarea className="cal-input" rows={3} value={draft.description}
           onChange={e => set('description', e.target.value)} placeholder="Optional" />
 
+        {draft.meetLink && (
+          <a className="cal-meet-join-banner" href={draft.meetLink} target="_blank" rel="noreferrer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+            Join Google Meet
+          </a>
+        )}
+
         <div className="modal-footer" style={{ marginTop: 16 }}>
           {draft.id
             ? <button className="btn danger sm" onClick={onDelete} disabled={saving}>Delete</button>
@@ -613,6 +669,9 @@ function CalendarEventModal({ draft, setDraft, projects, onSave, onDelete, onClo
   );
 }
 
+const RSVP_ICON = { accepted: '✓', declined: '✗', tentative: '~', needsAction: '?' };
+const RSVP_COLOR = { accepted: '#22c55e', declined: '#ef4444', tentative: '#f59e0b', needsAction: 'var(--text-4)' };
+
 // ── Read-only detail for tasks / projects / Google events ────────────
 function DetailModal({ detail, onClose, onNav, onJump }) {
   const { source, raw } = detail;
@@ -620,61 +679,98 @@ function DetailModal({ detail, onClose, onNav, onJump }) {
   const title = raw.title || raw.name || raw.summary || '(untitled)';
   const start = raw.start || raw.due_date || raw.start_date || raw.starts_at;
   const end   = raw.end || raw.end_date || raw.ends_at;
-  
+
   const iconMap = { task: 'check-circle', project: 'folder', google: 'calendar' };
   const themeColor = SOURCE_COLOR[source] || 'var(--accent)';
-
   const startDate = start ? new Date(start) : null;
-  
+
+  // Meet link works for both Google-cache events and Orbit events synced back from Google
+  const meetLink = raw.meet_link || raw.meetLink || null;
+  const attendees = Array.isArray(raw.attendees) ? raw.attendees : [];
+  const MAX_VISIBLE = 5;
+
   return (
     <div className="cal-ultra-modal-overlay" onMouseDown={onClose}>
       <div className="cal-ultra-box" onMouseDown={e => e.stopPropagation()}>
         <div className="cal-ultra-glow" style={{ '--theme': themeColor }}></div>
-        
+
         <div className="cal-ultra-header">
-           <div className="cal-ultra-badge" style={{ color: themeColor, background: `color-mix(in srgb, ${themeColor} 15%, transparent)` }}>
-              <Icon name={iconMap[source] || 'calendar'} size={14} />
-              <span>{LABEL[source]}</span>
-           </div>
-           <button className="cal-ultra-close" onClick={onClose}><Icon name="x" size={16} /></button>
+          <div className="cal-ultra-badge" style={{ color: themeColor, background: `color-mix(in srgb, ${themeColor} 15%, transparent)` }}>
+            <Icon name={iconMap[source] || 'calendar'} size={14} />
+            <span>{LABEL[source]}</span>
+          </div>
+          {meetLink && (
+            <a className="cal-meet-join-btn" href={meetLink} target="_blank" rel="noreferrer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+              Join
+            </a>
+          )}
+          <button className="cal-ultra-close" onClick={onClose}><Icon name="x" size={16} /></button>
         </div>
 
         <div className="cal-ultra-content">
-           <div className="cal-ultra-date-block">
-             {startDate ? (
-               <>
-                 <div className="cal-ultra-month">{startDate.toLocaleString('en-US', { month: 'short' })}</div>
-                 <div className="cal-ultra-day">{startDate.getDate()}</div>
-               </>
-             ) : (
-               <div className="cal-ultra-icon-block" style={{ color: themeColor }}>
-                 <Icon name={iconMap[source] || 'calendar'} size={32} />
-               </div>
-             )}
-           </div>
-           
-           <div className="cal-ultra-info">
-             <h2 className="cal-ultra-title">{title}</h2>
-             <div className="cal-ultra-time">
-                {start ? startDate.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' }) : 'No time specified'}
-                {end && ` — ${new Date(end).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit' })}`}
-             </div>
-           </div>
+          <div className="cal-ultra-date-block">
+            {startDate ? (
+              <>
+                <div className="cal-ultra-month">{startDate.toLocaleString('en-US', { month: 'short' })}</div>
+                <div className="cal-ultra-day">{startDate.getDate()}</div>
+              </>
+            ) : (
+              <div className="cal-ultra-icon-block" style={{ color: themeColor }}>
+                <Icon name={iconMap[source] || 'calendar'} size={32} />
+              </div>
+            )}
+          </div>
+
+          <div className="cal-ultra-info">
+            <h2 className="cal-ultra-title">{title}</h2>
+            <div className="cal-ultra-time">
+              {start ? startDate.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' }) : 'No time specified'}
+              {end && ` — ${new Date(end).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit' })}`}
+            </div>
+          </div>
         </div>
 
         <div className="cal-ultra-details">
-           {raw.location && (
-             <div className="cal-ultra-row">
-               <div className="cal-ultra-row-icon"><Icon name="map-pin" size={16} /></div>
-               <div className="cal-ultra-row-text">{raw.location}</div>
-             </div>
-           )}
-           {raw.description && (
-             <div className="cal-ultra-row align-top">
-               <div className="cal-ultra-row-icon"><Icon name="note" size={16} /></div>
-               <div className="cal-ultra-row-text cal-ultra-desc">{raw.description}</div>
-             </div>
-           )}
+          {raw.location && (
+            <div className="cal-ultra-row">
+              <div className="cal-ultra-row-icon"><Icon name="map-pin" size={16} /></div>
+              <div className="cal-ultra-row-text">{raw.location}</div>
+            </div>
+          )}
+
+          {attendees.length > 0 && (
+            <div className="cal-ultra-row align-top">
+              <div className="cal-ultra-row-icon"><Icon name="users" size={16} /></div>
+              <div className="cal-attendees-list">
+                {attendees.slice(0, MAX_VISIBLE).map((a, i) => (
+                  <div key={i} className="cal-attendee-row">
+                    <span
+                      className="cal-attendee-status"
+                      title={a.responseStatus || 'needsAction'}
+                      style={{ color: RSVP_COLOR[a.responseStatus] || RSVP_COLOR.needsAction }}
+                    >
+                      {RSVP_ICON[a.responseStatus] || '?'}
+                    </span>
+                    <span className="cal-attendee-name">
+                      {a.displayName || a.email || 'Unknown'}
+                      {a.organizer && <span className="cal-attendee-organizer">organizer</span>}
+                    </span>
+                  </div>
+                ))}
+                {attendees.length > MAX_VISIBLE && (
+                  <div className="cal-attendee-more">+{attendees.length - MAX_VISIBLE} more</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {raw.description && (
+            <div className="cal-ultra-row align-top">
+              <div className="cal-ultra-row-icon"><Icon name="note" size={16} /></div>
+              <div className="cal-ultra-row-text cal-ultra-desc">{raw.description}</div>
+            </div>
+          )}
         </div>
 
         <div className="cal-ultra-footer">

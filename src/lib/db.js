@@ -358,6 +358,7 @@ const fromDbCalendarEvent = (r) => ({
   color:     r.color || null,
   projectId: r.project_short_id || null,
   remindMinutes: r.remind_minutes ?? null,
+  meetLink:  r.meet_link || null,
   ...auditFields(r),
 })
 
