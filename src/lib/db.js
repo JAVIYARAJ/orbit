@@ -18,6 +18,14 @@ const relTime = (ts) => {
   return new Date(ts).toLocaleDateString()
 }
 
+// Audit attribution carried on every content record (created_by/updated_by/deleted_by).
+// Resolve to a display name client-side via the workspace `members` list.
+const auditFields = (r) => ({
+  createdBy: r.created_by || null,
+  updatedBy: r.updated_by || null,
+  deletedBy: r.deleted_by || null,
+})
+
 // ─── DB → App shape converters ────────────────────────────────────
 
 const fromDbProject = (r) => ({
@@ -39,6 +47,7 @@ const fromDbProject = (r) => ({
   repo:        r.repo,
   budget:      r.budget,
   deletedAt:   r.deleted_at  || null,
+  ...auditFields(r),
 })
 
 const fromDbTask = (r) => ({
@@ -58,6 +67,7 @@ const fromDbTask = (r) => ({
   ghBranch:      r.gh_branch      || '',
   deletedAt:     r.deleted_at     || null,
   assigneeId:    r.assignee_id    || null,
+  ...auditFields(r),
 })
 
 const fromDbNote = (r) => ({
@@ -70,6 +80,7 @@ const fromDbNote = (r) => ({
   edited:     relTime(r.updated_at),
   updatedAt:  r.updated_at  || null,
   body:       r.body,
+  ...auditFields(r),
 })
 
 const fromDbNoteFolder = (r) => ({
@@ -91,6 +102,7 @@ const fromDbLearning = (r) => ({
   lastReviewed: r.last_reviewed,
   difficulty:   r.difficulty  || null,
   createdAt:    r.created_at  || null,
+  ...auditFields(r),
 })
 
 const fromDbVault = (r) => ({
@@ -100,6 +112,7 @@ const fromDbVault = (r) => ({
   value:       r.value,
   isEncrypted: r.is_encrypted ?? false,
   updated:     r.updated_at,
+  ...auditFields(r),
 })
 
 // ─── App → RPC payload builders ───────────────────────────────────
@@ -199,10 +212,12 @@ const transformData = (raw) => ({
   },
   emailTemplates: (raw.email_templates || []).map(r => ({
     id: r.template_id, cat: r.cat, name: r.name, body: r.body,
+    ...auditFields(r),
   })),
   ganttTasks: (raw.gantt_tasks || []).map(r => ({
     id: r.id, projectId: r.project_id,
     name: r.name, sub: r.sub, start: r.start_week, end: r.end_week, status: r.status,
+    ...auditFields(r),
   })),
 })
 
@@ -476,6 +491,7 @@ export const resetVault = async (workstationId) => {
 const fromDbGantt = (r) => ({
   id: r.id, projectId: r.project_id,
   name: r.name, sub: r.sub || '', start: r.start_week, end: r.end_week, status: r.status,
+  ...auditFields(r),
 })
 
 export const createGanttTask = async (workstationId, projectDbId, name, sub, startWeek, endWeek, status) => {
@@ -845,10 +861,19 @@ const fromDbComment = (r) => ({
   editedAt:       r.editedAt       || null,
 })
 
-export const getTaskComments = async (taskDbId) => {
-  const { data, error } = await supabase.rpc('get_task_comments', { p_task_id: taskDbId })
+// Paginated by top-level comment (newest first). Returns { comments, total } where
+// `total` is the count of top-level comments (for the "show more" affordance).
+export const getTaskComments = async (taskDbId, { limit = 10, offset = 0 } = {}) => {
+  const { data, error } = await supabase.rpc('get_task_comments', {
+    p_task_id: taskDbId,
+    p_limit:   limit,
+    p_offset:  offset,
+  })
   if (error) throw error
-  return (data || []).map(fromDbComment)
+  return {
+    comments: (data?.comments || []).map(fromDbComment),
+    total:    data?.total ?? 0,
+  }
 }
 
 export const addTaskComment = async (taskDbId, body, mentionedUserIds = [], parentId = null) => {
@@ -1081,5 +1106,34 @@ export const upsertPermission = async (workstationId, role, key, allowed) => {
     p_allowed:        allowed,
   })
   if (error) throw error
+}
+
+// ─── Activity log (audit trail) ───────────────────────────────────
+// Who did what across the workspace. entityType/action are enum-backed strings.
+
+const fromDbActivity = (r) => ({
+  id:            r.id,
+  action:        r.action,        // created | updated | deleted | restored
+  entityType:    r.entityType,    // project | task | note | … | member | invite | permission | workspace
+  entityId:      r.entityId       || null,
+  entityLabel:   r.entityLabel    || '',
+  meta:          r.meta           || {},
+  createdAt:     r.createdAt,
+  actorId:       r.actorId        || null,
+  actorName:     r.actorName      || 'Unknown',
+  actorAvatar:   r.actorAvatar    || null,
+  actorAvatarUrl:r.actorAvatarUrl || null,
+})
+
+// opts: { limit?, entityType?, entityId? } — entityType/entityId scope to one record's history
+export const getActivity = async (workstationId, opts = {}) => {
+  const { data, error } = await supabase.rpc('get_activity', {
+    p_workstation_id: workstationId,
+    p_limit:          opts.limit      ?? 50,
+    p_entity_type:    opts.entityType ?? null,
+    p_entity_id:      opts.entityId   ?? null,
+  })
+  if (error) throw error
+  return (data || []).map(fromDbActivity)
 }
 

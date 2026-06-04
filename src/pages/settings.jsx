@@ -302,6 +302,7 @@ const avatarColor = (str = '') => {
 const MembersSection = ({ activeWorkstation, members, setMembers, pendingInvites, setPendingInvites, myRole, wsPermissions = {}, currentUserId, setTasks }) => {
   const [busy, setBusy] = useState({});
   const [removeConfirm, setRemoveConfirm] = useState(null);
+  const [viewMode, setViewMode] = useState('grid');
   // Respect custom workspace permission overrides (previously passed {} here, which
   // silently ignored them and disagreed with the Collaboration page).
   const canChange = canDo(myRole, 'change_role', wsPermissions);
@@ -349,15 +350,25 @@ const MembersSection = ({ activeWorkstation, members, setMembers, pendingInvites
   return (
     <div className="settings-section-inner slide-in-up">
       <div className="section-group">
-        <div className="section-group-h">
-          <span>Team Members</span>
-          <p>People with access to this workspace.</p>
+        <div className="section-group-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <span>Team Members</span>
+            <p>People with access to this workspace.</p>
+          </div>
+          <div style={{ display: 'flex', background: 'var(--bg-2)', padding: 4, borderRadius: 8, gap: 4 }}>
+            <button onClick={() => setViewMode('grid')} style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: viewMode === 'grid' ? 'var(--bg-3)' : 'transparent', color: viewMode === 'grid' ? 'var(--text)' : 'var(--text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, transition: 'all 0.2s' }}>
+              <Icon name="list" size={14} /> Grid
+            </button>
+            <button onClick={() => setViewMode('tree')} style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: viewMode === 'tree' ? 'var(--bg-3)' : 'transparent', color: viewMode === 'tree' ? 'var(--text)' : 'var(--text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, transition: 'all 0.2s' }}>
+              <Icon name="git-branch" size={14} /> Tree
+            </button>
+          </div>
         </div>
         <div className="card" style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}>
           <div className="card-pad" style={{ padding: 0 }}>
             {members.length === 0 ? (
               <div className="empty-state">No members yet. Use the Collaboration page to invite someone.</div>
-            ) : (
+            ) : viewMode === 'grid' ? (
               <div className="collab-members-grid">
                 {members.map(member => (
                   <div key={member.userId} className="collab-member-card">
@@ -414,6 +425,113 @@ const MembersSection = ({ activeWorkstation, members, setMembers, pendingInvites
                     </div>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="members-tree-view" style={{ display: 'flex', flexDirection: 'column', gap: 32, padding: '16px 0' }}>
+                {(() => {
+                  const renderTreeRole = (roleIndex) => {
+                    const roles = ['owner', 'admin', 'member', 'viewer'];
+                    if (roleIndex >= roles.length) return null;
+                    const currentRole = roles[roleIndex];
+                    const roleMembers = members.filter(m => m.role === currentRole);
+                    
+                    const hasAnyMembersBelow = roles.slice(roleIndex).some(r => members.some(m => m.role === r));
+                    if (!hasAnyMembersBelow) return null;
+                    
+                    const nextNode = renderTreeRole(roleIndex + 1);
+                    const items = [
+                      ...roleMembers.map(m => ({ type: 'member', data: m })),
+                      ...(nextNode ? [{ type: 'role', data: nextNode }] : [])
+                    ];
+                
+                    return (
+                      <div key={currentRole} className="tree-role-group" style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                        <div className="tree-role-header" style={{ display: 'flex', alignItems: 'center', gap: 10, height: 32 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--bg-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text)', zIndex: 2 }}>
+                            <Icon name="users" size={14} />
+                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', textTransform: 'capitalize' }}>{ROLE_LABEL[currentRole]}s</span>
+                          <span style={{ fontSize: 11, padding: '2px 8px', background: 'var(--bg-2)', borderRadius: 12, color: 'var(--text-3)', fontWeight: 600 }}>{roleMembers.length}</span>
+                        </div>
+                        
+                        {items.length > 0 && (
+                          <div className="tree-role-children" style={{ display: 'flex', flexDirection: 'column', marginLeft: 15 }}>
+                            {items.map((item, idx) => {
+                              const isLast = idx === items.length - 1;
+                              const isMember = item.type === 'member';
+                              const paddingTop = 12;
+                              const targetHeight = isMember ? 58 : 32;
+                              const centerOffset = paddingTop + (targetHeight / 2);
+                              
+                              return (
+                                <div key={isMember ? item.data.userId : 'role-child'} style={{ position: 'relative', paddingLeft: 24, paddingTop, paddingBottom: isLast ? 0 : 4 }}>
+                                  {!isLast && (
+                                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 2, background: 'var(--border-2)' }} />
+                                  )}
+                                  <div style={{ position: 'absolute', left: 0, top: 0, width: 24, height: centerOffset + 1, borderLeft: '2px solid var(--border-2)', borderBottom: '2px solid var(--border-2)', borderBottomLeftRadius: 8, boxSizing: 'border-box' }} />
+                                  
+                                  {isMember ? (
+                                    <div className="tree-user-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 12, padding: '0 16px', flex: 1, transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', height: 58, boxSizing: 'border-box' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: item.data.avatarUrl ? 'transparent' : avatarColor(item.data.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 600, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                                          {item.data.avatarUrl ? <img src={item.data.avatarUrl} alt={item.data.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : item.data.avatar}
+                                        </div>
+                                        <div>
+                                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
+                                            {item.data.name}
+                                            {item.data.userId === currentUserId && <span className="collab-member-you-badge" style={{ marginLeft: 8 }}>You</span>}
+                                          </div>
+                                          <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.2 }}>{item.data.email}</div>
+                                        </div>
+                                      </div>
+                                      
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        {canChange && canModifyMember(myRole, item.data, currentUserId) ? (
+                                          <select
+                                            className="collab-role-select"
+                                            value={item.data.role}
+                                            onChange={e => handleRoleChange(item.data, e.target.value)}
+                                            disabled={busy[item.data.userId]}
+                                            style={{ padding: '4px 24px 4px 12px', fontSize: 12, height: 28 }}
+                                          >
+                                            {assignableRoles(myRole, wsPermissions).map(r => (
+                                              <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <span className={`collab-role-pill role-${item.data.role}`} style={{ fontSize: 12, padding: '4px 12px' }}>
+                                            {ROLE_LABEL[item.data.role]}
+                                          </span>
+                                        )}
+                                        
+                                        {canRemove && canModifyMember(myRole, item.data, currentUserId) && (
+                                          <button
+                                            className="collab-action-icon danger"
+                                            onClick={() => handleRemove(item.data)}
+                                            disabled={busy[item.data.userId]}
+                                            title="Remove member"
+                                            style={{ width: 28, height: 28 }}
+                                          >
+                                            <Icon name="user-minus" size={14} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{ width: '100%' }}>
+                                      {item.data}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+                  return renderTreeRole(0);
+                })()}
               </div>
             )}
           </div>
@@ -521,9 +639,9 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
 
   // Group-level warning banners shown under the group header
   const GROUP_BANNERS = {
-    'Team':   { icon: 'users',       text: 'Team permissions control who can invite, remove, or promote members. Changes take effect immediately for all affected users.' },
-    'Vault':  { icon: 'lock',        text: 'Vault stores sensitive credentials. Grant access only to members you fully trust.' },
-    'GitHub': { icon: 'git-branch',  text: 'GitHub write access lets members push changes directly to your repositories. Reviewers and viewers should remain read-only.' },
+    'Team': { icon: 'users', text: 'Team permissions control who can invite, remove, or promote members. Changes take effect immediately for all affected users.' },
+    'Vault': { icon: 'lock', text: 'Vault stores sensitive credentials. Grant access only to members you fully trust.' },
+    'GitHub': { icon: 'git-branch', text: 'GitHub write access lets members push changes directly to your repositories. Reviewers and viewers should remain read-only.' },
   };
 
   return (
@@ -536,7 +654,7 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
 
         {/* Top-level advisory */}
         <div className="perm-advisory">
-          <Icon name="alert-triangle" size={14} />
+          <Icon name="alert-circle" size={14} />
           <span>Permission changes are <strong>instant</strong> — members are affected the moment you toggle a setting. Review carefully before enabling destructive permissions.</span>
         </div>
 
@@ -616,9 +734,9 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
         <div className="modal-overlay" onClick={() => setConfirm(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-hd">
-              <h3 style={{ margin: 0, color: '#f59e0b', flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: 8 }}>
-                  <Icon name="alert-triangle" size={16} />
+              <h3 style={{ margin: 0, color: '#f59e0b', flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', textAlign: 'left' }}>
+                <span style={{ display: 'flex', alignItems: 'center', marginRight: 8, opacity: 0.75 }}>
+                  <Icon name="alert-circle" size={16} />
                 </span>
                 Enable sensitive permission?
               </h3>
@@ -630,10 +748,10 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
               <p style={{ marginBottom: 12 }}>
                 You are granting <strong>{ROLE_LABEL[confirm.role]}s</strong> the ability to:
               </p>
-              <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, fontSize: 13, color: 'var(--text)', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, fontSize: 14, color: 'var(--text)', marginBottom: 12 }}>
                 <strong>{confirm.label}</strong>
               </div>
-              <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
+              <p style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
                 {confirm.warning}
               </p>
             </div>

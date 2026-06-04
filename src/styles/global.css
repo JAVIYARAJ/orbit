@@ -19561,7 +19561,7 @@ button.role-badge:hover {
 }
 
 .perm-label-text {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-2);
   display: flex;
   align-items: center;
@@ -19569,13 +19569,13 @@ button.role-badge:hover {
 }
 
 .perm-label-desc {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-4);
   line-height: 1.45;
 }
 
 .perm-danger-badge {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -19654,14 +19654,41 @@ button.role-badge:hover {
 .task-comments-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 4px;
   padding: 8px 0 4px;
+}
+
+.task-comments-more {
+  align-self: center;
+  margin-top: 8px;
 }
 
 .task-comment-row {
   display: flex;
-  gap: 10px;
+  gap: 14px;
   align-items: flex-start;
+  padding: 8px 0;
+  position: relative;
+}
+
+.task-comment-row:last-child {
+  /* noop */
+}
+
+.task-comment-replies {
+  margin-left: 42px;
+  padding-left: 0;
+  margin-top: 4px;
+}
+
+.task-comment-reply {
+  padding: 6px 0;
+  border-bottom: none;
+}
+
+.task-comment-reply-composer {
+  margin-left: 60px;
+  margin-top: 8px;
 }
 
 .task-comment-avatar {
@@ -19676,35 +19703,35 @@ button.role-badge:hover {
 
 .task-comment-header {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 3px;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
   flex-wrap: wrap;
 }
 
 .task-comment-author {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
 }
 
 .task-comment-time {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-3);
-  font-family: var(--f-mono);
+  font-family: inherit;
 }
 
 .task-comment-edited {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-3);
   font-style: italic;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--bg-3);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-2);
 }
 
 .task-comment-body {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-2);
   line-height: 1.6;
   white-space: pre-wrap;
@@ -19712,52 +19739,71 @@ button.role-badge:hover {
 }
 
 .task-comment-actions {
+  position: absolute;
+  top: 12px;
+  right: 0;
   display: flex;
-  gap: 10px;
-  margin-top: 5px;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, transform 0.15s;
+  transform: translateY(4px);
+  z-index: 10;
 }
 
+.task-comment-row:hover > .task-comment-content > .task-comment-actions,
 .task-comment-row:hover .task-comment-actions {
   opacity: 1;
+  transform: translateY(0);
 }
 
 .task-comment-action-btn {
   background: none;
   border: none;
-  padding: 0;
-  font-size: 10px;
-  font-family: var(--f-mono);
-  color: var(--text-3);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-2);
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  transition: color 0.15s;
+  border-radius: 4px;
+  transition: all 0.15s;
 }
 
-.task-comment-action-btn:hover { color: var(--text); }
-.task-comment-action-btn.danger:hover { color: #ef4444; }
+.task-comment-action-btn:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.task-comment-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
 
 .task-comment-textarea {
   width: 100%;
-  background: var(--bg-2);
+  background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   line-height: 1.6;
-  padding: 8px 10px;
+  padding: 10px 12px;
   resize: vertical;
   min-height: 68px;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
   box-sizing: border-box;
 }
 
 .task-comment-textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--primary, #0099ff);
+  box-shadow: 0 0 0 2px var(--primary-fade, rgba(0, 153, 255, 0.15));
 }
 
 .task-comment-textarea::placeholder { color: var(--text-4); }
@@ -19765,7 +19811,8 @@ button.role-badge:hover {
 .task-comment-edit-form {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .task-comment-edit-actions {
@@ -19784,8 +19831,10 @@ button.role-badge:hover {
 .task-comment-composer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-2);
 }
 
 .task-comment-composer-footer {
@@ -19796,7 +19845,7 @@ button.role-badge:hover {
 }
 
 .task-comment-delete-confirm {
-  margin-top: 2px;
+  margin-top: 6px;
 }
 
 [data-theme="light"] .task-comment-textarea {
@@ -19987,7 +20036,6 @@ button.role-badge:hover {
   margin-left: 38px;
   margin-top: 6px;
   padding-left: 12px;
-  border-left: 2px solid var(--border-2);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -20001,7 +20049,6 @@ button.role-badge:hover {
   margin-left: 38px;
   margin-top: 8px;
   padding-left: 12px;
-  border-left: 2px solid var(--accent);
   display: flex;
   flex-direction: column;
   gap: 6px;

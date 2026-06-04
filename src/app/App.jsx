@@ -690,6 +690,7 @@ export default function App() {
           unreadCount={unreadCount}
           onMarkRead={handleMarkRead}
           onNav={setCurrent}
+          onSelectTask={(taskDbId) => handleSearchSelect('tasks', taskDbId)}
         />
         <div className="content" key={current}>
           <PageRouter

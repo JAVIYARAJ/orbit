@@ -301,7 +301,7 @@ const timeAgo = (dateStr) => {
 
 export const Topbar = ({
   onOpenCmdK, timer, onTimerJump, theme = 'dark', onThemeToggle,
-  notifications = [], unreadCount = 0, onMarkRead, onNav,
+  notifications = [], unreadCount = 0, onMarkRead, onNav, onSelectTask,
 }) => {
   const isLight = theme === 'light';
   const [notifOpen, setNotifOpen] = useState(false);
@@ -396,7 +396,9 @@ export const Topbar = ({
                   onClick={() => {
                     if (!n.readAt) onMarkRead?.([n.id]);
                     setNotifOpen(false);
-                    onNav?.('tasks');
+                    // Open the referenced task (highlights/opens it), not just the list.
+                    if (n.taskDbId && onSelectTask) onSelectTask(n.taskDbId);
+                    else onNav?.('tasks');
                   }}
                 >
                   <div className="notif-avatar">

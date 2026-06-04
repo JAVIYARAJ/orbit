@@ -2116,6 +2116,9 @@ const TaskDetailModal = ({
   const [statusSaving, setStatusSaving] = useStateA(false);
   const [logsVisible, setLogsVisible] = useStateA(10);
   const LOG_PAGE = 10;
+  
+  const [activityTab, setActivityTab] = useStateA('comments'); // 'all', 'comments', 'history', 'work log'
+
 
   useEffectA(() => {
     if (!task._dbId) return;
@@ -2214,6 +2217,10 @@ const TaskDetailModal = ({
   const MAX_COMMENT = 5000;
   const [comments, setComments] = useStateA([]);
   const [commentsLoading, setCommentsLoading] = useStateA(false);
+  const COMMENTS_PAGE = 10;
+  const [commentTotal, setCommentTotal] = useStateA(0);            // total top-level comments (from server)
+  const [commentsLoadingMore, setCommentsLoadingMore] = useStateA(false);
+  const loadedParentsRef = useRefA(0);                             // top-level comments currently loaded (for realtime reload)
   const [newCommentBody, setNewCommentBody] = useStateA('');
   const [commentSubmitting, setCommentSubmitting] = useStateA(false);
   const [editingCommentId, setEditingCommentId] = useStateA(null);
@@ -2264,9 +2271,20 @@ const TaskDetailModal = ({
   };
 
   const renderCommentBody = (body) => {
-    const parts = body.split(/(@[\w][\w ]*)/g);
+    if (!members || members.length === 0) {
+      const parts = body.split(/(@\w+)/g);
+      return parts.map((part, i) =>
+        part.startsWith('@')
+          ? <span key={i} className="mention-highlight">{part}</span>
+          : part
+      );
+    }
+    const names = members.map(m => m.name).sort((a, b) => b.length - a.length);
+    const escapedNames = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp(`(@(?:${escapedNames.join('|')}))`, 'gi');
+    const parts = body.split(regex);
     return parts.map((part, i) =>
-      part.startsWith('@')
+      part.startsWith('@') && names.some(n => part.toLowerCase() === '@' + n.toLowerCase())
         ? <span key={i} className="mention-highlight">{part}</span>
         : part
     );
@@ -2323,34 +2341,62 @@ const TaskDetailModal = ({
     }
   };
 
-  // Group comments into threads: top-level + their replies
+  // Group comments into threads: top-level + their replies.
+  // Latest top-level comment first; replies stay chronological within a thread.
+  // The server already pages by top-level comment, so we render every loaded thread.
   const commentThreads = comments
     .filter(c => !c.parentId)
     .map(parent => ({
       ...parent,
-      replies: comments.filter(c => c.parentId === parent.id),
-    }));
+      replies: comments
+        .filter(c => c.parentId === parent.id)
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
+    }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  loadedParentsRef.current = commentThreads.length;
 
   useEffectA(() => {
     if (!task._dbId) return;
     setCommentsLoading(true);
-    getTaskComments(task._dbId)
-      .then(setComments)
-      .catch(() => setComments([]))
+    getTaskComments(task._dbId, { limit: COMMENTS_PAGE, offset: 0 })
+      .then(({ comments: c, total }) => { setComments(c); setCommentTotal(total); })
+      .catch(() => { setComments([]); setCommentTotal(0); })
       .finally(() => setCommentsLoading(false));
   }, [task._dbId]);
 
   useEffectA(() => {
     if (!task._dbId) return;
+    // Reload the window of threads currently on screen (at least one page) so a
+    // realtime change doesn't collapse an expanded list.
+    const reload = () => {
+      const limit = Math.max(loadedParentsRef.current, COMMENTS_PAGE);
+      getTaskComments(task._dbId, { limit, offset: 0 })
+        .then(({ comments: c, total }) => { setComments(c); setCommentTotal(total); })
+        .catch(() => {});
+    };
     const ch = supabase
       .channel(`task-comments-${task._dbId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` },
-        () => getTaskComments(task._dbId).then(setComments).catch(() => {}))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` },
-        () => getTaskComments(task._dbId).then(setComments).catch(() => {}))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` }, reload)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` }, reload)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, [task._dbId]);
+
+  const handleShowMoreComments = async () => {
+    setCommentsLoadingMore(true);
+    try {
+      const offset = comments.filter(c => !c.parentId).length;
+      const { comments: more } = await getTaskComments(task._dbId, { limit: COMMENTS_PAGE, offset });
+      setComments(prev => {
+        const seen = new Set(prev.map(c => c.id));
+        return [...prev, ...more.filter(c => !seen.has(c.id))];
+      });
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to load more comments.');
+    } finally {
+      setCommentsLoadingMore(false);
+    }
+  };
 
   const handleAddComment = async () => {
     const body = newCommentBody.trim();
@@ -2360,6 +2406,7 @@ const TaskDetailModal = ({
     try {
       const comment = await addTaskComment(task._dbId, body, pendingMentions.map(m => m.userId));
       setComments(prev => [...prev, comment]);
+      setCommentTotal(t => t + 1);
       setNewCommentBody('');
       setPendingMentions([]);
     } catch (e) {
@@ -2388,8 +2435,10 @@ const TaskDetailModal = ({
 
   const handleDeleteComment = async (commentId) => {
     try {
+      const wasTopLevel = comments.some(c => c.id === commentId && !c.parentId);
       await deleteTaskComment(commentId);
       setComments(prev => prev.filter(c => c.id !== commentId));
+      if (wasTopLevel) setCommentTotal(t => Math.max(0, t - 1));
       setDeleteConfirmCommentId(null);
     } catch (e) {
       setCommentErr(e.message || 'Failed to delete comment.');
@@ -2829,15 +2878,58 @@ const TaskDetailModal = ({
               )}
             </div>
 
-            {/* ── Status History ── */}
-            <div>
-              <div className="tpanel-section" style={{ marginTop: 4 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Icon name="activity" size={12} />
-                  Status History
-                  {statusLogs.length > 0 && <span className="subtasks-count">{statusLogs.length}</span>}
-                </span>
+            {/* ── Activity Tabs ── */}
+            <div style={{ marginTop: 24 }}>
+              <div className="tpanel-section" style={{ borderBottom: 'none', paddingBottom: 0, marginBottom: 8 }}>
+                <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Activity</span>
               </div>
+              
+              <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 16 }}>
+                {['comments', 'history', 'work log'].map(tab => {
+                  const isActive = activityTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setActivityTab(tab)}
+                      style={{
+                        padding: '6px 14px',
+                        fontSize: 13,
+                        fontWeight: 400,
+                        borderRadius: 6,
+                        background: isActive ? 'var(--primary-fade, rgba(0, 153, 255, 0.1))' : 'transparent',
+                        color: isActive ? 'var(--primary, #0099ff)' : 'var(--text-3)',
+                        border: isActive ? '1px solid var(--primary, #0099ff)' : '1px solid transparent',
+                        margin: -1,
+                        cursor: 'pointer',
+                        textTransform: 'capitalize',
+                        transition: 'all 0.15s ease',
+                        position: isActive ? 'relative' : 'static',
+                        zIndex: isActive ? 2 : 1
+                      }}
+                      onMouseEnter={e => {
+                        if (!isActive) e.target.style.color = 'var(--text)';
+                      }}
+                      onMouseLeave={e => {
+                        if (!isActive) e.target.style.color = 'var(--text-3)';
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Content ── */}
+              
+              {(activityTab === 'all' || activityTab === 'history') && (
+                <div>
+                  <div className="tpanel-section" style={{ marginTop: 4, display: activityTab === 'all' ? 'flex' : 'none' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Icon name="activity" size={12} />
+                      Status History
+                      {statusLogs.length > 0 && <span className="subtasks-count">{statusLogs.length}</span>}
+                    </span>
+                  </div>
               {logsLoading ? (
                 <div className="subtasks-empty">Loading…</div>
               ) : statusLogs.length === 0 ? (
@@ -2916,16 +3008,69 @@ const TaskDetailModal = ({
                   )}
                 </div>
               )}
-            </div>
+                </div>
+              )}
 
-            {/* ── Comments ── */}
-            <div style={{ marginTop: 8 }}>
-              <div className="tpanel-section">
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Icon name="message-square" size={12} />
-                  Comments
-                  {comments.length > 0 && <span className="subtasks-count">{comments.length}</span>}
-                </span>
+              {(activityTab === 'all' || activityTab === 'comments') && (
+                <div style={{ marginTop: activityTab === 'all' ? 24 : 0 }}>
+                  <div className="tpanel-section" style={{ display: activityTab === 'all' ? 'flex' : 'none' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Icon name="message-square" size={12} />
+                      Comments
+                      {commentTotal > 0 && <span className="subtasks-count">{commentTotal}</span>}
+                    </span>
+                  </div>
+
+              {/* Composer */}
+              <div className="task-comment-composer" style={{ marginBottom: 24, borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+                <div style={{ position: 'relative' }}>
+                  <textarea
+                    ref={commentTextareaRef}
+                    className="task-comment-textarea"
+                    placeholder="Write a comment… type @ to mention (Ctrl+Enter to submit)"
+                    value={newCommentBody}
+                    onChange={handleCommentInput}
+                    rows={3}
+                    onKeyDown={e => {
+                      if (mentionOpen) {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionMembers.length - 1)); return; }
+                        if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (mentionMembers[mentionIndex]) handleMentionSelect(mentionMembers[mentionIndex]); return; }
+                        if (e.key === 'Escape')    { setMentionOpen(false); return; }
+                      }
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment();
+                    }}
+                  />
+                  {mentionOpen && mentionMembers.length > 0 && (
+                    <div className="mention-dropdown">
+                      {mentionMembers.map((m, i) => (
+                        <div
+                          key={m.userId}
+                          className={'mention-item' + (i === mentionIndex ? ' active' : '')}
+                          onMouseDown={e => { e.preventDefault(); handleMentionSelect(m); }}
+                        >
+                          {m.avatarUrl
+                            ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 24, height: 24 }} alt={m.name} />
+                            : <div className="assignee-ava assignee-ava-init" style={{ width: 24, height: 24, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                          }
+                          <div className="mention-item-info">
+                            <span className="mention-item-name">{m.name}</span>
+                            <span className="mention-item-role">{m.role}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="task-comment-composer-footer">
+                  <span className="task-comment-char-count" style={{ color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                    {newCommentBody.length}/{MAX_COMMENT}
+                  </span>
+                  <button className="btn sm primary" onClick={handleAddComment}
+                    disabled={commentSubmitting || !newCommentBody.trim() || newCommentBody.length > MAX_COMMENT}>
+                    {commentSubmitting ? 'Posting…' : 'Comment'}
+                  </button>
+                </div>
               </div>
 
               {commentsLoading ? (
@@ -3076,62 +3221,30 @@ const TaskDetailModal = ({
                       </div>
                     );
                   })}
+
+                  {commentThreads.length < commentTotal && (
+                    <button
+                      className="btn sm ghost task-comments-more"
+                      onClick={handleShowMoreComments}
+                      disabled={commentsLoadingMore}
+                    >
+                      {commentsLoadingMore
+                        ? 'Loading…'
+                        : `Show more comments (${commentTotal - commentThreads.length})`}
+                    </button>
+                  )}
                 </div>
               )}
 
               {commentErr && <div style={{ fontSize: 11, color: '#ef4444', margin: '4px 0' }}>{commentErr}</div>}
 
-              {/* Composer */}
-              <div className="task-comment-composer">
-                <div style={{ position: 'relative' }}>
-                  <textarea
-                    ref={commentTextareaRef}
-                    className="task-comment-textarea"
-                    placeholder="Write a comment… type @ to mention (Ctrl+Enter to submit)"
-                    value={newCommentBody}
-                    onChange={handleCommentInput}
-                    rows={3}
-                    onKeyDown={e => {
-                      if (mentionOpen) {
-                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionMembers.length - 1)); return; }
-                        if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
-                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (mentionMembers[mentionIndex]) handleMentionSelect(mentionMembers[mentionIndex]); return; }
-                        if (e.key === 'Escape')    { setMentionOpen(false); return; }
-                      }
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment();
-                    }}
-                  />
-                  {mentionOpen && mentionMembers.length > 0 && (
-                    <div className="mention-dropdown">
-                      {mentionMembers.map((m, i) => (
-                        <div
-                          key={m.userId}
-                          className={'mention-item' + (i === mentionIndex ? ' active' : '')}
-                          onMouseDown={e => { e.preventDefault(); handleMentionSelect(m); }}
-                        >
-                          {m.avatarUrl
-                            ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 24, height: 24 }} alt={m.name} />
-                            : <div className="assignee-ava assignee-ava-init" style={{ width: 24, height: 24, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
-                          }
-                          <div className="mention-item-info">
-                            <span className="mention-item-name">{m.name}</span>
-                            <span className="mention-item-role">{m.role}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="task-comment-composer-footer">
-                  <span className="task-comment-char-count" style={{ color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
-                    {newCommentBody.length}/{MAX_COMMENT}
-                  </span>
-                  <button className="btn sm primary" onClick={handleAddComment}
-                    disabled={commentSubmitting || !newCommentBody.trim() || newCommentBody.length > MAX_COMMENT}>
-                    {commentSubmitting ? 'Posting…' : 'Comment'}
-                  </button>
-                </div>
-              </div>
+
+            </div>
+              )}
+
+              {activityTab === 'work log' && (
+                <div className="subtasks-empty">No work logs available.</div>
+              )}
             </div>
           </div>
 
