@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase.js';
 import { ghSetWorkstationId, ghClearCache } from '../lib/github.js';
 import { vcSetWorkstationId, vcClearCache } from '../lib/vercel.js';
+import { gcalSetWorkstationId, gcalClearCache } from '../lib/googleCalendar.js';
 import {
   loadUserData, getMyContext, updateMyAvatar,
   setActiveWorkstation as persistActiveWs, loadTaskNoteLinks,
@@ -24,6 +25,7 @@ import { GitHubPage } from '../pages/github.jsx';
 import { VercelPage } from '../pages/vercel.jsx';
 import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
+import { CalendarPage } from '../pages/calendar.jsx';
 import { Settings } from '../pages/settings.jsx';
 import { AuthPage, ResetPasswordPage, InviteAcceptPage } from '../pages/auth.jsx';
 import { useRemoteConfig } from '../lib/useRemoteConfig.js';
@@ -52,6 +54,7 @@ function PageRouter({ current, ...props }) {
   switch (current) {
     case 'projects':  return <ProjectsPage {...props} />;
     case 'tasks':     return <TasksPage {...props} />;
+    case 'calendar':  return <CalendarPage {...props} />;
     case 'learning':  return <LearningPage {...props} />;
     case 'vault':     return <VaultPage {...props} />;
     case 'pm':        return <ProjectMgmtPage {...props} />;
@@ -147,6 +150,7 @@ export default function App() {
     if (!authUser?.id || !activeWorkstation?.id) { setIsGithubConnected(false); return; }
     ghSetWorkstationId(activeWorkstation.id);
     vcSetWorkstationId(activeWorkstation.id);
+    gcalSetWorkstationId(activeWorkstation.id);
     supabase
       .from('workspace_integrations')
       .select('provider')
@@ -336,8 +340,10 @@ export default function App() {
     setActiveWorkstation(ws);
     ghSetWorkstationId(ws.id);
     vcSetWorkstationId(ws.id);
+    gcalSetWorkstationId(ws.id);
     ghClearCache();
     vcClearCache();
+    gcalClearCache();
     persistActiveWs(ws.id).catch(console.error);
   };
 
@@ -700,6 +706,7 @@ export default function App() {
             activeWorkstation={activeWorkstation}
             timer={timer}
             onNav={setCurrent}
+            onJump={handleSearchSelect}
             workstationId={activeWorkstation?.id}
             statuses={statuses}           setStatuses={setStatuses}
             projectTypes={projectTypes}   setProjectTypes={setProjectTypes}

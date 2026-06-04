@@ -10,6 +10,7 @@ export const DEFAULT_PERMISSIONS = {
     // module access
     view_projects:  true,
     view_tasks:     true,
+    view_calendar:  true,
     view_pm:        true,
     view_analytics: true,
     view_collab:    true,
@@ -34,11 +35,13 @@ export const DEFAULT_PERMISSIONS = {
     edit_task:      true,
     delete_task:    true,
     assign_task:    true,
+    manage_calendar: true,
     manage_vault:   false,
   },
   member: {
     view_projects:  true,
     view_tasks:     true,
+    view_calendar:  true,
     view_pm:        true,
     view_analytics: true,
     view_collab:    true,
@@ -62,11 +65,13 @@ export const DEFAULT_PERMISSIONS = {
     edit_task:      true,
     delete_task:    false,
     assign_task:    true,
+    manage_calendar: true,
     manage_vault:   false,
   },
   viewer: {
     view_projects:  true,
     view_tasks:     true,
+    view_calendar:  true,
     view_pm:        false,
     view_analytics: true,
     view_collab:    true,
@@ -90,6 +95,7 @@ export const DEFAULT_PERMISSIONS = {
     edit_task:      false,
     delete_task:    false,
     assign_task:    false,
+    manage_calendar: false,
     manage_vault:   false,
   },
 };
@@ -98,6 +104,7 @@ export const PERMISSION_LABELS = {
   // module access
   view_projects:  'Projects',
   view_tasks:     'Tasks',
+  view_calendar:  'Calendar',
   view_pm:        'Project Mgmt',
   view_analytics: 'Analytics',
   view_collab:    'Team Collab',
@@ -122,6 +129,7 @@ export const PERMISSION_LABELS = {
   edit_task:      'Edit tasks',
   delete_task:    'Delete tasks',
   assign_task:    'Assign tasks',
+  manage_calendar: 'Manage calendar events',
   manage_vault:   'Manage vault',
 };
 
@@ -130,6 +138,7 @@ export const PERMISSION_LABELS = {
 export const MODULE_PERMISSION = {
   projects:       'view_projects',
   tasks:          'view_tasks',
+  calendar:       'view_calendar',
   pm:             'view_pm',
   analytics:      'view_analytics',
   collab:         'view_collab',
@@ -149,13 +158,14 @@ export const PERMISSION_GROUPS = [
   {
     label: 'Module access',
     keys: [
-      'view_projects', 'view_tasks', 'view_pm', 'view_analytics', 'view_collab',
+      'view_projects', 'view_tasks', 'view_calendar', 'view_pm', 'view_analytics', 'view_collab',
       'view_timer', 'view_notes', 'view_email', 'view_toolkit', 'view_flutter',
       'view_github', 'view_vercel', 'view_learning', 'view_vault',
     ],
   },
   { label: 'Projects', keys: ['create_project', 'edit_project', 'delete_project'] },
   { label: 'Tasks',    keys: ['create_task', 'edit_task', 'delete_task', 'assign_task'] },
+  { label: 'Calendar', keys: ['manage_calendar'] },
   { label: 'Vault',    keys: ['manage_vault'] },
   { label: 'GitHub',   keys: ['github_write'] },
   { label: 'Team',     keys: ['invite_member', 'remove_member', 'change_role'] },
@@ -169,6 +179,7 @@ export const PERMISSION_WARNINGS = {
   // Module access
   view_projects:  { text: 'Can view and open all projects in this workspace.' },
   view_tasks:     { text: 'Can see the task board and all task details.' },
+  view_calendar:  { text: 'Can open the calendar and see tasks, projects, events and Google events.' },
   view_pm:        { text: 'Can access the Project Management board and Gantt chart.' },
   view_analytics: { text: 'Can see workspace-wide metrics, charts, and time reports.' },
   view_collab:    { text: 'Can view team members and pending invites.' },
@@ -190,6 +201,8 @@ export const PERMISSION_WARNINGS = {
   edit_task:      { text: 'Can edit task titles, descriptions, status, priority, and due dates.' },
   delete_task:    { text: 'Permanently removes tasks from the board. This cannot be undone.', danger: true },
   assign_task:    { text: 'Can assign or reassign tasks to any workspace member.' },
+  // Calendar
+  manage_calendar: { text: 'Can create, edit, drag and delete calendar events (which sync to Google).' },
   // Vault
   manage_vault:   { text: 'Full read and write access to credentials and secrets. Only grant to fully trusted members.', danger: true },
   // GitHub

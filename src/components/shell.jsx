@@ -74,6 +74,7 @@ export const Icon = ({ name, size = 16 }) => {
     'user-plus': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="3" /><path d="M1 14C1 11.24 3.24 9 6 9C8.76 9 11 11.24 11 14" /><path d="M13 6V10M11 8H15" /></g>,
     'user-minus': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="3" /><path d="M1 14C1 11.24 3.24 9 6 9C8.76 9 11 11.24 11 14" /><path d="M11 8H15" /></g>,
     shield: <path d="M8 1L2 3V7.5C2 11.5 4.5 14.5 8 16C11.5 14.5 14 11.5 14 7.5V3L8 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
+    calendar: <g stroke="currentColor" strokeWidth="1.2" fill="none"><rect x="2" y="3" width="12" height="11" rx="1" /><path d="M2 6H14M5 2V4M11 2V4" strokeLinecap="round" /><circle cx="5.5" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="8" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="10.5" cy="9" r="0.6" fill="currentColor" stroke="none" /></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
@@ -89,6 +90,7 @@ export const NAV = [
       { id: 'home', label: 'Command Center', icon: 'home', kbd: 'G H' },
       { id: 'projects', label: 'Projects', icon: 'folder', kbd: 'G P' },
       { id: 'tasks', label: 'Tasks', icon: 'list', kbd: 'G T' },
+      { id: 'calendar', label: 'Calendar', icon: 'calendar', kbd: 'G Y' },
       { id: 'pm', label: 'Project Mgmt', icon: 'chart', kbd: 'G M' },
     ]
   },
@@ -389,34 +391,45 @@ export const Topbar = ({
             <div className="notif-empty">No notifications yet.</div>
           ) : (
             <div className="notif-list">
-              {notifications.map(n => (
+              {notifications.map(n => {
+                const isReminder = n.type === 'calendar_reminder';
+                return (
                 <div
                   key={n.id}
                   className={'notif-row' + (n.readAt ? '' : ' unread')}
                   onClick={() => {
                     if (!n.readAt) onMarkRead?.([n.id]);
                     setNotifOpen(false);
-                    // Open the referenced task (highlights/opens it), not just the list.
-                    if (n.taskDbId && onSelectTask) onSelectTask(n.taskDbId);
+                    if (isReminder) onNav?.('calendar');
+                    else if (n.taskDbId && onSelectTask) onSelectTask(n.taskDbId);
                     else onNav?.('tasks');
                   }}
                 >
                   <div className="notif-avatar">
-                    {n.actorAvatarUrl
-                      ? <img src={n.actorAvatarUrl} className="notif-ava" alt={n.actorName} />
-                      : <div className="notif-ava notif-ava-init">{n.actorName?.[0]?.toUpperCase() || '?'}</div>
+                    {isReminder
+                      ? <div className="notif-ava notif-ava-init"><Icon name="bell" size={14} /></div>
+                      : n.actorAvatarUrl
+                        ? <img src={n.actorAvatarUrl} className="notif-ava" alt={n.actorName} />
+                        : <div className="notif-ava notif-ava-init">{n.actorName?.[0]?.toUpperCase() || '?'}</div>
                     }
                   </div>
                   <div className="notif-content">
-                    <div className="notif-text">
-                      <strong>{n.actorName}</strong> mentioned you in <strong>{n.taskTitle || 'a task'}</strong>
-                    </div>
-                    {n.preview && <div className="notif-preview">"{n.preview}"</div>}
+                    {isReminder ? (
+                      <div className="notif-text"><strong>Reminder</strong> · {n.preview}</div>
+                    ) : (
+                      <>
+                        <div className="notif-text">
+                          <strong>{n.actorName}</strong> mentioned you in <strong>{n.taskTitle || 'a task'}</strong>
+                        </div>
+                        {n.preview && <div className="notif-preview">"{n.preview}"</div>}
+                      </>
+                    )}
                     <div className="notif-time">{timeAgo(n.createdAt)}</div>
                   </div>
                   {!n.readAt && <div className="notif-dot" />}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>,

@@ -918,6 +918,52 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
     }
   };
 
+  // ── Google Calendar integration ─────────────────────────────────────
+  const [gcalInteg, setGcalInteg] = useState(null);
+  const [gcalLoading, setGcalLoading] = useState(true);
+  const [gcalDisconnecting, setGcalDisconnecting] = useState(false);
+  const [gcalError, setGcalError] = useState('');
+
+  useEffect(() => {
+    if (!activeWorkstation?.id) return;
+    supabase.from('workspace_integrations').select('display_name, avatar_url, email, connected_at').eq('workstation_id', activeWorkstation.id).eq('provider', 'google_calendar').maybeSingle()
+      .then(({ data }) => setGcalInteg(data || null))
+      .catch(() => setGcalInteg(null))
+      .finally(() => setGcalLoading(false));
+  }, [activeWorkstation?.id]);
+
+  const connectGoogleCalendar = () => {
+    if (!activeWorkstation?.id) return;
+    setGcalError('');
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) { setGcalError('VITE_GOOGLE_CLIENT_ID is not configured.'); return; }
+    const EDGE_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-calendar-oauth`;
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: EDGE_FN,
+      response_type: 'code',
+      access_type: 'offline',          // required to receive a refresh token
+      prompt: 'consent',               // required to re-issue refresh token
+      include_granted_scopes: 'true',
+      scope: 'https://www.googleapis.com/auth/calendar openid email profile',
+      state: `${activeWorkstation.id}:${user.id}`,
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  };
+
+  const disconnectGoogleCalendar = async () => {
+    if (!activeWorkstation?.id) return;
+    setGcalDisconnecting(true);
+    try {
+      await supabase.from('workspace_integrations').delete().eq('workstation_id', activeWorkstation.id).eq('provider', 'google_calendar');
+      setGcalInteg(null);
+    } catch (e) {
+      setGcalError(e.message);
+    } finally {
+      setGcalDisconnecting(false);
+    }
+  };
+
   const [prefs, setPrefs] = useState([
     { label: 'Email Notifications', value: true },
     { label: 'Daily Summary', value: true },
@@ -1867,6 +1913,52 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                   {vcError && (
                     <div className="form-error" style={{ marginBottom: 4 }}>
                       <Icon name="alert-circle" size={12} /> {vcError}
+                    </div>
+                  )}
+
+                  {/* Google Calendar card */}
+                  <div className={`intg-real-card ${gcalInteg ? 'connected' : ''}`}>
+                    <div className="intg-real-left">
+                      <div className="intg-real-icon">
+                        <Icon name="calendar" size={22} />
+                      </div>
+                      <div className="intg-real-info">
+                        <div className="intg-real-name">Google Calendar</div>
+                        {gcalLoading ? (
+                          <div className="intg-real-sub">Checking…</div>
+                        ) : gcalInteg ? (
+                          <div className="intg-real-sub connected">
+                            {gcalInteg.avatar_url && <img src={gcalInteg.avatar_url} className="intg-gh-av" alt="" />}
+                            {gcalInteg.email}
+                            <span className="intg-connected-dot" />
+                            Connected
+                            {gcalInteg.connected_at && (
+                              <span className="intg-connected-time" style={{ marginLeft: 4 }}>
+                                · {new Date(gcalInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="intg-real-sub">Two-way sync of tasks, projects and events</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="intg-real-right">
+                      {gcalInteg ? (
+                        <button className="intg-btn-disconnect" onClick={disconnectGoogleCalendar} disabled={gcalDisconnecting}>
+                          <Icon name="x" size={13} /> {gcalDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      ) : (
+                        <button className="intg-btn-connect" onClick={connectGoogleCalendar} disabled={gcalLoading}>
+                          <Icon name="calendar" size={13} /> Connect Google
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {gcalError && (
+                    <div className="form-error" style={{ marginBottom: 4 }}>
+                      <Icon name="alert-circle" size={12} /> {gcalError}
                     </div>
                   )}
 

@@ -344,6 +344,76 @@ export const getProjectTasks = async (workstationId, projectShortId) => {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CRUD — Calendar events (native Orbit events)
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbCalendarEvent = (r) => ({
+  id:        r.id,
+  title:     r.title,
+  description: r.description || '',
+  location:  r.location || '',
+  start:     r.starts_at,
+  end:       r.ends_at,
+  allDay:    r.all_day ?? false,
+  color:     r.color || null,
+  projectId: r.project_short_id || null,
+  remindMinutes: r.remind_minutes ?? null,
+  ...auditFields(r),
+})
+
+const calendarEventPayload = (e) => ({
+  title:            e.title,
+  description:      e.description || '',
+  location:         e.location || null,
+  starts_at:        e.start,
+  ends_at:          e.end,
+  all_day:          e.allDay ?? false,
+  color:            e.color || null,
+  project_short_id: e.projectId || null,
+  remind_minutes:   (e.remindMinutes === '' || e.remindMinutes == null) ? null : Number(e.remindMinutes),
+})
+
+export const createCalendarEvent = async (e, workstationId) => {
+  const { data, error } = await supabase.rpc('create_calendar_event', {
+    p_workstation_id: workstationId,
+    p_data:           calendarEventPayload(e),
+  })
+  if (error) throw error
+  return fromDbCalendarEvent(data)
+}
+
+export const updateCalendarEvent = async (id, e) => {
+  const { data, error } = await supabase.rpc('update_calendar_event', {
+    p_id:   id,
+    p_data: calendarEventPayload(e),
+  })
+  if (error) throw error
+  return fromDbCalendarEvent(data)
+}
+
+export const deleteCalendarEvent = async (id) => {
+  const { error } = await supabase.rpc('delete_calendar_event', { p_id: id })
+  if (error) throw error
+}
+
+// Single round-trip read for the calendar page: native events + cached Google
+// events + tasks-with-due_date + projects-with-dates within [from, to].
+export const loadCalendarWindow = async (workstationId, from, to) => {
+  const { data, error } = await supabase.rpc('list_calendar_window', {
+    p_workstation_id: workstationId,
+    p_from:           from,
+    p_to:             to,
+  })
+  if (error) throw error
+  return {
+    events:   (data?.events   || []).map(fromDbCalendarEvent),
+    google:   data?.google    || [],
+    tasks:    data?.tasks     || [],
+    projects: data?.projects  || [],
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // CRUD — Notes
 // ═══════════════════════════════════════════════════════════════════
 
