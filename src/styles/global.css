@@ -22168,3 +22168,30 @@ button.role-badge:hover {
 
 /* Trim the agenda sidebar cards too */
 .cal-density-compact .cal-agenda-card { padding: 8px 10px; }
+
+/* ── Home: today's agenda digest strip ── */
+.cc-agenda-digest {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px; margin-bottom: 18px;
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: 14px;
+  cursor: pointer; transition: border-color .15s, background .15s;
+}
+.cc-agenda-digest:hover { border-color: var(--border-3); background: var(--bg-2); }
+.cc-agenda-ic {
+  width: 36px; height: 36px; flex: none; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-tint); color: var(--accent);
+}
+.cc-agenda-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cc-agenda-label {
+  font-size: 10px; font-family: var(--f-mono); letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-3); font-weight: 600;
+}
+.cc-agenda-summary { font-size: 14px; color: var(--text-1); font-weight: 500; }
+.cc-agenda-overdue { color: #ef4444; font-weight: 600; }
+.cc-agenda-cta {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--text-3); white-space: nowrap;
+}
+.cc-agenda-digest:hover .cc-agenda-cta { color: var(--accent); }
+@media (max-width: 620px) { .cc-agenda-cta { display: none; } }

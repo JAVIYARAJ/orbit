@@ -12,6 +12,7 @@ import {
   createTag,
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
   getTaskComments, addTaskComment, updateTaskComment, deleteTaskComment,
+  loadCalendarWindow,
 } from '../lib/db.js';
 import {
   deriveKey, generateSalt, encryptValue, decryptValue,
@@ -262,6 +263,22 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
   }, []);
   const clockStr = time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+  // ── Today's calendar events (for the agenda digest) ───────────────
+  const [todayEventCount, setTodayEventCount] = useStateA(0);
+  useEffectA(() => {
+    if (!workstationId) return;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const end = new Date(start); end.setDate(end.getDate() + 1);
+    loadCalendarWindow(workstationId, start.toISOString(), end.toISOString())
+      .then(d => setTodayEventCount((d.events?.length || 0) + (d.google?.length || 0)))
+      .catch(() => setTodayEventCount(0));
+  }, [workstationId]);
+
+  const agendaParts = [
+    `${dueTodayTasks.length} task${dueTodayTasks.length === 1 ? '' : 's'} due`,
+    `${todayEventCount} event${todayEventCount === 1 ? '' : 's'}`,
+  ];
+
   // ── Remote stats (timer-based) ────────────────────────────────────
   const [stats, setStats] = useStateA(null);
   useEffectA(() => {
@@ -346,6 +363,20 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
           <div className="cc-clock-val">{clockStr}</div>
           <div className="cc-clock-lbl">Local Time ({tzStr})</div>
         </div>
+      </div>
+
+      {/* 1b. TODAY'S AGENDA DIGEST */}
+      <div className="cc-agenda-digest" onClick={() => onNav('calendar')} role="button" tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter') onNav('calendar'); }}>
+        <div className="cc-agenda-ic"><Icon name="calendar" size={16} /></div>
+        <div className="cc-agenda-body">
+          <span className="cc-agenda-label">Today</span>
+          <span className="cc-agenda-summary">
+            {agendaParts.join(' · ')}
+            {overdueCount > 0 && <span className="cc-agenda-overdue"> · {overdueCount} overdue</span>}
+          </span>
+        </div>
+        <span className="cc-agenda-cta">View calendar <Icon name="chev" size={13} /></span>
       </div>
 
       {/* 2. COMMAND LAUNCHER DOCK */}
