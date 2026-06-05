@@ -13,7 +13,11 @@ import {
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
   getTaskComments, addTaskComment, updateTaskComment, deleteTaskComment,
   loadCalendarWindow,
+  getTaskAttachments, addTaskAttachment,
 } from '../lib/db.js';
+import {
+  uploadAttachment, destroyAttachment, thumbUrl, isImageAttachment, formatBytes, cloudinaryConfigured,
+} from '../lib/cloudinary.js';
 import {
   deriveKey, generateSalt, encryptValue, decryptValue,
   createVerifier, verifyKey,
@@ -1867,11 +1871,14 @@ const extractUrls = (text) => {
   return found;
 };
 
-const renderDescription = (text) => {
-  if (!text) return null;
+// Inline media markdown: !video[name](url)  OR  ![alt](url)
+const IMG_MD_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+const MEDIA_RE  = /!video\[([^\]]*)\]\(([^)\s]+)\)|!\[([^\]]*)\]\(([^)\s]+)\)/g;
+
+// Linkify a plain-text segment (no media markdown inside).
+const linkifyText = (text, kp) => {
   const parts = [];
-  let last = 0;
-  let match;
+  let last = 0, match;
   URL_RE.lastIndex = 0;
   while ((match = URL_RE.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
@@ -1879,7 +1886,7 @@ const renderDescription = (text) => {
     let label;
     try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = url; }
     parts.push(
-      <a key={match.index} href={url} target="_blank" rel="noopener noreferrer" className="desc-link"
+      <a key={`${kp}-l${match.index}`} href={url} target="_blank" rel="noopener noreferrer" className="desc-link"
         onClick={e => e.stopPropagation()}>
         {label}
       </a>
@@ -1889,6 +1896,38 @@ const renderDescription = (text) => {
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 };
+
+// Render text with inline images + video players. withLinks → also linkify URLs.
+// imgClass lets comments use slightly smaller media.
+const renderRich = (text, kp, withLinks, imgClass = '') => {
+  if (!text) return withLinks ? null : [];
+  const out = [];
+  let last = 0, m, k = 0;
+  MEDIA_RE.lastIndex = 0;
+  const seg = (s, key) => { if (s) out.push(...(withLinks ? linkifyText(s, key) : [s])); };
+  while ((m = MEDIA_RE.exec(text)) !== null) {
+    seg(text.slice(last, m.index), `${kp}t${k}`);
+    if (m[1] !== undefined) {            // video: m[1]=name, m[2]=url
+      out.push(
+        <video key={`${kp}v${k}`} src={m[2]} controls preload="metadata"
+          className={`desc-video ${imgClass}`} onClick={e => e.stopPropagation()} />
+      );
+    } else {                             // image: m[3]=alt, m[4]=url
+      out.push(
+        <a key={`${kp}i${k}`} href={m[4]} target="_blank" rel="noopener noreferrer"
+          className="desc-img-link" onClick={e => e.stopPropagation()}>
+          <img src={m[4]} alt={m[3] || ''} className={`desc-img ${imgClass}`} loading="lazy" />
+        </a>
+      );
+    }
+    last = m.index + m[0].length;
+    k++;
+  }
+  seg(text.slice(last), `${kp}tl`);
+  return out;
+};
+
+const renderDescription = (text) => (text ? renderRich(text, 'd', true) : null);
 
 // ── Link preview — instant, no external API ────────────────────────
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?.*)?$/i;
@@ -1990,8 +2029,9 @@ const LinkPreview = ({ url }) => {
   );
 };
 
-const DescriptionField = ({ value, onChange }) => {
+const DescriptionField = ({ value, onChange, onUploadImage }) => {
   const [editing, setEditing] = useStateA(false);
+  const [uploadingImg, setUploadingImg] = useStateA(false);
   const taRef = useRefA(null);
   const urls = editing ? [] : extractUrls(value || '').slice(0, 3);
 
@@ -2003,6 +2043,44 @@ const DescriptionField = ({ value, onChange }) => {
     }
   }, [editing]);
 
+  const insertMarkdown = (md) => {
+    const ta = taRef.current;
+    if (ta && document.activeElement === ta) {
+      const s = ta.selectionStart ?? (value || '').length;
+      const e = ta.selectionEnd ?? s;
+      const next = (value || '').slice(0, s) + md + (value || '').slice(e);
+      onChange(next);
+      requestAnimationFrame(() => { ta.focus(); const p = s + md.length; ta.setSelectionRange(p, p); });
+    } else {
+      onChange((value ? value + '\n' : '') + md);
+    }
+  };
+
+  const isMedia = (f) => f.type.startsWith('image/') || f.type.startsWith('video/');
+  const tokenFor = (r) => r.resourceType === 'video'
+    ? `\n!video[${r.name || 'video'}](${r.url})\n`
+    : `\n![${r.name || 'image'}](${r.url})\n`;
+
+  const handleImageFiles = async (files) => {
+    const media = Array.from(files || []).filter(isMedia);
+    if (!media.length || !onUploadImage) return;
+    setUploadingImg(true);
+    for (const f of media) {
+      try { const r = await onUploadImage(f); if (r?.url) insertMarkdown(tokenFor(r)); }
+      catch { /* parent surfaces the error */ }
+    }
+    setUploadingImg(false);
+  };
+
+  const onPaste = (e) => {
+    const media = Array.from(e.clipboardData?.files || []).filter(isMedia);
+    if (media.length) { e.preventDefault(); handleImageFiles(media); }
+  };
+  const onDrop = (e) => {
+    const media = Array.from(e.dataTransfer?.files || []).filter(isMedia);
+    if (media.length) { e.preventDefault(); setEditing(true); handleImageFiles(media); }
+  };
+
   if (editing) {
     return (
       <div>
@@ -2012,10 +2090,14 @@ const DescriptionField = ({ value, onChange }) => {
           className="tpanel-desc"
           value={value}
           onChange={e => onChange(e.target.value)}
-          placeholder="Add a description — scope, context, acceptance criteria…"
+          placeholder="Add a description — scope, context, acceptance criteria… (paste or drop images to embed)"
           rows={5}
           onBlur={() => setEditing(false)}
+          onPaste={onPaste}
+          onDrop={onDrop}
+          onDragOver={e => e.preventDefault()}
         />
+        {uploadingImg && <div className="att-uploading"><span className="att-spin" /> Uploading image…</div>}
       </div>
     );
   }
@@ -2026,6 +2108,8 @@ const DescriptionField = ({ value, onChange }) => {
       <div
         className={'tpanel-desc-view' + (!value ? ' tpanel-desc-empty' : '')}
         onClick={() => setEditing(true)}
+        onDrop={onDrop}
+        onDragOver={e => e.preventDefault()}
         title="Click to edit"
       >
         {value
@@ -2059,6 +2143,75 @@ const fmtMin = (min) => {
   return `${m}m`;
 };
 
+// ── Attachment grid (thumbnails + file chips) ─────────────────────
+function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove }) {
+  if (!attachments.length) return null;
+  const images = attachments.filter(isImageAttachment);
+  return (
+    <div className="att-grid">
+      {attachments.map(att => {
+        const isImg = isImageAttachment(att);
+        return (
+          <div key={att.id} className="att-item" title={att.fileName}>
+            {isImg ? (
+              <button type="button" className="att-thumb" onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}>
+                <img src={thumbUrl(att)} alt={att.fileName} loading="lazy" />
+              </button>
+            ) : (
+              <a className="att-file" href={att.secureUrl} target="_blank" rel="noreferrer">
+                <Icon name="note" size={20} />
+                <span className="att-file-name">{att.fileName}</span>
+                <span className="att-file-size">{formatBytes(att.sizeBytes)}</span>
+              </a>
+            )}
+            {canRemove(att) && (
+              <button type="button" className="att-remove" title="Delete" onClick={(e) => { e.stopPropagation(); onRemove(att); }}>
+                <Icon name="x" size={11} />
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Image lightbox ─────────────────────────────────────────────────
+function AttachmentLightbox({ images, index, setIndex, onClose }) {
+  useEffectA(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') setIndex(i => (i + 1) % images.length);
+      else if (e.key === 'ArrowLeft') setIndex(i => (i - 1 + images.length) % images.length);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [images.length, setIndex, onClose]);
+  const att = images[index];
+  if (!att) return null;
+  return createPortal(
+    <div className="att-lightbox" onClick={onClose}>
+      <button className="att-lb-close" onClick={onClose}><Icon name="x" size={20} /></button>
+      {images.length > 1 && (
+        <button className="att-lb-nav prev" onClick={(e) => { e.stopPropagation(); setIndex((index - 1 + images.length) % images.length); }}>
+          <span style={{ display: 'flex', transform: 'rotate(180deg)' }}><Icon name="chev" size={22} /></span>
+        </button>
+      )}
+      <img className="att-lb-img" src={att.secureUrl} alt={att.fileName} onClick={e => e.stopPropagation()} />
+      {images.length > 1 && (
+        <button className="att-lb-nav next" onClick={(e) => { e.stopPropagation(); setIndex((index + 1) % images.length); }}>
+          <Icon name="chev" size={22} />
+        </button>
+      )}
+      <div className="att-lb-bar" onClick={e => e.stopPropagation()}>
+        <span className="att-lb-name">{att.fileName}</span>
+        <a className="btn ghost sm" href={att.secureUrl} target="_blank" rel="noreferrer">Open / Download</a>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 const TaskDetailModal = ({
   task, projects, statuses = [], priorities = [], subtasks = [], allTasks = [], onClose, onSave, onStatusChange,
   onAddSubtask, onLinkSubtask, onOpenSubtask, parentTask, onBack,
@@ -2067,6 +2220,7 @@ const TaskDetailModal = ({
   onLogTime, isGithubConnected = false, onBranchUpdate, onDelete,
   members = [],
   currentUserId = null,
+  workstationId = null,
   myRole = 'viewer',
   canEdit = true, canDelete = true, canAssign = true, canGithubWrite = false,
 }) => {
@@ -2244,6 +2398,107 @@ const TaskDetailModal = ({
   const [deletingTask, setDeletingTask] = useStateA(false);
   const [deleteErr, setDeleteErr] = useStateA('');
 
+  // ── Attachments ───────────────────────────────────────────────────
+  const [attachments, setAttachments] = useStateA([]);
+  const [uploading, setUploading]     = useStateA([]);   // [{name}]
+  const [attErr, setAttErr]           = useStateA('');
+  const [lightbox, setLightbox]       = useStateA(null); // index into image attachments
+  const [dragOver, setDragOver]       = useStateA(false);
+  const attInputRef = useRefA(null);
+  const [composerFiles, setComposerFiles] = useStateA([]); // files staged on the comment composer
+  const composerFileRef = useRefA(null);
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    getTaskAttachments(task._dbId).then(setAttachments).catch(() => setAttachments([]));
+  }, [task._dbId]);
+
+  // Upload a list of files; commentId=null → task-level. Returns created rows.
+  const uploadFiles = async (fileList, commentId = null) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return [];
+    if (!cloudinaryConfigured()) { setAttErr('Cloudinary is not configured.'); return []; }
+    setAttErr('');
+    setUploading(prev => [...prev, ...files.map(f => ({ name: f.name }))]);
+    const created = [];
+    for (const file of files) {
+      try {
+        const meta = await uploadAttachment(file, { workstationId, taskDbId: task._dbId });
+        const row = await addTaskAttachment(task._dbId, commentId, meta);
+        created.push(row);
+        if (!commentId) setAttachments(prev => [...prev, row]);
+      } catch (e) {
+        setAttErr(e.message || `Failed to upload ${file.name}`);
+      }
+    }
+    setUploading(prev => prev.slice(files.length));
+    return created;
+  };
+
+  // Upload an image/video and return its URL for inline embedding (also tracked).
+  const uploadInlineImage = async (file) => {
+    if (!cloudinaryConfigured()) { setAttErr('Cloudinary is not configured.'); throw new Error('not configured'); }
+    const meta = await uploadAttachment(file, { workstationId, taskDbId: task._dbId });
+    const row = await addTaskAttachment(task._dbId, null, meta);
+    setAttachments(prev => [...prev, row]);
+    return { url: meta.secure_url, name: file.name, resourceType: meta.resource_type };
+  };
+  // Markdown token for an inline media item, by resource type.
+  const mediaToken = (r) => r.resourceType === 'video'
+    ? `\n!video[${r.name || 'video'}](${r.url})\n`
+    : `\n![${r.name || 'image'}](${r.url})\n`;
+
+  const removeAttachment = async (att) => {
+    setAttachments(prev => prev.filter(a => a.id !== att.id));   // optimistic
+    try { await destroyAttachment(att.id); }
+    catch (e) { setAttErr(e.message || 'Failed to delete'); getTaskAttachments(task._dbId).then(setAttachments).catch(() => {}); }
+  };
+
+  const canRemoveAtt = (att) => att.uploadedBy === currentUserId || canEdit || canDelete;
+
+  const onPanelDrop = (e) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault(); setDragOver(false);
+    uploadFiles(e.dataTransfer.files, null);
+  };
+  // Insert markdown into the comment composer at the cursor.
+  const insertCommentMarkdown = (md) => {
+    const ta = commentTextareaRef.current;
+    const cur = newCommentBody;
+    if (ta && document.activeElement === ta) {
+      const s = ta.selectionStart ?? cur.length, e = ta.selectionEnd ?? s;
+      const next = cur.slice(0, s) + md + cur.slice(e);
+      setNewCommentBody(next);
+      requestAnimationFrame(() => { ta.focus(); const p = s + md.length; ta.setSelectionRange(p, p); });
+    } else {
+      setNewCommentBody((cur ? cur + '\n' : '') + md);
+    }
+  };
+  const isInlineMedia = (f) => f.type.startsWith('image/') || f.type.startsWith('video/');
+  const handleCommentImageFiles = async (files) => {
+    const media = Array.from(files || []).filter(isInlineMedia);
+    if (!media.length) return;
+    for (const f of media) {
+      try { const r = await uploadInlineImage(f); if (r?.url) insertCommentMarkdown(mediaToken(r)); }
+      catch { /* error surfaced */ }
+    }
+  };
+  const onCommentPaste = (e) => {
+    const media = Array.from(e.clipboardData?.files || []).filter(isInlineMedia);
+    if (media.length) { e.preventDefault(); handleCommentImageFiles(media); }
+  };
+  const onCommentDrop = (e) => {
+    const media = Array.from(e.dataTransfer?.files || []).filter(isInlineMedia);
+    if (media.length) { e.preventDefault(); handleCommentImageFiles(media); }
+  };
+
+  const taskLevelAtts = attachments.filter(a => !a.commentId);
+  const taskImages = taskLevelAtts.filter(isImageAttachment);
+  const attsByComment = attachments.reduce((m, a) => {
+    if (a.commentId) (m[a.commentId] = m[a.commentId] || []).push(a);
+    return m;
+  }, {});
+
   // ── Comments ──────────────────────────────────────────────────────
   const MAX_COMMENT = 5000;
   const [comments, setComments] = useStateA([]);
@@ -2307,7 +2562,7 @@ const TaskDetailModal = ({
       return parts.map((part, i) =>
         part.startsWith('@')
           ? <span key={i} className="mention-highlight">{part}</span>
-          : part
+          : renderRich(part, `c${i}`, false, 'comment-media')
       );
     }
     const names = members.map(m => m.name).sort((a, b) => b.length - a.length);
@@ -2317,7 +2572,7 @@ const TaskDetailModal = ({
     return parts.map((part, i) =>
       part.startsWith('@') && names.some(n => part.toLowerCase() === '@' + n.toLowerCase())
         ? <span key={i} className="mention-highlight">{part}</span>
-        : part
+        : renderRich(part, `c${i}`, false, 'comment-media')
     );
   };
 
@@ -2431,7 +2686,7 @@ const TaskDetailModal = ({
 
   const handleAddComment = async () => {
     const body = newCommentBody.trim();
-    if (!body || body.length > MAX_COMMENT) return;
+    if ((!body && composerFiles.length === 0) || body.length > MAX_COMMENT) return;
     setCommentSubmitting(true);
     setCommentErr('');
     try {
@@ -2440,6 +2695,11 @@ const TaskDetailModal = ({
       setCommentTotal(t => t + 1);
       setNewCommentBody('');
       setPendingMentions([]);
+      if (composerFiles.length) {
+        await uploadFiles(composerFiles, comment.id);
+        setComposerFiles([]);
+        getTaskAttachments(task._dbId).then(setAttachments).catch(() => {});
+      }
     } catch (e) {
       setCommentErr(e.message || 'Failed to post comment.');
     } finally {
@@ -2686,7 +2946,52 @@ const TaskDetailModal = ({
             <DescriptionField
               value={form.description}
               onChange={v => set('description', v)}
+              onUploadImage={uploadInlineImage}
             />
+
+            {/* Attachments */}
+            <div
+              className={`tpanel-section-block att-block${dragOver ? ' drag-over' : ''}`}
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onPanelDrop}
+            >
+              <div className="tpanel-section att-head">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="upload" size={12} /> Attachments
+                  {taskLevelAtts.length > 0 && <span className="att-count">{taskLevelAtts.length}</span>}
+                </span>
+                <button type="button" className="btn ghost sm" onClick={() => attInputRef.current?.click()}>
+                  <Icon name="plus" size={12} /> Add
+                </button>
+              </div>
+              <input ref={attInputRef} type="file" multiple style={{ display: 'none' }}
+                onChange={e => { uploadFiles(e.target.files, null); e.target.value = ''; }} />
+
+              {taskLevelAtts.length === 0 && uploading.length === 0 && (
+                <div className="att-empty">Drag &amp; drop, paste, or click Add. Images preview; any file type is allowed.</div>
+              )}
+
+              <AttachmentGrid
+                attachments={taskLevelAtts}
+                onOpenImage={(i) => setLightbox({ images: taskImages, index: i })}
+                onRemove={removeAttachment}
+                canRemove={canRemoveAtt}
+              />
+              {uploading.map((u, i) => (
+                <div key={i} className="att-uploading"><span className="att-spin" /> Uploading {u.name}…</div>
+              ))}
+              {attErr && <div className="form-error" style={{ marginTop: 8 }}><Icon name="alert-circle" size={12} /> {attErr}</div>}
+            </div>
+
+            {lightbox && lightbox.images.length > 0 && (
+              <AttachmentLightbox
+                images={lightbox.images}
+                index={lightbox.index}
+                setIndex={(fn) => setLightbox(lb => ({ ...lb, index: typeof fn === 'function' ? fn(lb.index) : fn }))}
+                onClose={() => setLightbox(null)}
+              />
+            )}
 
             {/* Subtasks — only on parent tasks */}
             {!parentTask && (
@@ -3058,10 +3363,13 @@ const TaskDetailModal = ({
                   <textarea
                     ref={commentTextareaRef}
                     className="task-comment-textarea"
-                    placeholder="Write a comment… type @ to mention (Ctrl+Enter to submit)"
+                    placeholder="Write a comment… @ to mention, paste/drop an image to embed (Ctrl+Enter to submit)"
                     value={newCommentBody}
                     onChange={handleCommentInput}
                     rows={3}
+                    onPaste={onCommentPaste}
+                    onDrop={onCommentDrop}
+                    onDragOver={e => e.preventDefault()}
                     onKeyDown={e => {
                       if (mentionOpen) {
                         if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionMembers.length - 1)); return; }
@@ -3093,12 +3401,27 @@ const TaskDetailModal = ({
                     </div>
                   )}
                 </div>
+                {composerFiles.length > 0 && (
+                  <div className="att-staged">
+                    {composerFiles.map((f, i) => (
+                      <span key={i} className="att-staged-chip">
+                        <Icon name="note" size={11} /> {f.name}
+                        <button type="button" onClick={() => setComposerFiles(prev => prev.filter((_, j) => j !== i))}><Icon name="x" size={10} /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="task-comment-composer-footer">
-                  <span className="task-comment-char-count" style={{ color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                  <button type="button" className="btn ghost sm" title="Attach files" onClick={() => composerFileRef.current?.click()}>
+                    <Icon name="upload" size={13} />
+                  </button>
+                  <input ref={composerFileRef} type="file" multiple style={{ display: 'none' }}
+                    onChange={e => { setComposerFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+                  <span className="task-comment-char-count" style={{ marginLeft: 'auto', color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
                     {newCommentBody.length}/{MAX_COMMENT}
                   </span>
                   <button className="btn sm primary" onClick={handleAddComment}
-                    disabled={commentSubmitting || !newCommentBody.trim() || newCommentBody.length > MAX_COMMENT}>
+                    disabled={commentSubmitting || (!newCommentBody.trim() && composerFiles.length === 0) || newCommentBody.length > MAX_COMMENT}>
                     {commentSubmitting ? 'Posting…' : 'Comment'}
                   </button>
                 </div>
@@ -3159,6 +3482,14 @@ const TaskDetailModal = ({
                             ) : (
                               <>
                                 <div className="task-comment-body">{renderCommentBody(c.body)}</div>
+                                {attsByComment[c.id]?.length > 0 && (
+                                  <AttachmentGrid
+                                    attachments={attsByComment[c.id]}
+                                    onOpenImage={(i) => setLightbox({ images: attsByComment[c.id].filter(isImageAttachment), index: i })}
+                                    onRemove={removeAttachment}
+                                    canRemove={canRemoveAtt}
+                                  />
+                                )}
                                 <div className="task-comment-actions">
                                   {!isReply && (
                                     <button className="task-comment-action-btn"
@@ -4835,6 +5166,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           onDelete={handleTaskDelete}
           members={members}
           currentUserId={user?.id}
+          workstationId={workstationId}
           myRole={myRole}
           canEdit={canEditTask}
           canDelete={canDeleteTask}

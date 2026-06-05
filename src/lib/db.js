@@ -981,6 +981,47 @@ export const deleteTaskComment = async (commentId) => {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// TASK ATTACHMENTS (Cloudinary-backed; file lives in Cloudinary, meta here)
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbAttachment = (r) => ({
+  id:                r.id,
+  taskId:            r.taskId            ?? r.task_id,
+  commentId:         r.commentId         ?? r.comment_id ?? null,
+  provider:          r.provider          ?? 'cloudinary',
+  publicId:          r.publicId          ?? r.public_id,
+  resourceType:      r.resourceType      ?? r.resource_type,
+  secureUrl:         r.secureUrl         ?? r.secure_url,
+  fileName:          r.fileName          ?? r.file_name,
+  mimeType:          r.mimeType          ?? r.mime_type ?? null,
+  format:            r.format            ?? null,
+  sizeBytes:         r.sizeBytes         ?? r.size_bytes ?? null,
+  width:             r.width             ?? null,
+  height:            r.height            ?? null,
+  uploadedBy:        r.uploadedBy        ?? r.uploaded_by ?? null,
+  uploaderName:      r.uploaderName      ?? 'Unknown',
+  uploaderAvatarUrl: r.uploaderAvatarUrl ?? null,
+  createdAt:         r.createdAt         ?? r.created_at,
+})
+
+export const getTaskAttachments = async (taskDbId) => {
+  const { data, error } = await supabase.rpc('get_task_attachments', { p_task_id: taskDbId })
+  if (error) throw error
+  return (data || []).map(fromDbAttachment)
+}
+
+// meta = output of uploadAttachment() in src/lib/cloudinary.js
+export const addTaskAttachment = async (taskDbId, commentId, meta) => {
+  const { data, error } = await supabase.rpc('add_task_attachment', {
+    p_task_id:    taskDbId,
+    p_comment_id: commentId,
+    p_data:       meta,
+  })
+  if (error) throw error
+  return fromDbAttachment(data)
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════════
 
