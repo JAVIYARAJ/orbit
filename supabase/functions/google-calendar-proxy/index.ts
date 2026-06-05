@@ -111,6 +111,7 @@ function buildResource(item: any) {
   } else {
     r.start = { dateTime: item.starts_at }; r.end = { dateTime: item.ends_at }
   }
+  if (item.recurrence_rule) r.recurrence = ['RRULE:' + item.recurrence_rule]
   return r
 }
 
@@ -186,7 +187,10 @@ async function runSync(admin: any, token: string, workstationId: string) {
       // Orbit-owned. Only native events flow back; tasks/projects stay Orbit-managed.
       const kind = ev.extendedProperties?.private?.orbit_kind
       const link = linkByGid[ev.id]
-      if (kind === 'event' && link && ev.updated && ev.updated !== link.google_updated_at && ev.status !== 'cancelled') {
+      // Recurring series stay Orbit-managed: instances carry recurringEventId and
+      // share one orbit_id, so we never write them back onto the master.
+      const isRecurring = !!ev.recurringEventId || !!ev.recurrence
+      if (kind === 'event' && !isRecurring && link && ev.updated && ev.updated !== link.google_updated_at && ev.status !== 'cancelled') {
         // Changed in Google since our last sync (and not re-pushed this run) → apply back.
         const orbitMeetLink =
           ev.hangoutLink ||

@@ -4,6 +4,7 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import listPlugin from '@fullcalendar/list';
 import interactionPlugin from '@fullcalendar/interaction';
+import rrulePlugin from '@fullcalendar/rrule';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
 import {
@@ -11,6 +12,13 @@ import {
 } from '../lib/db.js';
 import { gcalSync } from '../lib/googleCalendar.js';
 import { canDo } from '../lib/permissions.js';
+import {
+  REPEAT_OPTIONS, WEEKDAY_PICKER, composeRule,
+  detectPreset, parseCustom, parseEnd, summarizeRule, rruleEventProps,
+} from '../lib/recurrence.js';
+
+const blankCustomRecur = () => ({ freq: 'WEEKLY', interval: 1, byweekday: [] });
+const blankRecurEnd = () => ({ type: 'never', until: '', count: '' });
 
 // Source colours (aligned with the app's design tokens)
 const SOURCE_COLOR = {
@@ -49,6 +57,7 @@ const nowRoundedISO = () => {
 const blankDraft = () => ({
   id: null, title: '', description: '', location: '',
   allDay: false, start: '', end: '', projectId: '', color: '', remindMinutes: '',
+  repeat: 'NONE', custom: { freq: 'WEEKLY', interval: 1, byweekday: [] }, recurEnd: { type: 'never', until: '', count: '' },
 });
 
 const REMINDER_OPTIONS = [
@@ -185,7 +194,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
     const today = new Date(); today.setHours(0, 0, 0, 0);
     for (const e of data.events) {
       out.push({ key: `event:${e.id}`, source: 'event', title: e.title,
-        start: e.start, end: e.end, allDay: e.allDay,
+        start: e.start, end: e.end, allDay: e.allDay, recurrenceRule: e.recurrenceRule || null,
         color: e.color || SOURCE_COLOR.event, editable: true, raw: e });
     }
     for (const t of data.tasks) {
@@ -221,13 +230,21 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
     return c;
   }, [items]);
 
-  const fcEvents = useMemo(() => items.filter(i => enabled[i.source]).map(i => ({
-    id: i.key, title: i.title, start: i.start, end: i.end, allDay: i.allDay,
-    backgroundColor: i.color, borderColor: i.color, textColor: '#ffffff',
-    editable: i.editable,
-    durationEditable: i.source === 'event',  // tasks can move but not resize
-    extendedProps: { source: i.source, stripe: i.color, raw: i.raw, overdue: !!i.overdue, done: !!i.done },
-  })), [items, enabled]);
+  const fcEvents = useMemo(() => items.filter(i => enabled[i.source]).map(i => {
+    const recurring = !!i.recurrenceRule;
+    const base = {
+      id: i.key, title: i.title, allDay: i.allDay,
+      backgroundColor: i.color, borderColor: i.color, textColor: '#ffffff',
+      editable: i.editable && !recurring,                 // recurring series: edit via modal, not drag
+      durationEditable: i.source === 'event' && !recurring,
+      extendedProps: { source: i.source, stripe: i.color, raw: i.raw, overdue: !!i.overdue, done: !!i.done, recurring },
+    };
+    if (recurring) {
+      const { rrule, duration } = rruleEventProps(i.start, i.end, i.allDay, i.recurrenceRule);
+      return { ...base, rrule, duration };
+    }
+    return { ...base, start: i.start, end: i.end };
+  }), [items, enabled]);
 
   const upcoming = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -294,6 +311,9 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
         end:   raw.allDay ? toDateInput(raw.end) : toLocalInput(raw.end),
         projectId: raw.projectId || '', color: raw.color || '',
         remindMinutes: raw.remindMinutes == null ? '' : String(raw.remindMinutes),
+        repeat: detectPreset(raw.recurrenceRule, raw.start),
+        custom: raw.recurrenceRule ? { ...blankCustomRecur(), ...parseCustom(raw.recurrenceRule) } : blankCustomRecur(),
+        recurEnd: raw.recurrenceRule ? parseEnd(raw.recurrenceRule) : blankRecurEnd(),
       });
     } else {
       setDetail({ source, raw });
@@ -343,14 +363,34 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
     setSaving(true);
     setModalErr('');
     try {
-      const endVal = draft.end || draft.start;
+      const startISO = isoFromDraft(draft.start, draft.allDay);
+      const recurrenceRule = composeRule(draft.repeat, draft.custom, draft.recurEnd, startISO);
+      const repeating = !!recurrenceRule;
+
+      // For a repeating event, each occurrence lives on the start's day: the End
+      // only defines the occurrence length, so we force it to the same date.
+      let endVal = draft.end || draft.start;
+      if (repeating) {
+        if (draft.allDay) {
+          endVal = draft.start;                                   // single all-day occurrence
+        } else {
+          const date = draft.start.slice(0, 10);
+          const endTime = (draft.end && draft.end.slice(11, 16)) || draft.start.slice(11, 16);
+          endVal = `${date}T${endTime}`;
+          if (new Date(endVal) <= new Date(draft.start)) {        // guard: end after start
+            endVal = new Date(new Date(draft.start).getTime() + 3600000).toISOString().slice(0, 16);
+          }
+        }
+      }
+
       const payload = {
         title: draft.title.trim(), description: draft.description, location: draft.location,
         allDay: draft.allDay,
-        start: isoFromDraft(draft.start, draft.allDay),
+        start: startISO,
         end:   isoFromDraft(endVal, draft.allDay),
         projectId: draft.projectId || null, color: draft.color || null,
         remindMinutes: draft.remindMinutes === '' ? null : Number(draft.remindMinutes),
+        recurrenceRule,
       };
       if (draft.id) await updateCalendarEvent(draft.id, payload);
       else          await createCalendarEvent(payload, workstationId);
@@ -477,7 +517,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
         <div className="cal-main-premium">
           <FullCalendar
             ref={calRef}
-            plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
+            plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin, rrulePlugin]}
             initialView="dayGridMonth"
             headerToolbar={windowWidth < 540 ? {
               left: 'prev,next',
@@ -515,12 +555,13 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
             eventDrop={handleEventChange}
             eventResize={handleEventChange}
             eventContent={(arg) => {
-              const { stripe, overdue, done } = arg.event.extendedProps;
+              const { stripe, overdue, done, recurring } = arg.event.extendedProps;
               return (
                 <div className={`cal-ev-premium${done ? ' is-done' : ''}`}>
                   <span className="cal-ev-premium-stripe" style={{ background: stripe }} />
                   {overdue && <span className="cal-ev-overdue-dot" title="Overdue" />}
                   <span className="cal-ev-premium-label">{arg.event.title}</span>
+                  {recurring && <span className="cal-ev-repeat" title="Repeats"><Icon name="rev" size={10} /></span>}
                   {!arg.event.allDay && arg.timeText && <span className="cal-ev-premium-time">{arg.timeText}</span>}
                 </div>
               );
@@ -630,9 +671,69 @@ function MiniMonth({ marked, onPick }) {
   );
 }
 
-// ── Create / edit native event ───────────────────────────────────────
+// ── Custom recurrence pattern (frequency only) ───────────────────────
+function CustomRecurrence({ custom, setCustom }) {
+  const set = (k, v) => setCustom({ ...custom, [k]: v });
+  const toggleDay = (code) => set('byweekday',
+    custom.byweekday.includes(code) ? custom.byweekday.filter(d => d !== code) : [...custom.byweekday, code]);
+  return (
+    <div className="cal-recur-custom">
+      <div className="cal-recur-row">
+        <span>Every</span>
+        <input className="cal-input cal-recur-int" type="number" min="1" value={custom.interval}
+          onChange={e => set('interval', e.target.value)} />
+        <select className="cal-input" value={custom.freq} onChange={e => set('freq', e.target.value)}>
+          <option value="DAILY">day(s)</option>
+          <option value="WEEKLY">week(s)</option>
+          <option value="MONTHLY">month(s)</option>
+          <option value="YEARLY">year(s)</option>
+        </select>
+      </div>
+      {custom.freq === 'WEEKLY' && (
+        <div className="cal-recur-days">
+          {WEEKDAY_PICKER.map(d => (
+            <button key={d.code} type="button"
+              className={`cal-recur-day ${custom.byweekday.includes(d.code) ? 'on' : ''}`}
+              onClick={() => toggleDay(d.code)}>{d.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Shared "Repeat ends" control (applies to presets + custom) ───────
+function RepeatEnds({ value, onChange }) {
+  const set = (k, v) => onChange({ ...value, [k]: v });
+  return (
+    <div className="cal-recur-row cal-recur-ends">
+      <span>Repeat ends</span>
+      <select className="cal-input" value={value.type} onChange={e => set('type', e.target.value)}>
+        <option value="never">Never</option>
+        <option value="until">On date</option>
+        <option value="count">After N times</option>
+      </select>
+      {value.type === 'until' && (
+        <input className="cal-input" type="date" value={value.until} onChange={e => set('until', e.target.value)} />
+      )}
+      {value.type === 'count' && (
+        <input className="cal-input cal-recur-int" type="number" min="1" value={value.count}
+          onChange={e => set('count', e.target.value)} placeholder="N" />
+      )}
+    </div>
+  );
+}
+
 function CalendarEventModal({ draft, setDraft, projects, onSave, onDelete, onClose, saving, err }) {
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+  const repeating = draft.repeat !== 'NONE';
+  // Keep the End's date glued to the Start's date while repeating + timed.
+  const onStartChange = (v) => setDraft(d => {
+    const next = { ...d, start: v };
+    if (d.repeat !== 'NONE' && !d.allDay && d.end) next.end = `${v.slice(0, 10)}T${d.end.slice(11, 16)}`;
+    return next;
+  });
+  const onEndTimeChange = (t) => setDraft(d => ({ ...d, end: `${(d.start || '').slice(0, 10)}T${t}` }));
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-box" style={{ width: 480, maxWidth: '100%' }} onMouseDown={e => e.stopPropagation()}>
@@ -648,18 +749,52 @@ function CalendarEventModal({ draft, setDraft, projects, onSave, onDelete, onClo
           All day
         </label>
 
+        <label className="cal-field-label">Repeat</label>
+        <select className="cal-input" value={draft.repeat} onChange={e => set('repeat', e.target.value)}>
+          {REPEAT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {repeating && draft.repeat === 'CUSTOM' && (
+          <CustomRecurrence custom={draft.custom} setCustom={c => set('custom', c)} />
+        )}
+        {repeating && <RepeatEnds value={draft.recurEnd} onChange={v => set('recurEnd', v)} />}
+
         <div className="cal-field-grid">
           <div>
-            <label className="cal-field-label">Start</label>
+            <label className="cal-field-label">{repeating ? 'Starts on' : 'Start'}</label>
             <input className="cal-input" type={draft.allDay ? 'date' : 'datetime-local'}
-              value={draft.start} onChange={e => set('start', e.target.value)} />
+              value={draft.start} onChange={e => onStartChange(e.target.value)} />
           </div>
           <div>
-            <label className="cal-field-label">End</label>
-            <input className="cal-input" type={draft.allDay ? 'date' : 'datetime-local'}
-              value={draft.end} onChange={e => set('end', e.target.value)} />
+            {repeating && draft.allDay ? (
+              <>
+                <label className="cal-field-label">End</label>
+                <div className="cal-recur-allday-note">All-day, repeats each occurrence</div>
+              </>
+            ) : repeating ? (
+              <>
+                <label className="cal-field-label">End time</label>
+                <input className="cal-input" type="time"
+                  value={(draft.end || '').slice(11, 16)} onChange={e => onEndTimeChange(e.target.value)} />
+              </>
+            ) : (
+              <>
+                <label className="cal-field-label">End</label>
+                <input className="cal-input" type={draft.allDay ? 'date' : 'datetime-local'}
+                  value={draft.end} onChange={e => set('end', e.target.value)} />
+              </>
+            )}
           </div>
         </div>
+
+        {repeating && (
+          <div className="cal-recur-hint">
+            <Icon name="alert-circle" size={11} />
+            <span><strong>Starts on</strong> is the first occurrence &amp; the time it repeats at. <strong>{draft.allDay ? 'Each occurrence is one day.' : 'End time sets how long each one lasts.'}</strong></span>
+          </div>
+        )}
+        {repeating && draft.id && (
+          <div className="cal-recur-hint"><Icon name="rev" size={11} /> Editing changes the whole series.</div>
+        )}
 
         <label className="cal-field-label">Location</label>
         <input className="cal-input" value={draft.location}
@@ -766,6 +901,12 @@ function DetailModal({ detail, onClose, onNav, onJump }) {
         </div>
 
         <div className="cal-ultra-details">
+          {raw.recurrenceRule && (
+            <div className="cal-ultra-row">
+              <div className="cal-ultra-row-icon"><Icon name="rev" size={16} /></div>
+              <div className="cal-ultra-row-text">{summarizeRule(raw.recurrenceRule)}</div>
+            </div>
+          )}
           {raw.location && (
             <div className="cal-ultra-row">
               <div className="cal-ultra-row-icon"><Icon name="map-pin" size={16} /></div>

@@ -358,6 +358,7 @@ const fromDbCalendarEvent = (r) => ({
   color:     r.color || null,
   projectId: r.project_short_id || null,
   remindMinutes: r.remind_minutes ?? null,
+  recurrenceRule: r.recurrence_rule || null,
   meetLink:  r.meet_link || null,
   ...auditFields(r),
 })
@@ -372,6 +373,7 @@ const calendarEventPayload = (e) => ({
   color:            e.color || null,
   project_short_id: e.projectId || null,
   remind_minutes:   (e.remindMinutes === '' || e.remindMinutes == null) ? null : Number(e.remindMinutes),
+  recurrence_rule:  e.recurrenceRule || null,
 })
 
 export const createCalendarEvent = async (e, workstationId) => {
