@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
-import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission } from '../lib/db.js';
+import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission, setGoogleSyncPrefs } from '../lib/db.js';
 import { canDo, canModifyMember, assignableRoles, DEFAULT_PERMISSIONS, PERMISSION_LABELS, PERMISSION_GROUPS, PERMISSION_WARNINGS } from '../lib/permissions.js';
 import { vcClearCache } from '../lib/vercel.js';
 
@@ -923,14 +923,33 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   const [gcalLoading, setGcalLoading] = useState(true);
   const [gcalDisconnecting, setGcalDisconnecting] = useState(false);
   const [gcalError, setGcalError] = useState('');
+  // Which Orbit kinds push to Google (default all on).
+  const [gcalPush, setGcalPush] = useState({ event: true, task: true, project: true });
 
   useEffect(() => {
     if (!activeWorkstation?.id) return;
-    supabase.from('workspace_integrations').select('display_name, avatar_url, email, connected_at').eq('workstation_id', activeWorkstation.id).eq('provider', 'google_calendar').maybeSingle()
-      .then(({ data }) => setGcalInteg(data || null))
+    supabase.from('workspace_integrations').select('display_name, avatar_url, email, connected_at, metadata').eq('workstation_id', activeWorkstation.id).eq('provider', 'google_calendar').maybeSingle()
+      .then(({ data }) => {
+        setGcalInteg(data || null);
+        const p = data?.metadata?.push || {};
+        setGcalPush({ event: p.event !== false, task: p.task !== false, project: p.project !== false });
+      })
       .catch(() => setGcalInteg(null))
       .finally(() => setGcalLoading(false));
   }, [activeWorkstation?.id]);
+
+  const toggleGcalPush = async (kind) => {
+    if (!activeWorkstation?.id) return;
+    const next = { ...gcalPush, [kind]: !gcalPush[kind] };
+    setGcalPush(next);                 // optimistic
+    setGcalError('');
+    try {
+      await setGoogleSyncPrefs(activeWorkstation.id, next);
+    } catch (e) {
+      setGcalPush(gcalPush);           // revert on failure
+      setGcalError(e.message || 'Failed to update sync settings');
+    }
+  };
 
   const connectGoogleCalendar = () => {
     if (!activeWorkstation?.id) return;
@@ -1955,6 +1974,31 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                       )}
                     </div>
                   </div>
+
+                  {gcalInteg && (
+                    <div className="gcal-push-prefs">
+                      <div className="gcal-push-head">
+                        <span className="gcal-push-title">Push to Google Calendar</span>
+                        <span className="gcal-push-hint">Applies on next sync. Turning one off removes those events from Google.</span>
+                      </div>
+                      <div className="gcal-push-toggles">
+                        {[
+                          { kind: 'event',   label: 'Orbit events' },
+                          { kind: 'task',    label: 'Task due dates' },
+                          { kind: 'project', label: 'Project timelines' },
+                        ].map(({ kind, label }) => (
+                          <button
+                            key={kind}
+                            className={`gcal-push-toggle ${gcalPush[kind] ? 'on' : ''}`}
+                            onClick={() => toggleGcalPush(kind)}
+                          >
+                            <span className="gcal-push-switch"><span className="gcal-push-knob" /></span>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {gcalError && (
                     <div className="form-error" style={{ marginBottom: 4 }}>

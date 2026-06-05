@@ -397,6 +397,15 @@ export const deleteCalendarEvent = async (id) => {
   if (error) throw error
 }
 
+// Which Orbit kinds get pushed to Google. prefs = { event, task, project } booleans.
+export const setGoogleSyncPrefs = async (workstationId, prefs) => {
+  const { error } = await supabase.rpc('set_google_sync_prefs', {
+    p_workstation_id: workstationId,
+    p_prefs:          prefs,
+  })
+  if (error) throw error
+}
+
 // Single round-trip read for the calendar page: native events + cached Google
 // events + tasks-with-due_date + projects-with-dates within [from, to].
 export const loadCalendarWindow = async (workstationId, from, to) => {
