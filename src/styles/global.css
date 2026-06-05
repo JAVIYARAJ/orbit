@@ -22137,3 +22137,34 @@ button.role-badge:hover {
   border-radius: 50%; background: #fff; transition: transform .15s;
 }
 .gcal-push-toggle.on .gcal-push-knob { transform: translateX(11px); }
+
+/* ── Calendar view options: density + weekends toggles ── */
+.cal-viewopts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.cal-viewopt {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 9px; font-size: 12px; cursor: pointer;
+  background: var(--bg-3); border: 1px solid var(--border-2); color: var(--text-2);
+}
+.cal-viewopt:hover { background: var(--bg-4); color: var(--text-1); }
+.cal-viewopt.on { color: var(--text-1); border-color: color-mix(in srgb, var(--accent) 50%, var(--border-2)); }
+@media (max-width: 700px) { .cal-viewopts { margin-left: 0; width: 100%; } }
+
+/* ── Compact density overrides ── */
+.cal-density-compact .cal-ev-premium { padding: 1px 3px; gap: 4px; }
+.cal-density-compact .cal-ev-premium-stripe { width: 3px; height: 11px; }
+.cal-density-compact .cal-ev-premium-label { font-size: 10.5px; }
+.cal-density-compact .cal-ev-premium-time { font-size: 9.5px; }
+
+.cal-density-compact .cal-main-premium .fc .fc-daygrid-event { margin: 1px 2px; padding: 0; }
+.cal-density-compact .cal-main-premium .fc .fc-daygrid-event-harness { margin-top: 1px; }
+.cal-density-compact .cal-main-premium .fc .fc-daygrid-day-number { padding: 3px 5px; font-size: 11px; }
+.cal-density-compact .cal-main-premium .fc .fc-daygrid-day-bottom { padding: 0 4px; }
+.cal-density-compact .cal-main-premium .fc .fc-col-header-cell-cushion { padding: 5px 4px; font-size: 10px; }
+.cal-density-compact .cal-main-premium .fc .fc-daygrid-more-link { font-size: 10px; }
+
+/* Tighter time-grid rows */
+.cal-density-compact .cal-main-premium .fc .fc-timegrid-slot { height: 1.4em; }
+.cal-density-compact .cal-main-premium .fc .fc-timegrid-slot-label-cushion { font-size: 10px; }
+
+/* Trim the agenda sidebar cards too */
+.cal-density-compact .cal-agenda-card { padding: 8px 10px; }

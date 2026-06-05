@@ -100,6 +100,9 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
   const [range, setRange] = useState(null);
   const [enabled, setEnabled] = useState({ event: true, task: true, project: false, google: true });
   const [currentView, setCurrentView] = useState('dayGridMonth');
+  // Personal view prefs (per-browser, like the app's other UI prefs).
+  const [density, setDensity] = useState(() => localStorage.getItem('orbit:cal:density') || 'comfortable');
+  const [showWeekends, setShowWeekends] = useState(() => localStorage.getItem('orbit:cal:weekends') !== 'false');
 
   const [draft, setDraft]       = useState(null);   // create/edit native event modal
   const [detail, setDetail]     = useState(null);   // read-only detail modal
@@ -378,8 +381,19 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
 
   const toggleSource = (s) => setEnabled(e => ({ ...e, [s]: !e[s] }));
 
+  const toggleDensity = () => setDensity(d => {
+    const next = d === 'compact' ? 'comfortable' : 'compact';
+    localStorage.setItem('orbit:cal:density', next);
+    return next;
+  });
+  const toggleWeekends = () => setShowWeekends(w => {
+    const next = !w;
+    localStorage.setItem('orbit:cal:weekends', String(next));
+    return next;
+  });
+
   return (
-    <div className="cal-page-premium">
+    <div className={`cal-page-premium${density === 'compact' ? ' cal-density-compact' : ''}`}>
       <div className="cal-header-premium">
         <div className="cal-header-content">
           <div className="cal-title-wrapper">
@@ -437,6 +451,25 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
               <span className="cal-filter-count-badge">{counts[s]}</span>
             </button>
           ))}
+
+          <div className="cal-viewopts">
+            <button
+              className="cal-viewopt"
+              onClick={toggleDensity}
+              title={density === 'compact' ? 'Switch to comfortable spacing' : 'Switch to compact spacing'}
+            >
+              <Icon name={density === 'compact' ? 'layers' : 'list'} size={13} />
+              {density === 'compact' ? 'Compact' : 'Comfortable'}
+            </button>
+            <button
+              className={`cal-viewopt ${showWeekends ? 'on' : ''}`}
+              onClick={toggleWeekends}
+              title={showWeekends ? 'Hide weekends' : 'Show weekends'}
+            >
+              <Icon name="calendar" size={13} />
+              Weekends
+            </button>
+          </div>
         </div>
       </div>
 
@@ -471,7 +504,8 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
             editable={canManage}
             selectable={canManage}
             selectMirror
-            dayMaxEvents={4}
+            weekends={showWeekends}
+            dayMaxEvents={density === 'compact' ? 6 : 4}
             nowIndicator
             fixedWeekCount={false}
             datesSet={handleDatesSet}
