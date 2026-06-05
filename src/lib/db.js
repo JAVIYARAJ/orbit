@@ -995,6 +995,11 @@ const fromDbNotification = (r) => ({
   taskDbId:       r.taskDbId       || null,
   commentId:      r.commentId      || null,
   preview:        r.preview        || '',
+  entityType:     r.entityType     || null,
+  entityId:       r.entityId       || null,
+  title:          r.title          || '',
+  meta:           r.meta           || {},
+  workstationId:  r.workstationId  || null,
 })
 
 export const getNotifications = async (limit = 30) => {

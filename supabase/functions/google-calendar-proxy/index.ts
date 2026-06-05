@@ -42,6 +42,27 @@ async function decryptToken(encrypted: string): Promise<string> {
 
 class ReconnectError extends Error {}
 
+// Notify the person who connected the integration that it needs reconnecting
+// (deduped to once per day). Uses the service-role client (bypasses RLS).
+async function notifyReconnect(admin: any, workstationId: string) {
+  try {
+    const { data: integ } = await admin.from('workspace_integrations')
+      .select('connected_by').eq('workstation_id', workstationId).eq('provider', 'google_calendar').maybeSingle()
+    const uid = integ?.connected_by
+    if (!uid) return
+    const since = new Date(); since.setHours(0, 0, 0, 0)
+    const { data: existing } = await admin.from('notifications').select('id')
+      .eq('user_id', uid).eq('type', 'integration_reconnect_needed').eq('workstation_id', workstationId)
+      .gte('created_at', since.toISOString()).limit(1)
+    if (existing && existing.length) return
+    await admin.from('notifications').insert({
+      user_id: uid, actor_id: uid, type: 'integration_reconnect_needed', workstation_id: workstationId,
+      entity_type: 'integration', entity_id: 'google_calendar', title: 'Google Calendar',
+      preview: 'Reconnect Google Calendar to resume sync', meta: { provider: 'google_calendar' },
+    })
+  } catch (_) { /* best-effort */ }
+}
+
 // Returns a valid access token, refreshing + persisting it when near expiry.
 async function getValidToken(admin: any, workstationId: string): Promise<string> {
   const { data: integ } = await admin.from('workspace_integrations')
@@ -261,7 +282,7 @@ Deno.serve(async (req) => {
     try {
       token = await getValidToken(admin, workstation_id)
     } catch (e) {
-      if (e instanceof ReconnectError) return json({ status: 403 }, 200)
+      if (e instanceof ReconnectError) { await notifyReconnect(admin, workstation_id); return json({ status: 403 }, 200) }
       if (e instanceof Error && e.message === 'NOT_CONNECTED') return json({ error: 'Google Calendar not connected' }, 404)
       throw e
     }

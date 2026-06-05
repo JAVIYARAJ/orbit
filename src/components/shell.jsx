@@ -131,6 +131,35 @@ export const NAV = [
 // Flat list (for cmd palette + lookup)
 export const NAV_FLAT = NAV.flatMap(g => g.items.map(it => ({ ...it, section: g.section })));
 
+// ─── Notification rendering catalog ───────────────────────────────
+// system: show a type icon instead of the actor avatar. preview: show the
+// secondary preview line. render(n) → the main JSX line.
+const NOTIF_CONFIG = {
+  task_assigned:        { icon: 'list',            render: n => <><strong>{n.actorName}</strong> assigned you <strong>{n.title}</strong></> },
+  task_unassigned:      { icon: 'list',            render: n => <><strong>{n.actorName}</strong> unassigned you from <strong>{n.title}</strong></> },
+  task_status_changed:  { icon: 'check-circle',    preview: true, render: n => <><strong>{n.actorName}</strong> updated <strong>{n.title}</strong></> },
+  task_due_soon:        { icon: 'alert-circle', system: true, render: n => <><strong>{n.title}</strong> is {String(n.preview).toLowerCase() === 'overdue' ? 'overdue' : 'due today'}</> },
+  task_commented:       { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> commented on <strong>{n.title}</strong></> },
+  mention:              { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> mentioned you in <strong>{n.title || 'a task'}</strong></> },
+  comment_reply:        { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> replied in <strong>{n.title}</strong></> },
+  invite_accepted:      { icon: 'user-plus',       render: n => <><strong>{n.actorName}</strong> joined <strong>{n.title}</strong></> },
+  role_changed:         { icon: 'shield',          render: n => <>{n.preview || 'Your role changed'}</> },
+  member_removed:       { icon: 'user-minus',      render: n => <>{n.preview || 'You were removed from a workspace'}</> },
+  ownership_transferred:{ icon: 'shield',          render: n => <>{n.preview || 'You are now the owner'}</> },
+  calendar_reminder:    { icon: 'bell', system: true, render: n => <><strong>Reminder</strong> · {n.preview}</> },
+  integration_reconnect_needed: { icon: 'alert-circle', system: true, render: n => <>Reconnect <strong>{n.title}</strong> to resume sync</> },
+};
+const notifRoute = (n, onNav, onSelectTask) => {
+  switch (n.entityType) {
+    case 'task':        return (n.entityId && onSelectTask) ? onSelectTask(n.entityId) : onNav?.('tasks');
+    case 'event':       return onNav?.('calendar');
+    case 'workspace':
+    case 'member':      return onNav?.('collab');
+    case 'integration': return onNav?.('settings');
+    default:            return onNav?.('home');
+  }
+};
+
 // ─── WorkstationPanel ──────────────────────────────────────────────
 const WorkstationPanel = ({ open, onClose, workstations = [], active, onSwitch, onNew }) => {
   useEffect(() => {
@@ -392,7 +421,7 @@ export const Topbar = ({
           ) : (
             <div className="notif-list">
               {notifications.map(n => {
-                const isReminder = n.type === 'calendar_reminder';
+                const cfg = NOTIF_CONFIG[n.type] || { icon: 'bell', render: x => x.preview || x.title || 'Notification' };
                 return (
                 <div
                   key={n.id}
@@ -400,30 +429,20 @@ export const Topbar = ({
                   onClick={() => {
                     if (!n.readAt) onMarkRead?.([n.id]);
                     setNotifOpen(false);
-                    if (isReminder) onNav?.('calendar');
-                    else if (n.taskDbId && onSelectTask) onSelectTask(n.taskDbId);
-                    else onNav?.('tasks');
+                    notifRoute(n, onNav, onSelectTask);
                   }}
                 >
                   <div className="notif-avatar">
-                    {isReminder
-                      ? <div className="notif-ava notif-ava-init"><Icon name="bell" size={14} /></div>
+                    {cfg.system
+                      ? <div className="notif-ava notif-ava-init"><Icon name={cfg.icon} size={14} /></div>
                       : n.actorAvatarUrl
                         ? <img src={n.actorAvatarUrl} className="notif-ava" alt={n.actorName} />
                         : <div className="notif-ava notif-ava-init">{n.actorName?.[0]?.toUpperCase() || '?'}</div>
                     }
                   </div>
                   <div className="notif-content">
-                    {isReminder ? (
-                      <div className="notif-text"><strong>Reminder</strong> · {n.preview}</div>
-                    ) : (
-                      <>
-                        <div className="notif-text">
-                          <strong>{n.actorName}</strong> mentioned you in <strong>{n.taskTitle || 'a task'}</strong>
-                        </div>
-                        {n.preview && <div className="notif-preview">"{n.preview}"</div>}
-                      </>
-                    )}
+                    <div className="notif-text">{cfg.render(n)}</div>
+                    {cfg.preview && n.preview && <div className="notif-preview">"{n.preview}"</div>}
                     <div className="notif-time">{timeAgo(n.createdAt)}</div>
                   </div>
                   {!n.readAt && <div className="notif-dot" />}
