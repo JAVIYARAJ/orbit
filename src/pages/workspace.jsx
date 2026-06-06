@@ -1873,7 +1873,7 @@ const extractUrls = (text) => {
 
 // Inline media markdown: !video[name](url)  OR  ![alt](url)
 const IMG_MD_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
-const MEDIA_RE  = /!video\[([^\]]*)\]\(([^)\s]+)\)|!\[([^\]]*)\]\(([^)\s]+)\)/g;
+const MEDIA_RE  = /!video\[([^\]]*)\]\(([^)\s]+)\)|!\[([^\]]*)\]\(([^)\s]+)\)|!file\[([^\]]*)\]\(([^)\s]+)\)/g;
 
 // Linkify a plain-text segment (no media markdown inside).
 const linkifyText = (text, kp) => {
@@ -1897,7 +1897,7 @@ const linkifyText = (text, kp) => {
   return parts;
 };
 
-// Render text with inline images + video players. withLinks → also linkify URLs.
+// Render text with inline images + video players + file badges. withLinks → also linkify URLs.
 // imgClass lets comments use slightly smaller media.
 const renderRich = (text, kp, withLinks, imgClass = '') => {
   if (!text) return withLinks ? null : [];
@@ -1912,12 +1912,39 @@ const renderRich = (text, kp, withLinks, imgClass = '') => {
         <video key={`${kp}v${k}`} src={m[2]} controls preload="metadata"
           className={`desc-video ${imgClass}`} onClick={e => e.stopPropagation()} />
       );
-    } else {                             // image: m[3]=alt, m[4]=url
+    } else if (m[3] !== undefined) {     // image: m[3]=alt, m[4]=url
       out.push(
         <a key={`${kp}i${k}`} href={m[4]} target="_blank" rel="noopener noreferrer"
           className="desc-img-link" onClick={e => e.stopPropagation()}>
           <img src={m[4]} alt={m[3] || ''} className={`desc-img ${imgClass}`} loading="lazy" />
         </a>
+      );
+    } else if (m[5] !== undefined) {     // file: m[5]=name, m[6]=url
+      const fileName = m[5] || 'file';
+      const fileUrl = m[6];
+      const fileMeta = getFileTypeMeta(fileName, '', 14);
+      out.push(
+        <span key={`${kp}f${k}`} className="desc-inline-file-wrap" onClick={e => e.stopPropagation()}>
+          <a 
+            href={fileUrl} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="desc-inline-file-card"
+            style={{ borderLeftColor: fileMeta.color }}
+          >
+            <span className="file-icon" style={{ display: 'flex', color: fileMeta.color }}>
+              {fileMeta.icon}
+            </span>
+            <span className="file-name">{fileName}</span>
+            <span className="file-download-ic">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </span>
+          </a>
+        </span>
       );
     }
     last = m.index + m[0].length;
@@ -2032,72 +2059,193 @@ const LinkPreview = ({ url }) => {
 const DescriptionField = ({ value, onChange, onUploadImage }) => {
   const [editing, setEditing] = useStateA(false);
   const [uploadingImg, setUploadingImg] = useStateA(false);
-  const taRef = useRefA(null);
+  const editorRef = useRefA(null);
   const urls = editing ? [] : extractUrls(value || '').slice(0, 3);
 
-  useEffectA(() => {
-    if (editing && taRef.current) {
-      taRef.current.focus();
-      const len = taRef.current.value.length;
-      taRef.current.setSelectionRange(len, len);
-    }
-  }, [editing]);
+  const markdownToHtmlForEdit = (markdown) => {
+    if (!markdown) return '';
+    let html = markdown;
+    
+    // Replace images
+    html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, url) => {
+      return `<img src="${url}" alt="${alt}" data-markdown-img="${alt}" class="desc-img" style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px; cursor: default;" />`;
+    });
+    
+    // Replace videos
+    html = html.replace(/!video\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, url) => {
+      return `<video src="${url}" data-markdown-video="${alt}" class="desc-video" controls style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px;" />`;
+    });
+    
+    // Replace files
+    html = html.replace(/!file\[([^\]]*)\]\(([^)\s]+)\)/g, (match, name, url) => {
+      const fileMeta = getFileTypeMeta(name, '', 12);
+      return `<span class="desc-inline-file-wrap" contenteditable="false" data-markdown-file-name="${name}" data-markdown-file-url="${url}"><a href="${url}" target="_blank" rel="noopener noreferrer" class="desc-inline-file-card" style="border-left-color: ${fileMeta.color}; pointer-events: none;"><span class="file-icon" style="color: ${fileMeta.color}; display: inline-flex; vertical-align: middle;">${fileMeta.icon}</span><span class="file-name">${name}</span></a></span>`;
+    });
+    
+    // Replace newlines with <br>
+    html = html.replace(/\n/g, '<br>');
+    
+    return html;
+  };
 
-  const insertMarkdown = (md) => {
-    const ta = taRef.current;
-    if (ta && document.activeElement === ta) {
-      const s = ta.selectionStart ?? (value || '').length;
-      const e = ta.selectionEnd ?? s;
-      const next = (value || '').slice(0, s) + md + (value || '').slice(e);
-      onChange(next);
-      requestAnimationFrame(() => { ta.focus(); const p = s + md.length; ta.setSelectionRange(p, p); });
-    } else {
-      onChange((value ? value + '\n' : '') + md);
+  const serializeHtmlToMarkdown = (html) => {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    
+    const walk = (node) => {
+      let md = '';
+      for (let child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          md += child.textContent;
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          if (child.tagName === 'IMG' && child.hasAttribute('data-markdown-img')) {
+            const alt = child.getAttribute('data-markdown-img') || '';
+            const src = child.getAttribute('src') || '';
+            md += `![${alt}](${src})`;
+          } else if (child.tagName === 'VIDEO' && child.hasAttribute('data-markdown-video')) {
+            const alt = child.getAttribute('data-markdown-video') || '';
+            const src = child.getAttribute('src') || '';
+            md += `!video[${alt}](${src})`;
+          } else if (child.classList.contains('desc-inline-file-wrap')) {
+            const name = child.getAttribute('data-markdown-file-name') || 'file';
+            const url = child.getAttribute('data-markdown-file-url') || '';
+            md += `!file[${name}](${url})`;
+          } else if (child.tagName === 'BR') {
+            md += '\n';
+          } else if (child.tagName === 'DIV' || child.tagName === 'P') {
+            const inner = walk(child);
+            if (inner) {
+              md += '\n' + inner;
+            } else {
+              md += '\n';
+            }
+          } else {
+            md += walk(child);
+          }
+        }
+      }
+      return md;
+    };
+    
+    let result = walk(temp);
+    result = result.replace(/\n{3,}/g, '\n\n').trim();
+    return result;
+  };
+
+  const htmlForEditToken = (r) => {
+    if (r.resourceType === 'video') {
+      return `<video src="${r.url}" data-markdown-video="${r.name || 'video'}" class="desc-video" controls style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px;" />`;
+    }
+    const ext = (r.name || '').split('.').pop().toLowerCase();
+    const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'bmp'].includes(ext);
+    if (isImg && r.resourceType === 'image') {
+      return `<img src="${r.url}" alt="${r.name || 'image'}" data-markdown-img="${r.name || 'image'}" class="desc-img" style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px; cursor: default;" />`;
+    }
+    const fileMeta = getFileTypeMeta(r.name || 'file', '', 12);
+    return `<span class="desc-inline-file-wrap" contenteditable="false" data-markdown-file-name="${r.name || 'file'}" data-markdown-file-url="${r.url}"><a href="${r.url}" target="_blank" rel="noopener noreferrer" class="desc-inline-file-card" style="border-left-color: ${fileMeta.color}; pointer-events: none;"><span class="file-icon" style="color: ${fileMeta.color}; display: inline-flex; vertical-align: middle;">${fileMeta.icon}</span><span class="file-name">${r.name || 'file'}</span></a></span>`;
+  };
+
+  const insertHtmlAtCursor = (html) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      const sel = window.getSelection();
+      if (sel.getRangeAt && sel.rangeCount) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const el = document.createElement("div");
+        el.innerHTML = html;
+        const frag = document.createDocumentFragment();
+        let node, lastNode;
+        while ((node = el.firstChild)) {
+          lastNode = frag.appendChild(node);
+        }
+        range.insertNode(frag);
+        if (lastNode) {
+          range.setStartAfter(lastNode);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
     }
   };
 
-  const isMedia = (f) => f.type.startsWith('image/') || f.type.startsWith('video/');
-  const tokenFor = (r) => r.resourceType === 'video'
-    ? `\n!video[${r.name || 'video'}](${r.url})\n`
-    : `\n![${r.name || 'image'}](${r.url})\n`;
-
-  const handleImageFiles = async (files) => {
-    const media = Array.from(files || []).filter(isMedia);
-    if (!media.length || !onUploadImage) return;
+  const handleFiles = async (files) => {
+    const allFiles = Array.from(files || []);
+    if (!allFiles.length || !onUploadImage) return;
     setUploadingImg(true);
-    for (const f of media) {
-      try { const r = await onUploadImage(f); if (r?.url) insertMarkdown(tokenFor(r)); }
-      catch { /* parent surfaces the error */ }
+    for (const f of allFiles) {
+      try {
+        const r = await onUploadImage(f);
+        if (r?.url) {
+          insertHtmlAtCursor(htmlForEditToken(r));
+        }
+      } catch (e) {
+        console.error('Failed to upload file:', e);
+      }
     }
     setUploadingImg(false);
   };
 
   const onPaste = (e) => {
-    const media = Array.from(e.clipboardData?.files || []).filter(isMedia);
-    if (media.length) { e.preventDefault(); handleImageFiles(media); }
-  };
-  const onDrop = (e) => {
-    const media = Array.from(e.dataTransfer?.files || []).filter(isMedia);
-    if (media.length) { e.preventDefault(); setEditing(true); handleImageFiles(media); }
+    const files = Array.from(e.clipboardData?.files || []);
+    if (files.length) {
+      e.preventDefault();
+      handleFiles(files);
+    }
   };
 
+  const onDrop = (e) => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) {
+      e.preventDefault();
+      setEditing(true);
+      handleFiles(files);
+    }
+  };
+
+  const handleBlur = (e) => {
+    if (e.relatedTarget && editorRef.current?.contains(e.relatedTarget)) {
+      return;
+    }
+    if (editorRef.current) {
+      const html = editorRef.current.innerHTML;
+      const markdown = serializeHtmlToMarkdown(html);
+      onChange(markdown);
+    }
+    setEditing(false);
+  };
+
+  useEffectA(() => {
+    if (editing && editorRef.current) {
+      editorRef.current.focus();
+      // Move caret to end
+      const range = document.createRange();
+      range.selectNodeContents(editorRef.current);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }, [editing]);
+
   if (editing) {
+    const initialHtml = markdownToHtmlForEdit(value);
     return (
       <div>
         <div className="tpanel-section">Description</div>
-        <textarea
-          ref={taRef}
-          className="tpanel-desc"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="Add a description — scope, context, acceptance criteria… (paste or drop images to embed)"
-          rows={5}
-          onBlur={() => setEditing(false)}
+        <div
+          ref={editorRef}
+          contentEditable
+          className="tpanel-desc-editor"
+          onBlur={handleBlur}
           onPaste={onPaste}
           onDrop={onDrop}
           onDragOver={e => e.preventDefault()}
+          placeholder="Add a description — scope, context, acceptance criteria… (paste or drop files to embed)"
+          dangerouslySetInnerHTML={{ __html: initialHtml }}
         />
-        {uploadingImg && <div className="att-uploading"><span className="att-spin" /> Uploading image…</div>}
+        {uploadingImg && <div className="att-uploading"><span className="att-spin" /> Uploading file…</div>}
       </div>
     );
   }
@@ -2143,32 +2291,321 @@ const fmtMin = (min) => {
   return `${m}m`;
 };
 
-// ── Attachment grid (thumbnails + file chips) ─────────────────────
-function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove }) {
+// ── Helper to detect file extensions & map color/icon themes ─────────
+const getFileTypeMeta = (fileName = '', mimeType = '', size = 28) => {
+  const ext = fileName.split('.').pop().toLowerCase();
+  
+  // Extensions lists
+  const archiveExts = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2'];
+  const codeExts = ['js', 'jsx', 'ts', 'tsx', 'py', 'html', 'css', 'c', 'cpp', 'cs', 'go', 'rs', 'sql', 'json', 'sh', 'xml', 'yaml', 'yml'];
+  const sheetExts = ['xlsx', 'xls', 'csv', 'ods'];
+  const docExts = ['docx', 'doc', 'txt', 'rtf'];
+  const mediaExts = ['mp3', 'wav', 'ogg', 'mp4', 'mkv', 'avi', 'mov', 'webm'];
+  
+  if (ext === 'pdf') {
+    return {
+      ext,
+      color: '#ef4444',
+      bg: 'rgba(239, 68, 68, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <line x1="10" y1="9" x2="8" y2="9" />
+        </svg>
+      )
+    };
+  } else if (archiveExts.includes(ext)) {
+    return {
+      ext,
+      color: '#d97706',
+      bg: 'rgba(217, 119, 6, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          <path d="M2 10h20" />
+        </svg>
+      )
+    };
+  } else if (codeExts.includes(ext)) {
+    return {
+      ext,
+      color: '#0284c7',
+      bg: 'rgba(2, 132, 199, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="16 18 22 12 16 6" />
+          <polyline points="8 6 2 12 8 18" />
+          <line x1="12" y1="2" x2="12" y2="22" />
+        </svg>
+      )
+    };
+  } else if (sheetExts.includes(ext)) {
+    return {
+      ext,
+      color: '#16a34a',
+      bg: 'rgba(22, 163, 74, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <line x1="16" y1="9" x2="8" y2="9" />
+        </svg>
+      )
+    };
+  } else if (mediaExts.includes(ext) || (mimeType && (mimeType.startsWith('video/') || mimeType.startsWith('audio/')))) {
+    return {
+      ext,
+      color: '#7c3aed',
+      bg: 'rgba(124, 58, 237, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+          <line x1="7" y1="2" x2="7" y2="22" />
+          <line x1="17" y1="2" x2="17" y2="22" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <line x1="2" y1="7" x2="7" y2="7" />
+          <line x1="2" y1="17" x2="7" y2="17" />
+          <line x1="17" y1="17" x2="22" y2="17" />
+          <line x1="17" y1="7" x2="22" y2="7" />
+        </svg>
+      )
+    };
+  } else if (docExts.includes(ext)) {
+    return {
+      ext,
+      color: '#4b5563',
+      bg: 'rgba(75, 85, 99, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <line x1="16" y1="9" x2="8" y2="9" />
+        </svg>
+      )
+    };
+  } else {
+    // Default file (document/gray)
+    return {
+      ext,
+      color: '#6b7280',
+      bg: 'rgba(107, 114, 128, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+      )
+    };
+  }
+};
+
+// ── Attachment Grid & List (Jira-style redesign) ────────────────────
+function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout = 'grid' }) {
   if (!attachments.length) return null;
   const images = attachments.filter(isImageAttachment);
+
+  if (layout === 'list') {
+    return (
+      <div className="jira-list">
+        <div className="jira-list-header">
+          <div></div>
+          <div>Name</div>
+          <div>Size</div>
+          <div>Uploaded By &amp; Date</div>
+          <div style={{ textAlign: 'right' }}>Actions</div>
+        </div>
+        {attachments.map(att => {
+          const isImg = isImageAttachment(att);
+          const meta = getFileTypeMeta(att.fileName, att.mimeType, 15);
+          const dateStr = att.createdAt
+            ? new Date(att.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : '—';
+          return (
+            <div key={att.id} className="jira-list-row" title={att.fileName}>
+              <div className="jira-list-icon">
+                {isImg ? (
+                  <div style={{ width: 15, height: 15, borderRadius: 3, overflow: 'hidden', border: '1px solid var(--border-2)' }}>
+                    <img src={thumbUrl(att)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                ) : (
+                  <span style={{ display: 'flex', color: meta.color }}>
+                    {meta.icon}
+                  </span>
+                )}
+              </div>
+              <div 
+                className="jira-list-name" 
+                onClick={() => {
+                  if (isImg) {
+                    onOpenImage(images.findIndex(i => i.id === att.id));
+                  } else {
+                    window.open(att.secureUrl, '_blank', 'noopener,noreferrer');
+                  }
+                }}
+              >
+                {att.fileName}
+              </div>
+              <div className="jira-list-size">{formatBytes(att.sizeBytes)}</div>
+              <div className="jira-list-uploader-info">
+                {att.uploaderAvatarUrl ? (
+                  <img src={att.uploaderAvatarUrl} className="jira-card-ava-img" alt={att.uploaderName} />
+                ) : (
+                  <div className="jira-card-ava" style={{ background: avaColor(att.uploaderName || 'User') }}>
+                    {(att.uploaderName?.[0] || 'U').toUpperCase()}
+                  </div>
+                )}
+                <div className="jira-list-uploader-text">
+                  <span className="jira-uploader-name">{att.uploaderName || 'Unknown'}</span>
+                  <span className="jira-upload-date">{dateStr}</span>
+                </div>
+              </div>
+              <div className="jira-list-actions">
+                <a 
+                  className="jira-list-action-btn" 
+                  href={att.secureUrl} 
+                  download 
+                  target="_blank" 
+                  rel="noreferrer"
+                  title="Download"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <Icon name="download" size={11} />
+                </a>
+                {isImg && (
+                  <button 
+                    type="button" 
+                    className="jira-list-action-btn"
+                    onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}
+                    title="Preview"
+                  >
+                    <Icon name="eye" size={11} />
+                  </button>
+                )}
+                {canRemove(att) && (
+                  <button 
+                    type="button" 
+                    className="jira-list-action-btn delete" 
+                    title="Delete" 
+                    onClick={(e) => { e.stopPropagation(); onRemove(att); }}
+                  >
+                    <Icon name="trash" size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const isComment = layout === 'comment-grid';
   return (
-    <div className="att-grid">
+    <div className={isComment ? "att-grid att-grid-comment" : "jira-grid"}>
       {attachments.map(att => {
         const isImg = isImageAttachment(att);
+        const meta = getFileTypeMeta(att.fileName, att.mimeType, 20);
+        const dateStr = att.createdAt
+          ? new Date(att.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          : '';
+
+        if (isComment) {
+          return (
+            <div key={att.id} className="att-item" title={att.fileName}>
+              {isImg ? (
+                <button type="button" className="att-thumb" onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}>
+                  <img src={thumbUrl(att)} alt={att.fileName} loading="lazy" />
+                </button>
+              ) : (
+                <a className="att-file" href={att.secureUrl} target="_blank" rel="noreferrer">
+                  <span style={{ display: 'flex', color: meta.color, justifyContent: 'center' }}>
+                    {meta.icon}
+                  </span>
+                  <span className="att-file-name" style={{ marginTop: 4 }}>{att.fileName}</span>
+                  <span className="att-file-size">{formatBytes(att.sizeBytes)}</span>
+                </a>
+              )}
+              {canRemove(att) && (
+                <button type="button" className="att-remove" title="Delete" onClick={(e) => { e.stopPropagation(); onRemove(att); }}>
+                  <Icon name="x" size={11} />
+                </button>
+              )}
+            </div>
+          );
+        }
+
         return (
-          <div key={att.id} className="att-item" title={att.fileName}>
-            {isImg ? (
-              <button type="button" className="att-thumb" onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}>
+          <div key={att.id} className="jira-card" title={att.fileName}>
+            <div className="jira-card-graphic" style={{ background: isImg ? 'var(--bg-3)' : meta.bg }}>
+              {isImg ? (
                 <img src={thumbUrl(att)} alt={att.fileName} loading="lazy" />
-              </button>
-            ) : (
-              <a className="att-file" href={att.secureUrl} target="_blank" rel="noreferrer">
-                <Icon name="note" size={20} />
-                <span className="att-file-name">{att.fileName}</span>
-                <span className="att-file-size">{formatBytes(att.sizeBytes)}</span>
-              </a>
-            )}
-            {canRemove(att) && (
-              <button type="button" className="att-remove" title="Delete" onClick={(e) => { e.stopPropagation(); onRemove(att); }}>
-                <Icon name="x" size={11} />
-              </button>
-            )}
+              ) : (
+                <div className="jira-file-graphics">
+                  <span style={{ color: meta.color }}>
+                    {meta.icon}
+                  </span>
+                  <span className="ext-badge" style={{ background: meta.color, color: '#fff' }}>
+                    {meta.ext || 'file'}
+                  </span>
+                </div>
+              )}
+              <div className="jira-card-actions">
+                <a 
+                  className="jira-action-btn" 
+                  href={att.secureUrl} 
+                  download 
+                  target="_blank" 
+                  rel="noreferrer"
+                  title="Download"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <Icon name="download" size={11} />
+                </a>
+                {isImg && (
+                  <button 
+                    type="button" 
+                    className="jira-action-btn"
+                    onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}
+                    title="Preview"
+                  >
+                    <Icon name="eye" size={11} />
+                  </button>
+                )}
+                {canRemove(att) && (
+                  <button 
+                    type="button" 
+                    className="jira-action-btn delete" 
+                    title="Delete" 
+                    onClick={(e) => { e.stopPropagation(); onRemove(att); }}
+                  >
+                    <Icon name="trash" size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="jira-card-info">
+              <div className="jira-card-name">{att.fileName}</div>
+              <div className="jira-card-meta">
+                <span className="jira-card-size">{formatBytes(att.sizeBytes)}</span>
+                <span className="jira-card-uploader" title={`Uploaded on ${dateStr} by ${att.uploaderName || 'Unknown'}`}>
+                  {att.uploaderAvatarUrl ? (
+                    <img src={att.uploaderAvatarUrl} className="jira-card-ava-img" alt={att.uploaderName} />
+                  ) : (
+                    <div className="jira-card-ava" style={{ background: avaColor(att.uploaderName || 'User') }}>
+                      {(att.uploaderName?.[0] || 'U').toUpperCase()}
+                    </div>
+                  )}
+                  <span>{dateStr}</span>
+                </span>
+              </div>
+            </div>
           </div>
         );
       })}
@@ -2176,7 +2613,7 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove }) {
   );
 }
 
-// ── Image lightbox ─────────────────────────────────────────────────
+// ── Image Lightbox (with details top bar and carousel bottom strip) ─
 function AttachmentLightbox({ images, index, setIndex, onClose }) {
   useEffectA(() => {
     const onKey = (e) => {
@@ -2187,25 +2624,80 @@ function AttachmentLightbox({ images, index, setIndex, onClose }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [images.length, setIndex, onClose]);
+  
   const att = images[index];
   if (!att) return null;
+
+  const dateStr = att.createdAt
+    ? new Date(att.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+
   return createPortal(
     <div className="att-lightbox" onClick={onClose}>
-      <button className="att-lb-close" onClick={onClose}><Icon name="x" size={20} /></button>
-      {images.length > 1 && (
-        <button className="att-lb-nav prev" onClick={(e) => { e.stopPropagation(); setIndex((index - 1 + images.length) % images.length); }}>
-          <span style={{ display: 'flex', transform: 'rotate(180deg)' }}><Icon name="chev" size={22} /></span>
-        </button>
-      )}
-      <img className="att-lb-img" src={att.secureUrl} alt={att.fileName} onClick={e => e.stopPropagation()} />
-      {images.length > 1 && (
-        <button className="att-lb-nav next" onClick={(e) => { e.stopPropagation(); setIndex((index + 1) % images.length); }}>
-          <Icon name="chev" size={22} />
-        </button>
-      )}
-      <div className="att-lb-bar" onClick={e => e.stopPropagation()}>
-        <span className="att-lb-name">{att.fileName}</span>
-        <a className="btn ghost sm" href={att.secureUrl} target="_blank" rel="noreferrer">Open / Download</a>
+      <div className="jira-lightbox-wrap">
+        {/* Top Details Bar */}
+        <div className="jira-lightbox-topbar" onClick={e => e.stopPropagation()}>
+          <div className="jira-lightbox-meta">
+            <span className="jira-lightbox-title">{att.fileName}</span>
+            <span className="jira-lightbox-sub">
+              {formatBytes(att.sizeBytes)} · Uploaded by {att.uploaderName || 'Unknown'} on {dateStr}
+            </span>
+          </div>
+          <div className="jira-lightbox-controls">
+            <a className="jira-lightbox-btn" href={att.secureUrl} download target="_blank" rel="noreferrer">
+              <Icon name="download" size={13} /> Download
+            </a>
+            <button className="att-lb-close" style={{ position: 'static', width: 34, height: 34 }} onClick={onClose}>
+              <Icon name="x" size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Center Image and Nav */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexGrow: 1, position: 'relative', width: '100%' }}>
+          {images.length > 1 && (
+            <button className="att-lb-nav prev" onClick={(e) => { e.stopPropagation(); setIndex((index - 1 + images.length) % images.length); }}>
+              <span style={{ display: 'flex', transform: 'rotate(180deg)' }}><Icon name="chev" size={22} /></span>
+            </button>
+          )}
+          
+          <img 
+            className="att-lb-img" 
+            src={att.secureUrl} 
+            alt={att.fileName} 
+            onClick={e => e.stopPropagation()} 
+            style={{ maxHeight: '68vh', maxWidth: '85vw', objectFit: 'contain' }}
+          />
+          
+          {images.length > 1 && (
+            <button className="att-lb-nav next" onClick={(e) => { e.stopPropagation(); setIndex((index + 1) % images.length); }}>
+              <Icon name="chev" size={22} />
+            </button>
+          )}
+        </div>
+
+        {/* Bottom Carousel / Thumbnail strip */}
+        <div className="jira-lightbox-carousel" onClick={e => e.stopPropagation()}>
+          {images.length > 1 && (
+            <>
+              <div className="jira-carousel-strip">
+                {images.map((img, i) => (
+                  <button 
+                    key={img.id}
+                    className={`jira-carousel-thumb${i === index ? ' active' : ''}`}
+                    onClick={() => setIndex(i)}
+                    title={img.fileName}
+                  >
+                    <img src={thumbUrl(img)} alt="" />
+                  </button>
+                ))}
+              </div>
+              <div className="jira-carousel-counter">
+                {index + 1} of {images.length}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>,
     document.body,
@@ -2404,6 +2896,14 @@ const TaskDetailModal = ({
   const [attErr, setAttErr]           = useStateA('');
   const [lightbox, setLightbox]       = useStateA(null); // index into image attachments
   const [dragOver, setDragOver]       = useStateA(false);
+  const [attViewMode, setAttViewMode] = useStateA(() => {
+    try { return localStorage.getItem('orbit_att_view') || 'grid'; }
+    catch { return 'grid'; }
+  });
+  const toggleAttViewMode = (mode) => {
+    setAttViewMode(mode);
+    try { localStorage.setItem('orbit_att_view', mode); } catch (e) {}
+  };
   const attInputRef = useRefA(null);
   const [composerFiles, setComposerFiles] = useStateA([]); // files staged on the comment composer
   const composerFileRef = useRefA(null);
@@ -2444,9 +2944,17 @@ const TaskDetailModal = ({
     return { url: meta.secure_url, name: file.name, resourceType: meta.resource_type };
   };
   // Markdown token for an inline media item, by resource type.
-  const mediaToken = (r) => r.resourceType === 'video'
-    ? `\n!video[${r.name || 'video'}](${r.url})\n`
-    : `\n![${r.name || 'image'}](${r.url})\n`;
+  const mediaToken = (r) => {
+    if (r.resourceType === 'video') {
+      return `\n!video[${r.name || 'video'}](${r.url})\n`;
+    }
+    const ext = (r.name || '').split('.').pop().toLowerCase();
+    const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'bmp'].includes(ext);
+    if (isImg && r.resourceType === 'image') {
+      return `\n![${r.name || 'image'}](${r.url})\n`;
+    }
+    return `\n!file[${r.name || 'file'}](${r.url})\n`;
+  };
 
   const removeAttachment = async (att) => {
     setAttachments(prev => prev.filter(a => a.id !== att.id));   // optimistic
@@ -2474,22 +2982,21 @@ const TaskDetailModal = ({
       setNewCommentBody((cur ? cur + '\n' : '') + md);
     }
   };
-  const isInlineMedia = (f) => f.type.startsWith('image/') || f.type.startsWith('video/');
   const handleCommentImageFiles = async (files) => {
-    const media = Array.from(files || []).filter(isInlineMedia);
-    if (!media.length) return;
-    for (const f of media) {
+    const allFiles = Array.from(files || []);
+    if (!allFiles.length) return;
+    for (const f of allFiles) {
       try { const r = await uploadInlineImage(f); if (r?.url) insertCommentMarkdown(mediaToken(r)); }
       catch { /* error surfaced */ }
     }
   };
   const onCommentPaste = (e) => {
-    const media = Array.from(e.clipboardData?.files || []).filter(isInlineMedia);
-    if (media.length) { e.preventDefault(); handleCommentImageFiles(media); }
+    const files = Array.from(e.clipboardData?.files || []);
+    if (files.length) { e.preventDefault(); handleCommentImageFiles(files); }
   };
   const onCommentDrop = (e) => {
-    const media = Array.from(e.dataTransfer?.files || []).filter(isInlineMedia);
-    if (media.length) { e.preventDefault(); handleCommentImageFiles(media); }
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) { e.preventDefault(); handleCommentImageFiles(files); }
   };
 
   const taskLevelAtts = attachments.filter(a => !a.commentId);
@@ -2950,34 +3457,101 @@ const TaskDetailModal = ({
             />
 
             {/* Attachments */}
-            <div
-              className={`tpanel-section-block att-block${dragOver ? ' drag-over' : ''}`}
-              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={onPanelDrop}
-            >
-              <div className="tpanel-section att-head">
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Icon name="upload" size={12} /> Attachments
-                  {taskLevelAtts.length > 0 && <span className="att-count">{taskLevelAtts.length}</span>}
-                </span>
-                <button type="button" className="btn ghost sm" onClick={() => attInputRef.current?.click()}>
-                  <Icon name="plus" size={12} /> Add
-                </button>
-              </div>
+            <div className="jira-att-section">
+              {taskLevelAtts.length === 0 && uploading.length === 0 ? (
+                // Jira-style empty dropzone
+                <div>
+                  <div className="tpanel-section">Attachments</div>
+                  <div 
+                    className={`jira-dropzone-empty${dragOver ? ' drag-over' : ''}`}
+                    onClick={() => attInputRef.current?.click()}
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={onPanelDrop}
+                  >
+                    <div className="dz-icon">
+                      <Icon name="upload" size={20} />
+                    </div>
+                    <div className="dz-title">
+                      Drag &amp; drop files here, or <span>Browse</span> to upload
+                    </div>
+                    <div className="dz-sub">
+                      Max file size: 100 MB · Any file type is allowed
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // Header with list/grid toggle and "Add" button
+                <div>
+                  <div className="jira-att-header">
+                    <div className="jira-att-title-wrap">
+                      <span className="jira-att-title">
+                        <Icon name="upload" size={13} /> Attachments
+                      </span>
+                      <span className="jira-att-count">{taskLevelAtts.length}</span>
+                    </div>
+                    <div className="jira-att-actions">
+                      <div className="jira-view-toggle">
+                        <button 
+                          type="button" 
+                          className={`jira-view-btn${attViewMode === 'grid' ? ' active' : ''}`} 
+                          onClick={() => toggleAttViewMode('grid')}
+                          title="Grid view"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <rect x="3" y="3" width="7" height="7" />
+                            <rect x="14" y="3" width="7" height="7" />
+                            <rect x="14" y="14" width="7" height="7" />
+                            <rect x="3" y="14" width="7" height="7" />
+                          </svg>
+                        </button>
+                        <button 
+                          type="button" 
+                          className={`jira-view-btn${attViewMode === 'list' ? ' active' : ''}`} 
+                          onClick={() => toggleAttViewMode('list')}
+                          title="List view"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <line x1="8" y1="6" x2="21" y2="6" />
+                            <line x1="8" y1="12" x2="21" y2="12" />
+                            <line x1="8" y1="18" x2="21" y2="18" />
+                            <line x1="3" y1="6" x2="3.01" y2="6" />
+                            <line x1="3" y1="12" x2="3.01" y2="12" />
+                            <line x1="3" y1="18" x2="3.01" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                      <button type="button" className="btn sm ghost" onClick={() => attInputRef.current?.click()}>
+                        <Icon name="plus" size={12} /> Add
+                      </button>
+                    </div>
+                  </div>
+
+                  <AttachmentGrid
+                    attachments={taskLevelAtts}
+                    onOpenImage={(i) => setLightbox({ images: taskImages, index: i })}
+                    onRemove={removeAttachment}
+                    canRemove={canRemoveAtt}
+                    layout={attViewMode}
+                  />
+
+                  {/* Compact dropzone for adding more files */}
+                  <div 
+                    className={`jira-dropzone-compact${dragOver ? ' drag-over' : ''}`}
+                    onClick={() => attInputRef.current?.click()}
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={onPanelDrop}
+                  >
+                    <Icon name="upload" size={12} />
+                    <span>Drag &amp; drop files here to attach, or click to browse</span>
+                  </div>
+                </div>
+              )}
+
               <input ref={attInputRef} type="file" multiple style={{ display: 'none' }}
                 onChange={e => { uploadFiles(e.target.files, null); e.target.value = ''; }} />
 
-              {taskLevelAtts.length === 0 && uploading.length === 0 && (
-                <div className="att-empty">Drag &amp; drop, paste, or click Add. Images preview; any file type is allowed.</div>
-              )}
-
-              <AttachmentGrid
-                attachments={taskLevelAtts}
-                onOpenImage={(i) => setLightbox({ images: taskImages, index: i })}
-                onRemove={removeAttachment}
-                canRemove={canRemoveAtt}
-              />
               {uploading.map((u, i) => (
                 <div key={i} className="att-uploading"><span className="att-spin" /> Uploading {u.name}…</div>
               ))}
@@ -3488,6 +4062,7 @@ const TaskDetailModal = ({
                                     onOpenImage={(i) => setLightbox({ images: attsByComment[c.id].filter(isImageAttachment), index: i })}
                                     onRemove={removeAttachment}
                                     canRemove={canRemoveAtt}
+                                    layout="comment-grid"
                                   />
                                 )}
                                 <div className="task-comment-actions">

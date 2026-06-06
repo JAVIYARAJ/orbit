@@ -22298,10 +22298,880 @@ button.role-badge:hover {
 .desc-img.comment-img { max-height: 260px; }
 .desc-img:hover { border-color: var(--accent); }
 
-/* Inline media (images + videos) sizing — Jira-like, large within the column */
-.desc-img { max-height: 520px; }
-.desc-video {
-  display: block; max-width: 100%; max-height: 520px; width: auto; margin: 6px 0;
-  border-radius: 8px; border: 1px solid var(--border-2); background: #000;
-}
 .desc-img.comment-media, .desc-video.comment-media { max-height: 320px; }
+
+/* ===================================================================
+   Jira-Style Task Attachment & Detail Panel Redesign
+   =================================================================== */
+
+/* --- Enhanced Upload Dropzone --- */
+.jira-dropzone-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  border: 2px dashed var(--border-2);
+  border-radius: 12px;
+  background: var(--bg-2);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-top: 10px;
+}
+
+.jira-dropzone-empty:hover {
+  border-color: var(--accent);
+  background: var(--bg-3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+.jira-dropzone-empty.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px var(--accent), 0 4px 20px rgba(var(--accent-rgb), 0.15);
+  transform: scale(0.995);
+}
+
+.jira-dropzone-empty .dz-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.jira-dropzone-empty:hover .dz-icon {
+  background: var(--bg-1);
+  color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.jira-dropzone-empty.drag-over .dz-icon {
+  background: var(--accent);
+  color: #fff;
+}
+
+.jira-dropzone-empty .dz-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  margin-bottom: 4px;
+}
+
+.jira-dropzone-empty .dz-title span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.jira-dropzone-empty .dz-sub {
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+/* Compact Dropzone (when files exist) */
+.jira-dropzone-compact {
+  border: 2px dashed var(--border-2);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  background: var(--bg-2);
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--text-3);
+  transition: all 0.15s ease;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.jira-dropzone-compact:hover {
+  border-color: var(--accent);
+  background: var(--bg-3);
+  color: var(--text-2);
+}
+
+.jira-dropzone-compact.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+/* Inline file card in description/comments */
+.desc-inline-file-wrap {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 4px;
+}
+
+.desc-inline-file-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: var(--text-2) !important;
+  font-size: 12px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  height: 26px;
+}
+
+.desc-inline-file-card:hover {
+  background: var(--bg-3);
+  border-color: var(--accent);
+  color: var(--text-1) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.desc-inline-file-card .file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.desc-inline-file-card .file-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desc-inline-file-card .file-download-ic {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-4);
+  opacity: 0.7;
+  transition: opacity 0.12s ease;
+}
+
+.desc-inline-file-card:hover .file-download-ic {
+  opacity: 1;
+  color: var(--text-2);
+}
+
+/* --- Layout Controls & Header --- */
+.jira-att-section {
+  margin: 24px 0;
+}
+
+.jira-att-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-2);
+}
+
+.jira-att-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jira-att-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jira-att-count {
+  font-size: 11px;
+  font-family: var(--f-mono);
+  background: var(--bg-3);
+  color: var(--text-3);
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.jira-att-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jira-view-toggle {
+  display: inline-flex;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.jira-view-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.jira-view-btn:hover {
+  color: var(--text-1);
+}
+
+.jira-view-btn.active {
+  background: var(--bg-1);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Grid View Layout --- */
+.jira-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.jira-card {
+  position: relative;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  aspect-ratio: 4 / 3.2;
+}
+
+.jira-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* Card Header Graphic Block */
+.jira-card-graphic {
+  position: relative;
+  height: 64px;
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--border-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.jira-card-graphic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease;
+}
+
+.jira-card:hover .jira-card-graphic img {
+  transform: scale(1.04);
+}
+
+/* Custom Colorful Graphic representation of files */
+.jira-file-graphics {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  transition: all 0.2s ease;
+}
+
+.jira-file-graphics .ext-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  font-family: var(--f-mono);
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Card Lower Info Block */
+.jira-card-info {
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--bg-1);
+  flex-grow: 1;
+  justify-content: space-between;
+}
+
+.jira-card-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jira-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9.5px;
+  color: var(--text-3);
+}
+
+.jira-card-size {
+  font-family: var(--f-mono);
+}
+
+.jira-card-uploader {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.jira-card-ava {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  font-size: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+}
+
+.jira-card-ava-img {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Hover Action Overlays on Card */
+.jira-card-actions {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.jira-card:hover .jira-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.jira-action-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  border: none;
+  color: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+  transition: all 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.jira-action-btn:hover {
+  transform: scale(1.1);
+  background: var(--accent);
+  color: #fff;
+}
+
+.jira-action-btn.delete:hover {
+  background: #ef4444;
+}
+
+/* --- List View Layout --- */
+.jira-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--bg-2);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.jira-list-header {
+  display: grid;
+  grid-template-columns: 28px 1fr 80px 150px 80px;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--border-2);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.jira-list-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 80px 150px 80px;
+  align-items: center;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-2);
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: var(--bg-1);
+  transition: background-color 0.12s ease;
+}
+
+.jira-list-row:last-child {
+  border-bottom: none;
+}
+
+.jira-list-row:hover {
+  background: var(--bg-3);
+}
+
+.jira-list-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jira-list-name {
+  font-weight: 500;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 12px;
+  cursor: pointer;
+  font-size: 11.5px;
+}
+
+.jira-list-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.jira-list-size {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.jira-list-uploader-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jira-list-uploader-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.jira-uploader-name {
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.jira-upload-date {
+  font-size: 9px;
+  color: var(--text-4);
+}
+
+.jira-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  justify-content: flex-end;
+}
+
+.jira-list-row:hover .jira-list-actions {
+  opacity: 1;
+}
+
+.jira-list-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.jira-list-action-btn:hover {
+  color: var(--text-1);
+  background: var(--bg-2);
+}
+
+.jira-list-action-btn.delete:hover {
+  color: #ef4444;
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+}
+
+/* --- Upgraded Lightbox with Bottom Carousel --- */
+.jira-lightbox-wrap {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.jira-lightbox-wrap > * {
+  pointer-events: auto;
+}
+
+/* Top details bar */
+.jira-lightbox-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 24px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.85), rgba(0,0,0,0));
+  z-index: 10;
+}
+
+.jira-lightbox-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.jira-lightbox-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.jira-lightbox-sub {
+  color: #aaa;
+  font-size: 11px;
+}
+
+.jira-lightbox-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.jira-lightbox-btn {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.jira-lightbox-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+/* Bottom carousel strip */
+.jira-lightbox-carousel {
+  width: 100%;
+  padding: 16px 20px 24px;
+  background: linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 10;
+}
+
+.jira-carousel-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  max-width: 80vw;
+  padding: 4px;
+}
+
+/* Hide scrollbar for carousel strip */
+.jira-carousel-strip::-webkit-scrollbar {
+  display: none;
+}
+.jira-carousel-strip {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.jira-carousel-thumb {
+  width: 50px;
+  height: 50px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.25);
+  background: #222;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.jira-carousel-thumb:hover {
+  opacity: 0.9;
+  border-color: rgba(255,255,255,0.6);
+}
+
+.jira-carousel-thumb.active {
+  opacity: 1;
+  border-color: var(--accent);
+  transform: scale(1.1);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.5);
+}
+
+.jira-carousel-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.jira-carousel-counter {
+  color: #ccc;
+  font-size: 11.5px;
+  font-family: var(--f-mono);
+  background: rgba(0,0,0,0.4);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* --- Task Detail Drawer Refinement --- */
+.task-panel-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-2);
+}
+
+.task-panel-layout {
+  height: calc(100% - 49px);
+  overflow: hidden;
+}
+
+.task-panel-main {
+  padding: 20px 24px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.task-panel-sidebar {
+  padding: 20px 20px;
+  overflow-y: auto;
+  height: 100%;
+  border-left: 1px solid var(--border-2);
+  background: var(--bg-2);
+}
+
+/* Section styling */
+.tpanel-section {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tpanel-title {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 10px;
+  margin-left: -10px;
+  margin-right: -10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.4;
+  resize: none;
+  transition: all 0.15s ease;
+}
+
+.tpanel-title:focus, .tpanel-title:hover {
+  background: var(--bg-2);
+  border-color: var(--border-3);
+}
+
+.tpanel-title:focus {
+  background: var(--bg-1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.tpanel-desc-view {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-left: -12px;
+  margin-right: -12px;
+  transition: all 0.15s ease;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.tpanel-desc-view:hover {
+  background: var(--bg-2);
+  border-color: var(--border-3);
+}
+
+.tpanel-desc-empty {
+  color: var(--text-4);
+  font-style: italic;
+}
+
+/* Sidebar select dropdown elements */
+.tpanel-status-sel, .tpanel-sel {
+  border-radius: 8px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  width: 100%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tpanel-status-sel:hover, .tpanel-sel:hover {
+  border-color: var(--border-3);
+  background: var(--bg-3);
+}
+
+.tpanel-status-sel:focus, .tpanel-sel:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+  background: var(--bg-1);
+}
+
+.tpanel-input {
+  border-radius: 8px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-size: 13px;
+  padding: 8px 12px;
+  width: 100%;
+  transition: all 0.15s ease;
+}
+
+.tpanel-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.tpanel-prop {
+  margin-bottom: 20px;
+}
+
+.tpanel-prop-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+/* Custom Scrollbar for Drawer Panels */
+.task-panel-main::-webkit-scrollbar, .task-panel-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+.task-panel-main::-webkit-scrollbar-track, .task-panel-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.task-panel-main::-webkit-scrollbar-thumb, .task-panel-sidebar::-webkit-scrollbar-thumb {
+  background: var(--border-3);
+  border-radius: 4px;
+}
+.task-panel-main::-webkit-scrollbar-thumb:hover, .task-panel-sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--text-4);
+}
+
+/* Contenteditable Description Editor (WYSIWYG preview while editing) */
+.tpanel-desc-editor {
+  width: 100%;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-left: -12px;
+  margin-right: -12px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-1);
+  outline: none;
+  min-height: 120px;
+  max-height: 400px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tpanel-desc-editor:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.tpanel-desc-editor:empty::before {
+  content: attr(placeholder);
+  color: var(--text-4);
+  font-style: italic;
+  pointer-events: none;
+  display: block;
+}
