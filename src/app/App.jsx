@@ -5,12 +5,17 @@ import {
   TweakToggle, TweakSelect, TweakButton, useTweaks,
 } from '../components/tweaks-panel.jsx';
 import { supabase } from '../lib/supabase.js';
+import { ghSetWorkstationId, ghClearCache } from '../lib/github.js';
+import { vcSetWorkstationId, vcClearCache } from '../lib/vercel.js';
+import { gcalSetWorkstationId, gcalClearCache } from '../lib/googleCalendar.js';
 import {
   loadUserData, getMyContext, updateMyAvatar,
   setActiveWorkstation as persistActiveWs, loadTaskNoteLinks,
   startTimeEntry, pauseTimeEntry, resumeTimeEntry,
   completeTimeEntry, discardTimeEntry, getTimeEntries, getActiveTimeEntry,
   logManualTime, getLearningActivity,
+  listWorkspaceMembers, getPendingInvites, getWorkspacePermissions,
+  getNotifications, markNotificationsRead, getUnreadNotificationsCount,
 } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
@@ -20,9 +25,11 @@ import { GitHubPage } from '../pages/github.jsx';
 import { VercelPage } from '../pages/vercel.jsx';
 import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
+import { CalendarPage } from '../pages/calendar.jsx';
 import { Settings } from '../pages/settings.jsx';
-import { AuthPage, ResetPasswordPage } from '../pages/auth.jsx';
+import { AuthPage, ResetPasswordPage, InviteAcceptPage } from '../pages/auth.jsx';
 import { useRemoteConfig } from '../lib/useRemoteConfig.js';
+import { canAccessModule } from '../lib/permissions.js';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#0099ff",
@@ -47,6 +54,7 @@ function PageRouter({ current, ...props }) {
   switch (current) {
     case 'projects':  return <ProjectsPage {...props} />;
     case 'tasks':     return <TasksPage {...props} />;
+    case 'calendar':  return <CalendarPage {...props} />;
     case 'learning':  return <LearningPage {...props} />;
     case 'vault':     return <VaultPage {...props} />;
     case 'pm':        return <ProjectMgmtPage {...props} />;
@@ -136,17 +144,23 @@ export default function App() {
     setTags([]);
   };
 
-  // ── Check whether GitHub is connected when user logs in ─────────
+  // ── Check GitHub + Vercel connection at workspace level ──────────
+  // All workspace members see the same connection status — tokens are workspace-scoped.
   useEffectApp(() => {
-    if (!authUser?.id) { setIsGithubConnected(false); return; }
-    supabase.from('user_integrations')
-      .select('id')
-      .eq('user_id', authUser.id)
-      .eq('provider', 'github')
-      .maybeSingle()
-      .then(({ data }) => setIsGithubConnected(!!data))
+    if (!authUser?.id || !activeWorkstation?.id) { setIsGithubConnected(false); return; }
+    ghSetWorkstationId(activeWorkstation.id);
+    vcSetWorkstationId(activeWorkstation.id);
+    gcalSetWorkstationId(activeWorkstation.id);
+    supabase
+      .from('workspace_integrations')
+      .select('provider')
+      .eq('workstation_id', activeWorkstation.id)
+      .then(({ data }) => {
+        const providers = (data || []).map(r => r.provider);
+        setIsGithubConnected(providers.includes('github'));
+      })
       .catch(() => setIsGithubConnected(false));
-  }, [authUser?.id]);
+  }, [authUser?.id, activeWorkstation?.id]);
 
   // ── Load user context on login (profile + workstations + roles in one call) ──
   useEffectApp(() => {
@@ -184,6 +198,26 @@ export default function App() {
         }
       })
       .catch(e => { console.error(e); setWsLoading(false); });
+
+    // Load notifications on login
+    getNotifications().then(setNotifications).catch(() => {});
+    getUnreadNotificationsCount().then(setUnreadCount).catch(() => {});
+  }, [authUser?.id]);
+
+  // ── Realtime: notification inserts for the current user ─────────
+  useEffectApp(() => {
+    if (!authUser?.id) return;
+    const ch = supabase
+      .channel(`notifications-${authUser.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'notifications',
+        filter: `user_id=eq.${authUser.id}`,
+      }, () => {
+        getNotifications().then(setNotifications).catch(() => {});
+        getUnreadNotificationsCount().then(setUnreadCount).catch(() => {});
+      })
+      .subscribe();
+    return () => supabase.removeChannel(ch);
   }, [authUser?.id]);
 
   // ── Load data when active workstation changes ───────────────────
@@ -227,9 +261,74 @@ export default function App() {
     const yearAgo = new Date(); yearAgo.setFullYear(yearAgo.getFullYear() - 1);
     getLearningActivity(activeWorkstation.id, yearAgo.toISOString().split('T')[0])
       .then(setLearningActivity).catch(console.error);
+
+    // Load team collaboration data
+    listWorkspaceMembers(activeWorkstation.id).then(setMembers).catch(console.error);
+    getPendingInvites(activeWorkstation.id).then(setPendingInvites).catch(console.error);
+    getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(console.error);
   }, [activeWorkstation?.id]);
 
+  // Realtime: update members and pending invites when someone accepts an invite
+  useEffectApp(() => {
+    if (!activeWorkstation?.id) return;
+    const wsId = activeWorkstation.id;
+
+    const channel = supabase
+      .channel(`collab-${wsId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'workstation_members',
+        filter: `workstation_id=eq.${wsId}`,
+      }, () => {
+        listWorkspaceMembers(wsId).then(setMembers).catch(() => {});
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'workspace_invites',
+        filter: `workstation_id=eq.${wsId}`,
+      }, () => {
+        getPendingInvites(wsId).then(setPendingInvites).catch(() => {});
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [activeWorkstation?.id]);
+
+  // Refresh my role + workspace permissions when the tab regains focus. Lets a
+  // role change or permission toggle an owner makes while you're active take effect
+  // without a full reload (the server is the real gate; this keeps the UI honest).
+  useEffectApp(() => {
+    if (!authUser?.id || !activeWorkstation?.id) return;
+    let timer;
+    const refresh = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        getMyContext().then(ctx => setWorkstations(ctx.workstations)).catch(() => {});
+        getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(() => {});
+        listWorkspaceMembers(activeWorkstation.id).then(setMembers).catch(() => {});
+        getPendingInvites(activeWorkstation.id).then(setPendingInvites).catch(() => {});
+      }, 300);
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [authUser?.id, activeWorkstation?.id]);
+
   // Workstation handlers
+  const handleMarkRead = async (ids) => {
+    if (!ids?.length) return;
+    await markNotificationsRead(ids).catch(() => {});
+    setNotifications(prev => prev.map(n => ids.includes(n.id) ? { ...n, readAt: new Date().toISOString() } : n));
+    setUnreadCount(prev => Math.max(0, prev - ids.filter(id => notifications.find(n => n.id === id && !n.readAt)).length));
+  };
+
   const handleWsCreated = (ws) => {
     setWorkstations(prev => [...prev, ws]);
     setActiveWorkstation(ws);
@@ -239,10 +338,30 @@ export default function App() {
   const handleWsSwitch = (ws) => {
     if (ws.id === activeWorkstation?.id) return;
     setActiveWorkstation(ws);
-    persistActiveWs(ws.id).catch(console.error); // fire-and-forget RPC
+    ghSetWorkstationId(ws.id);
+    vcSetWorkstationId(ws.id);
+    gcalSetWorkstationId(ws.id);
+    ghClearCache();
+    vcClearCache();
+    gcalClearCache();
+    persistActiveWs(ws.id).catch(console.error);
   };
 
   const handleNewWs = () => setShowWsSetup(true);
+
+  // Re-pull roles + permissions + members for the active workstation. Called after
+  // actions that change the current user's standing (e.g. ownership transfer) so the
+  // UI reflects the new role immediately instead of waiting for the next focus refresh.
+  const refreshWorkspaceContext = async () => {
+    try {
+      const ctx = await getMyContext();
+      setWorkstations(ctx.workstations);
+    } catch { /* non-fatal */ }
+    if (activeWorkstation?.id) {
+      getWorkspacePermissions(activeWorkstation.id).then(setWsPermissions).catch(() => {});
+      listWorkspaceMembers(activeWorkstation.id).then(setMembers).catch(() => {});
+    }
+  };
 
   // Navigation — redirect to settings if returning from GitHub or Vercel OAuth
   const [jumpToItem, setJumpToItem] = useStateApp(null);
@@ -252,6 +371,14 @@ export default function App() {
     if (params.get('gh_callback') === '1' || params.get('vc_callback') === '1') {
       window.history.replaceState({}, '', window.location.pathname);
       return 'settings';
+    }
+    const inviteToken = params.get('invite');
+    if (inviteToken) {
+      localStorage.setItem('orbit:pendingInvite', inviteToken);
+      // Strip only the invite param, preserving any other query params.
+      params.delete('invite');
+      const rest = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
     return localStorage.getItem('orbit:nav') || 'home';
   });
@@ -280,14 +407,33 @@ export default function App() {
   const [ganttTasks,     setGanttTasks]     = useStateApp([]);
   const [taskNoteLinks,  setTaskNoteLinks]  = useStateApp({});
   const [isGithubConnected, setIsGithubConnected] = useStateApp(false);
+  const [notifications,     setNotifications]     = useStateApp([]);
+  const [unreadCount,       setUnreadCount]       = useStateApp(0);
+
+  // ── Team collaboration ──────────────────────────────────────────
+  const [members,        setMembers]        = useStateApp([]);
+  const [pendingInvites, setPendingInvites] = useStateApp([]);
+  const [wsPermissions,  setWsPermissions]  = useStateApp({});
+
+  // Derive current user's role in the active workstation (used for permission gating)
+  const myRole = activeWorkstation
+    ? (workstations.find(w => w.id === activeWorkstation.id)?.role || 'viewer')
+    : 'viewer';
+
+  // Invite token from URL (?invite=TOKEN) — stored in localStorage across auth redirects
+  const [pendingInviteToken, setPendingInviteToken] = useStateApp(
+    () => localStorage.getItem('orbit:pendingInvite') || null
+  );
 
   // Persist nav
   useEffectApp(() => { localStorage.setItem('orbit:nav', current); }, [current]);
 
   // Redirect to home if the active page is disabled via Remote Config
+  // or the current role isn't permitted to access it.
   useEffectApp(() => {
-    if (enabledModules[current] === false) setCurrent('home');
-  }, [enabledModules, current]);
+    if (enabledModules[current] === false) { setCurrent('home'); return; }
+    if (!canAccessModule(myRole, current, wsPermissions)) setCurrent('home');
+  }, [enabledModules, current, myRole, wsPermissions]);
 
   // Timer tick
   useEffectApp(() => {
@@ -308,7 +454,7 @@ export default function App() {
         const handler = (e2) => {
           const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit',f:'flutter-init',g:'github',k:'vercel',s:'settings' };
           const id = map[e2.key.toLowerCase()];
-          if (id && enabledModules[id] !== false) setCurrent(id);
+          if (id && enabledModules[id] !== false && canAccessModule(myRole, id, wsPermissions)) setCurrent(id);
           window.removeEventListener('keydown', handler);
         };
         window.addEventListener('keydown', handler, { once: true });
@@ -317,7 +463,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cmdkOpen]);
+  }, [cmdkOpen, enabledModules, myRole, wsPermissions]);
 
   // Apply tweaks via CSS vars
   useEffectApp(() => {
@@ -406,6 +552,35 @@ export default function App() {
   );
 
   if (!authUser)                return <AuthPage onAuth={handleAuth} />;
+
+  // A pending invite takes precedence over first-run workspace setup — otherwise a
+  // brand-new user invited to a workspace would be forced to create one of their own
+  // (with no way to cancel) before they could accept.
+  if (pendingInviteToken) return (
+    <InviteAcceptPage
+      token={pendingInviteToken}
+      user={authUser}
+      onAccepted={async (result) => {
+        localStorage.removeItem('orbit:pendingInvite');
+        setPendingInviteToken(null);
+        // Reload workstations so the newly joined one appears
+        const ctx = await getMyContext();
+        const list = ctx.workstations;
+        setWorkstations(list);
+        // Activate the workspace we just joined (match by id, don't assume ordering)
+        const joinedId = result?.workstation_id || result?.workspace_id;
+        const joined = (joinedId && list.find(w => w.id === joinedId)) || list[list.length - 1];
+        if (joined) {
+          setActiveWorkstation(joined);
+          setShowWsSetup(false);
+        }
+      }}
+      onDeclined={() => {
+        localStorage.removeItem('orbit:pendingInvite');
+        setPendingInviteToken(null);
+      }}
+    />
+  );
 
   if (showWsSetup) return (
     <WorkstationSetup
@@ -507,6 +682,8 @@ export default function App() {
         onWsSwitch={handleWsSwitch}
         onNewWs={handleNewWs}
         enabledModules={enabledModules}
+        myRole={myRole}
+        wsPermissions={wsPermissions}
       />
       <div className="main">
         <Topbar
@@ -515,6 +692,11 @@ export default function App() {
           onTimerJump={() => setCurrent('timer')}
           theme={t.theme || 'dark'}
           onThemeToggle={() => setTweak('theme', t.theme === 'light' ? 'dark' : 'light')}
+          notifications={notifications}
+          unreadCount={unreadCount}
+          onMarkRead={handleMarkRead}
+          onNav={setCurrent}
+          onSelectTask={(taskDbId) => handleSearchSelect('tasks', taskDbId)}
         />
         <div className="content" key={current}>
           <PageRouter
@@ -524,6 +706,7 @@ export default function App() {
             activeWorkstation={activeWorkstation}
             timer={timer}
             onNav={setCurrent}
+            onJump={handleSearchSelect}
             workstationId={activeWorkstation?.id}
             statuses={statuses}           setStatuses={setStatuses}
             projectTypes={projectTypes}   setProjectTypes={setProjectTypes}
@@ -548,6 +731,11 @@ export default function App() {
             ganttTasks={ganttTasks}        setGanttTasks={setGanttTasks}
             isGithubConnected={isGithubConnected}
             jumpToItem={jumpToItem}
+            members={members}             setMembers={setMembers}
+            pendingInvites={pendingInvites} setPendingInvites={setPendingInvites}
+            wsPermissions={wsPermissions}  setWsPermissions={setWsPermissions}
+            myRole={myRole}
+            refreshWorkspaceContext={refreshWorkspaceContext}
           />
         </div>
       </div>
@@ -558,6 +746,8 @@ export default function App() {
         enabledModules={enabledModules}
         searchData={{ tasks, projects, notes, noteFolders, emailTemplates, learning }}
         onSearchSelect={handleSearchSelect}
+        myRole={myRole}
+        wsPermissions={wsPermissions}
       />
 
       <TweaksPanel>

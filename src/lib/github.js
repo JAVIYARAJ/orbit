@@ -15,11 +15,16 @@ function cached(key, ttlMs, fetcher) {
 
 export function ghClearCache() { _cache.clear() }
 
+// Active workspace ID — set by App when the workspace changes so all proxy
+// calls can fall back to the workspace owner's token for invited members.
+let _workstationId = null
+export function ghSetWorkstationId(id) { _workstationId = id }
+
 // All GitHub API calls go through the github-proxy Edge Function.
 // The raw token never reaches the browser — it is decrypted server-side.
 async function ghProxy(path, params = {}, method = 'GET', body = null) {
   const { data, error } = await supabase.functions.invoke('github-proxy', {
-    body: { path, params, method, body },
+    body: { path, params, method, body, workstation_id: _workstationId },
   })
   if (error) throw new Error(error.message || 'GitHub proxy error')
   if (data?.status === 403) throw new Error('__RECONNECT__')
@@ -32,7 +37,7 @@ async function ghProxy(path, params = {}, method = 'GET', body = null) {
 // Returns the full proxy response (includes scopes header)
 async function ghProxyRaw(path, params = {}) {
   const { data, error } = await supabase.functions.invoke('github-proxy', {
-    body: { path, params },
+    body: { path, params, workstation_id: _workstationId },
   })
   if (error) throw new Error(error.message || 'GitHub proxy error')
   return data
@@ -125,7 +130,7 @@ export async function ghCreateBranch(fullName, branchName) {
     sha = ref.object.sha
   }
   const { data, error } = await supabase.functions.invoke('github-proxy', {
-    body: { path: `/repos/${fullName}/git/refs`, params: {}, method: 'POST', body: { ref: `refs/heads/${branchName}`, sha } },
+    body: { path: `/repos/${fullName}/git/refs`, params: {}, method: 'POST', body: { ref: `refs/heads/${branchName}`, sha }, workstation_id: _workstationId },
   })
   if (error) throw new Error(error.message)
   if (data?.status === 422) throw new Error(`Branch "${branchName}" already exists in ${fullName}.`)
@@ -135,7 +140,7 @@ export async function ghCreateBranch(fullName, branchName) {
 
 export async function ghDeleteBranch(fullName, branchName) {
   const { data, error } = await supabase.functions.invoke('github-proxy', {
-    body: { path: `/repos/${fullName}/git/refs/heads/${encodeURIComponent(branchName)}`, params: {}, method: 'DELETE' },
+    body: { path: `/repos/${fullName}/git/refs/heads/${encodeURIComponent(branchName)}`, params: {}, method: 'DELETE', workstation_id: _workstationId },
   })
   if (error) throw new Error(error.message)
   if (data?.status === 204) return
@@ -149,7 +154,7 @@ export async function ghCreateRepo(name, isPrivate = false, description = '') {
 
 export async function ghDeleteRepo(fullName) {
   const { data, error } = await supabase.functions.invoke('github-proxy', {
-    body: { path: `/repos/${fullName}`, params: {}, method: 'DELETE' },
+    body: { path: `/repos/${fullName}`, params: {}, method: 'DELETE', workstation_id: _workstationId },
   })
   if (error) throw new Error(error.message)
   if (data?.status === 204) return

@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
-import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities } from '../lib/db.js';
+import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission, setGoogleSyncPrefs } from '../lib/db.js';
+import { canDo, canModifyMember, assignableRoles, DEFAULT_PERMISSIONS, PERMISSION_LABELS, PERMISSION_GROUPS, PERMISSION_WARNINGS } from '../lib/permissions.js';
 import { vcClearCache } from '../lib/vercel.js';
 
 const INTEGRATION_ICON = {
@@ -24,8 +25,8 @@ const formatJoined = (ts) => {
 
 // ── Tag settings row — color + inline name editing ───────────────
 const TagSettingsRow = ({ tag, onUpdate, onDelete, totalCount }) => {
-  const [name,   setName]   = useState(tag.name);
-  const [color,  setColor]  = useState(tag.color);
+  const [name, setName] = useState(tag.name);
+  const [color, setColor] = useState(tag.color);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { setName(tag.name); setColor(tag.color); }, [tag.id, tag.name, tag.color]);
@@ -127,8 +128,8 @@ const ProjectTypeRow = ({ type, index, total, onUpdate, onDelete, onMoveUp, onMo
 
 // ── Priority row — inline label + color editing, drag to reorder ──
 const PriorityRow = ({ priority, index, total, onUpdate, onDelete, onMoveUp, onMoveDown, onDragStart, onDragOver, onDragEnd, isDragging }) => {
-  const [label,  setLabel]  = useState(priority.label);
-  const [color,  setColor]  = useState(priority.color);
+  const [label, setLabel] = useState(priority.label);
+  const [color, setColor] = useState(priority.color);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { setLabel(priority.label); setColor(priority.color); }, [priority.id, priority.label, priority.color]);
@@ -291,7 +292,487 @@ const StatusRow = ({ status, index, total, onUpdate, onDelete, onMoveUp, onMoveD
 const genKey = (label) =>
   label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32) || 'status';
 
-export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags, priorities = [], setPriorities }) => {
+// ── Members Section ────────────────────────────────────────────────
+const avatarColor = (str = '') => {
+  const colors = ['#0099ff', '#7c3aed', '#16a34a', '#d97706', '#ef4444', '#06b6d4', '#ec4899'];
+  let h = 0; for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return colors[Math.abs(h) % colors.length];
+};
+
+const MembersSection = ({ activeWorkstation, members, setMembers, pendingInvites, setPendingInvites, myRole, wsPermissions = {}, currentUserId, setTasks }) => {
+  const [busy, setBusy] = useState({});
+  const [removeConfirm, setRemoveConfirm] = useState(null);
+  const [viewMode, setViewMode] = useState('grid');
+  // Respect custom workspace permission overrides (previously passed {} here, which
+  // silently ignored them and disagreed with the Collaboration page).
+  const canChange = canDo(myRole, 'change_role', wsPermissions);
+  const canRemove = canDo(myRole, 'remove_member', wsPermissions);
+
+  const handleRoleChange = async (member, newRole) => {
+    setBusy(b => ({ ...b, [member.userId]: true }));
+    try {
+      await updateMemberRole(activeWorkstation.id, member.userId, newRole);
+      setMembers(prev => prev.map(m => m.userId === member.userId ? { ...m, role: newRole } : m));
+    } finally {
+      setBusy(b => ({ ...b, [member.userId]: false }));
+    }
+  };
+
+  const handleRemove = async (member) => {
+    setRemoveConfirm(member);
+  };
+
+  const confirmRemove = async () => {
+    const member = removeConfirm;
+    if (!member) return;
+    setRemoveConfirm(null);
+    setBusy(b => ({ ...b, [member.userId]: true }));
+    try {
+      await removeMember(activeWorkstation.id, member.userId);
+      setMembers(prev => prev.filter(m => m.userId !== member.userId));
+      // Mirror the server-side assignment clear so the UI doesn't keep a removed assignee.
+      setTasks?.(prev => prev.map(t => t.assigneeId === member.userId ? { ...t, assigneeId: null } : t));
+    } finally {
+      setBusy(b => ({ ...b, [member.userId]: false }));
+    }
+  };
+
+  const handleCancelInvite = async (invite) => {
+    setBusy(b => ({ ...b, [invite.id]: true }));
+    try {
+      await cancelInvite(invite.id);
+      setPendingInvites(prev => prev.filter(i => i.id !== invite.id));
+    } finally {
+      setBusy(b => ({ ...b, [invite.id]: false }));
+    }
+  };
+
+  return (
+    <div className="settings-section-inner slide-in-up">
+      <div className="section-group">
+        <div className="section-group-h" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <span>Team Members</span>
+            <p>People with access to this workspace.</p>
+          </div>
+          <div style={{ display: 'flex', background: 'var(--bg-2)', padding: 4, borderRadius: 8, gap: 4 }}>
+            <button onClick={() => setViewMode('grid')} style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: viewMode === 'grid' ? 'var(--bg-3)' : 'transparent', color: viewMode === 'grid' ? 'var(--text)' : 'var(--text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, transition: 'all 0.2s' }}>
+              <Icon name="list" size={14} /> Grid
+            </button>
+            <button onClick={() => setViewMode('tree')} style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: viewMode === 'tree' ? 'var(--bg-3)' : 'transparent', color: viewMode === 'tree' ? 'var(--text)' : 'var(--text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, transition: 'all 0.2s' }}>
+              <Icon name="git-branch" size={14} /> Tree
+            </button>
+          </div>
+        </div>
+        <div className="card" style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}>
+          <div className="card-pad" style={{ padding: 0 }}>
+            {members.length === 0 ? (
+              <div className="empty-state">No members yet. Use the Collaboration page to invite someone.</div>
+            ) : viewMode === 'grid' ? (
+              <div className="collab-members-grid">
+                {members.map(member => (
+                  <div key={member.userId} className="collab-member-card">
+                    <div className="collab-member-top">
+                      <div className="collab-member-avatar-container">
+                        <div style={{ width: 48, height: 48, borderRadius: '50%', background: member.avatarUrl ? 'var(--bg-3)' : avatarColor(member.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 600, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                          {member.avatarUrl
+                            ? <img src={member.avatarUrl} alt={member.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : member.avatar
+                          }
+                        </div>
+                        <div className={`collab-member-status-dot ${member.userId !== currentUserId && Math.random() > 0.5 ? 'offline' : ''}`} />
+                      </div>
+
+                      <div className="collab-member-info">
+                        <div className="collab-member-name">
+                          {member.name}
+                          {member.userId === currentUserId && <span className="collab-member-you-badge">You</span>}
+                        </div>
+                        <div className="collab-member-email">{member.email}</div>
+                      </div>
+                    </div>
+
+                    <div className="collab-member-bottom">
+                      {canChange && canModifyMember(myRole, member, currentUserId) ? (
+                        <select
+                          className="collab-role-select"
+                          value={member.role}
+                          onChange={e => handleRoleChange(member, e.target.value)}
+                          disabled={busy[member.userId]}
+                        >
+                          {assignableRoles(myRole, wsPermissions).map(r => (
+                            <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`collab-role-pill role-${member.role}`}>
+                          {ROLE_LABEL[member.role]}
+                        </span>
+                      )}
+
+                      <div className="collab-member-actions">
+                        {canRemove && canModifyMember(myRole, member, currentUserId) && (
+                          <button
+                            className="collab-action-icon danger"
+                            onClick={() => handleRemove(member)}
+                            disabled={busy[member.userId]}
+                            title="Remove member"
+                          >
+                            <Icon name="user-minus" size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="members-tree-view" style={{ display: 'flex', flexDirection: 'column', gap: 32, padding: '16px 0' }}>
+                {(() => {
+                  const renderTreeRole = (roleIndex) => {
+                    const roles = ['owner', 'admin', 'member', 'viewer'];
+                    if (roleIndex >= roles.length) return null;
+                    const currentRole = roles[roleIndex];
+                    const roleMembers = members.filter(m => m.role === currentRole);
+                    
+                    const hasAnyMembersBelow = roles.slice(roleIndex).some(r => members.some(m => m.role === r));
+                    if (!hasAnyMembersBelow) return null;
+                    
+                    const nextNode = renderTreeRole(roleIndex + 1);
+                    const items = [
+                      ...roleMembers.map(m => ({ type: 'member', data: m })),
+                      ...(nextNode ? [{ type: 'role', data: nextNode }] : [])
+                    ];
+                
+                    return (
+                      <div key={currentRole} className="tree-role-group" style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                        <div className="tree-role-header" style={{ display: 'flex', alignItems: 'center', gap: 10, height: 32 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--bg-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text)', zIndex: 2 }}>
+                            <Icon name="users" size={14} />
+                          </div>
+                          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', textTransform: 'capitalize' }}>{ROLE_LABEL[currentRole]}s</span>
+                          <span style={{ fontSize: 11, padding: '2px 8px', background: 'var(--bg-2)', borderRadius: 12, color: 'var(--text-3)', fontWeight: 600 }}>{roleMembers.length}</span>
+                        </div>
+                        
+                        {items.length > 0 && (
+                          <div className="tree-role-children" style={{ display: 'flex', flexDirection: 'column', marginLeft: 15 }}>
+                            {items.map((item, idx) => {
+                              const isLast = idx === items.length - 1;
+                              const isMember = item.type === 'member';
+                              const paddingTop = 12;
+                              const targetHeight = isMember ? 58 : 32;
+                              const centerOffset = paddingTop + (targetHeight / 2);
+                              
+                              return (
+                                <div key={isMember ? item.data.userId : 'role-child'} style={{ position: 'relative', paddingLeft: 24, paddingTop, paddingBottom: isLast ? 0 : 4 }}>
+                                  {!isLast && (
+                                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 2, background: 'var(--border-2)' }} />
+                                  )}
+                                  <div style={{ position: 'absolute', left: 0, top: 0, width: 24, height: centerOffset + 1, borderLeft: '2px solid var(--border-2)', borderBottom: '2px solid var(--border-2)', borderBottomLeftRadius: 8, boxSizing: 'border-box' }} />
+                                  
+                                  {isMember ? (
+                                    <div className="tree-user-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 12, padding: '0 16px', flex: 1, transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', height: 58, boxSizing: 'border-box' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: item.data.avatarUrl ? 'transparent' : avatarColor(item.data.name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 600, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                                          {item.data.avatarUrl ? <img src={item.data.avatarUrl} alt={item.data.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : item.data.avatar}
+                                        </div>
+                                        <div>
+                                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
+                                            {item.data.name}
+                                            {item.data.userId === currentUserId && <span className="collab-member-you-badge" style={{ marginLeft: 8 }}>You</span>}
+                                          </div>
+                                          <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.2 }}>{item.data.email}</div>
+                                        </div>
+                                      </div>
+                                      
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        {canChange && canModifyMember(myRole, item.data, currentUserId) ? (
+                                          <select
+                                            className="collab-role-select"
+                                            value={item.data.role}
+                                            onChange={e => handleRoleChange(item.data, e.target.value)}
+                                            disabled={busy[item.data.userId]}
+                                            style={{ padding: '4px 24px 4px 12px', fontSize: 12, height: 28 }}
+                                          >
+                                            {assignableRoles(myRole, wsPermissions).map(r => (
+                                              <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <span className={`collab-role-pill role-${item.data.role}`} style={{ fontSize: 12, padding: '4px 12px' }}>
+                                            {ROLE_LABEL[item.data.role]}
+                                          </span>
+                                        )}
+                                        
+                                        {canRemove && canModifyMember(myRole, item.data, currentUserId) && (
+                                          <button
+                                            className="collab-action-icon danger"
+                                            onClick={() => handleRemove(item.data)}
+                                            disabled={busy[item.data.userId]}
+                                            title="Remove member"
+                                            style={{ width: 28, height: 28 }}
+                                          >
+                                            <Icon name="user-minus" size={14} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{ width: '100%' }}>
+                                      {item.data}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+                  return renderTreeRole(0);
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {pendingInvites.length > 0 && (
+        <div className="section-group">
+          <div className="section-group-h">
+            <span>Pending Invites</span>
+            <p>These users haven't accepted yet.</p>
+          </div>
+          <div className="card" style={{ background: 'transparent', border: 'none', boxShadow: 'none' }}>
+            <div className="card-pad" style={{ padding: 0 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {pendingInvites.map(invite => {
+                  const inviteUrl = `${window.location.origin}${window.location.pathname}?invite=${invite.token}`;
+                  return (
+                    <div key={invite.id} className="collab-invite-card">
+                      <div className="collab-invite-header">
+                        <div className="collab-invite-icon">
+                          <Icon name="mail" size={16} />
+                        </div>
+                        <div className="collab-invite-info">
+                          <div className="collab-invite-email">{invite.email}</div>
+                          <div className="collab-invite-meta">
+                            <span style={{ textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-2)' }}>{ROLE_LABEL[invite.role]}</span>
+                            <span style={{ opacity: 0.5 }}>•</span>
+                            <span>Expires {new Date(invite.expiresAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="collab-invite-actions">
+                        <button onClick={() => navigator.clipboard.writeText(inviteUrl)} title="Copy link">
+                          <Icon name="copy" size={14} /> Copy Link
+                        </button>
+                        <button className="cancel-btn" onClick={() => handleCancelInvite(invite)} disabled={busy[invite.id]} title="Cancel invite">
+                          <Icon name="x" size={14} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Remove Confirmation Modal */}
+      {removeConfirm && (
+        <div className="modal-overlay" onClick={() => setRemoveConfirm(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-hd">
+              <h3>Remove Team Member</h3>
+              <button className="modal-close" onClick={() => setRemoveConfirm(null)}>
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>Are you sure you want to remove <strong className="highlight">{removeConfirm.name}</strong> from this workspace? They will instantly lose access to all projects and tasks.</p>
+            </div>
+            <div className="modal-ft">
+              <button className="btn ghost" onClick={() => setRemoveConfirm(null)}>Cancel</button>
+              <button className="btn primary danger" onClick={confirmRemove}>Remove Member</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Permissions Section ────────────────────────────────────────────
+const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions }) => {
+  const roles = ['admin', 'member', 'viewer'];
+  const [confirm, setConfirm] = useState(null); // { role, key, label, warning }
+
+  const getValue = (role, key) => {
+    const override = `${role}:${key}`;
+    if (override in wsPermissions) return wsPermissions[override] === true || wsPermissions[override] === 'true';
+    return DEFAULT_PERMISSIONS[role]?.[key] ?? false;
+  };
+
+  const applyToggle = async (role, key, newVal) => {
+    const flatKey = `${role}:${key}`;
+    setWsPermissions(prev => ({ ...prev, [flatKey]: newVal }));
+    try {
+      await upsertPermission(activeWorkstation.id, role, key, newVal);
+    } catch {
+      setWsPermissions(prev => ({ ...prev, [flatKey]: !newVal }));
+    }
+  };
+
+  const handleToggle = (role, key, newVal) => {
+    const warn = PERMISSION_WARNINGS[key];
+    // Only confirm when enabling a dangerous permission
+    if (newVal && warn?.danger) {
+      setConfirm({ role, key, newVal, label: PERMISSION_LABELS[key], warning: warn.text });
+      return;
+    }
+    applyToggle(role, key, newVal);
+  };
+
+  // Group-level warning banners shown under the group header
+  const GROUP_BANNERS = {
+    'Team': { icon: 'users', text: 'Team permissions control who can invite, remove, or promote members. Changes take effect immediately for all affected users.' },
+    'Vault': { icon: 'lock', text: 'Vault stores sensitive credentials. Grant access only to members you fully trust.' },
+    'GitHub': { icon: 'git-branch', text: 'GitHub write access lets members push changes directly to your repositories. Reviewers and viewers should remain read-only.' },
+  };
+
+  return (
+    <div className="settings-section-inner slide-in-up">
+      <div className="section-group">
+        <div className="section-group-h">
+          <span>Role Permissions</span>
+          <p>Control what each role can do in this workspace. Owner always has full access and cannot be restricted.</p>
+        </div>
+
+        {/* Top-level advisory */}
+        <div className="perm-advisory">
+          <Icon name="alert-circle" size={14} />
+          <span>Permission changes are <strong>instant</strong> — members are affected the moment you toggle a setting. Review carefully before enabling destructive permissions.</span>
+        </div>
+
+        <div className="card">
+          <div className="card-pad">
+            <div className="perm-grid">
+              <div className="perm-row perm-header">
+                <div className="perm-action-col">Permission</div>
+                {roles.map(r => (
+                  <div key={r} className="perm-role-col">{ROLE_LABEL[r]}</div>
+                ))}
+                <div className="perm-role-col" style={{ color: 'var(--text-3)' }}>Owner</div>
+              </div>
+
+              {PERMISSION_GROUPS.map(group => (
+                <div key={group.label} className="perm-group">
+                  <div className="perm-row perm-group-head">
+                    <div className="perm-action-col">{group.label}</div>
+                    {roles.map(r => <div key={r} className="perm-role-col" />)}
+                    <div className="perm-role-col" />
+                  </div>
+
+                  {/* Group-level warning banner */}
+                  {GROUP_BANNERS[group.label] && (
+                    <div className="perm-group-banner">
+                      <Icon name={GROUP_BANNERS[group.label].icon} size={13} />
+                      <span>{GROUP_BANNERS[group.label].text}</span>
+                    </div>
+                  )}
+
+                  {group.keys.map(key => {
+                    const warn = PERMISSION_WARNINGS[key];
+                    return (
+                      <div key={key} className={'perm-row' + (warn?.danger ? ' perm-row-danger' : '')}>
+                        <div className="perm-action-col">
+                          <div className="perm-label-wrap">
+                            <span className="perm-label-text">
+                              {PERMISSION_LABELS[key]}
+                              {warn?.danger && <span className="perm-danger-badge">sensitive</span>}
+                            </span>
+                            {warn?.text && (
+                              <span className="perm-label-desc">{warn.text}</span>
+                            )}
+                          </div>
+                        </div>
+                        {roles.map(role => {
+                          const val = getValue(role, key);
+                          return (
+                            <div key={role} className="perm-role-col">
+                              <button
+                                className={'perm-toggle' + (val ? ' on' : '') + (warn?.danger && !val ? ' perm-toggle-warn' : '')}
+                                onClick={() => handleToggle(role, key, !val)}
+                                title={val ? 'Allowed — click to revoke' : 'Not allowed — click to grant'}
+                              >
+                                {val ? <Icon name="check" size={12} /> : <Icon name="minus" size={12} />}
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <div className="perm-role-col">
+                          <div className="perm-toggle on disabled" title="Owner always has access">
+                            <Icon name="check" size={12} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Confirmation dialog for dangerous permissions */}
+      {confirm && (
+        <div className="modal-overlay" onClick={() => setConfirm(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-hd">
+              <h3 style={{ margin: 0, color: '#f59e0b', flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', textAlign: 'left' }}>
+                <span style={{ display: 'flex', alignItems: 'center', marginRight: 8, opacity: 0.75 }}>
+                  <Icon name="alert-circle" size={16} />
+                </span>
+                Enable sensitive permission?
+              </h3>
+              <button className="modal-close" onClick={() => setConfirm(null)}>
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 12 }}>
+                You are granting <strong>{ROLE_LABEL[confirm.role]}s</strong> the ability to:
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, fontSize: 14, color: 'var(--text)', marginBottom: 12 }}>
+                <strong>{confirm.label}</strong>
+              </div>
+              <p style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
+                {confirm.warning}
+              </p>
+            </div>
+            <div className="modal-ft">
+              <button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button>
+              <button
+                className="btn primary"
+                style={{ background: '#f59e0b', boxShadow: 'none' }}
+                onClick={() => { applyToggle(confirm.role, confirm.key, confirm.newVal); setConfirm(null); }}
+              >
+                Yes, grant permission
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags, priorities = [], setPriorities, members = [], setMembers, pendingInvites = [], setPendingInvites, wsPermissions = {}, setWsPermissions, myRole = 'viewer', setTasks }) => {
   const fileRef = useRef(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
@@ -339,36 +820,37 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   // ── GitHub integration ──────────────────────────────────────────────
-  const [githubInteg,  setGithubInteg]  = useState(null);
-  const [ghLoading,    setGhLoading]    = useState(true);
-  const [ghError,      setGhError]      = useState('');
+  const [githubInteg, setGithubInteg] = useState(null);
+  const [ghLoading, setGhLoading] = useState(true);
+  const [ghError, setGhError] = useState('');
   const [ghDisconnecting, setGhDisconnecting] = useState(false);
 
   useEffect(() => {
-    if (!user?.id) return;
-
-    supabase.from('user_integrations').select('username, display_name, avatar_url, email, scopes, connected_at').eq('user_id', user.id).eq('provider', 'github').maybeSingle()
+    if (!activeWorkstation?.id) return;
+    supabase.from('workspace_integrations').select('username, display_name, avatar_url, email, scopes, connected_at').eq('workstation_id', activeWorkstation.id).eq('provider', 'github').maybeSingle()
       .then(({ data }) => setGithubInteg(data || null))
       .catch(() => setGithubInteg(null))
       .finally(() => setGhLoading(false));
-  }, [user?.id]);
+  }, [activeWorkstation?.id]);
 
   const connectGitHub = () => {
+    if (!activeWorkstation?.id) return;
     setGhError('');
     const EDGE_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/github-oauth`;
     const params = new URLSearchParams({
-      client_id:    'Ov23li4xj01qD2wkGOPk',
-      scope:        'repo delete_repo read:user user:email',
-      state:        user.id,
+      client_id: 'Ov23li4xj01qD2wkGOPk',
+      scope: 'repo delete_repo read:user user:email',
+      state: `${activeWorkstation.id}:${user.id}`,
       redirect_uri: EDGE_FN,
     });
     window.location.href = `https://github.com/login/oauth/authorize?${params}`;
   };
 
   const disconnectGitHub = async () => {
+    if (!activeWorkstation?.id) return;
     setGhDisconnecting(true);
     try {
-      await supabase.from('user_integrations').delete().eq('user_id', user.id).eq('provider', 'github');
+      await supabase.from('workspace_integrations').delete().eq('workstation_id', activeWorkstation.id).eq('provider', 'github');
       setGithubInteg(null);
     } catch (e) {
       setGhError(e.message);
@@ -378,21 +860,21 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   // ── Vercel integration ──────────────────────────────────────────────
-  const [vercelInteg,     setVercelInteg]     = useState(null);
-  const [vcLoading,       setVcLoading]       = useState(true);
+  const [vercelInteg, setVercelInteg] = useState(null);
+  const [vcLoading, setVcLoading] = useState(true);
   const [vcDisconnecting, setVcDisconnecting] = useState(false);
-  const [vcError,         setVcError]         = useState('');
-  const [vcPATOpen,       setVcPATOpen]       = useState(false);
-  const [vcToken,         setVcToken]         = useState('');
-  const [vcSaving,        setVcSaving]        = useState(false);
+  const [vcError, setVcError] = useState('');
+  const [vcPATOpen, setVcPATOpen] = useState(false);
+  const [vcToken, setVcToken] = useState('');
+  const [vcSaving, setVcSaving] = useState(false);
 
   useEffect(() => {
-    if (!user?.id) return;
-    supabase.from('user_integrations').select('username, display_name, email, connected_at').eq('user_id', user.id).eq('provider', 'vercel').maybeSingle()
+    if (!activeWorkstation?.id) return;
+    supabase.from('workspace_integrations').select('username, display_name, email, connected_at').eq('workstation_id', activeWorkstation.id).eq('provider', 'vercel').maybeSingle()
       .then(({ data }) => setVercelInteg(data || null))
       .catch(() => setVercelInteg(null))
       .finally(() => setVcLoading(false));
-  }, [user?.id]);
+  }, [activeWorkstation?.id]);
 
   const connectVercel = () => {
     setVcError('');
@@ -403,11 +885,12 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   const saveVercelToken = async () => {
     const token = vcToken.trim();
     if (!token) { setVcError('Paste your Vercel token first.'); return; }
+    if (!activeWorkstation?.id) return;
     setVcSaving(true);
     setVcError('');
     try {
       const { data, error } = await supabase.functions.invoke('save-vercel-token', {
-        body: { token },
+        body: { token, workstation_id: activeWorkstation.id },
       });
       if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to connect Vercel.');
       vcClearCache();
@@ -422,15 +905,81 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   const disconnectVercel = async () => {
+    if (!activeWorkstation?.id) return;
     setVcDisconnecting(true);
     try {
-      await supabase.from('user_integrations').delete().eq('user_id', user.id).eq('provider', 'vercel');
+      await supabase.from('workspace_integrations').delete().eq('workstation_id', activeWorkstation.id).eq('provider', 'vercel');
       vcClearCache();
       setVercelInteg(null);
     } catch (e) {
       setVcError(e.message);
     } finally {
       setVcDisconnecting(false);
+    }
+  };
+
+  // ── Google Calendar integration ─────────────────────────────────────
+  const [gcalInteg, setGcalInteg] = useState(null);
+  const [gcalLoading, setGcalLoading] = useState(true);
+  const [gcalDisconnecting, setGcalDisconnecting] = useState(false);
+  const [gcalError, setGcalError] = useState('');
+  // Which Orbit kinds push to Google (default all on).
+  const [gcalPush, setGcalPush] = useState({ event: true, task: true, project: true });
+
+  useEffect(() => {
+    if (!activeWorkstation?.id) return;
+    supabase.from('workspace_integrations').select('display_name, avatar_url, email, connected_at, metadata').eq('workstation_id', activeWorkstation.id).eq('provider', 'google_calendar').maybeSingle()
+      .then(({ data }) => {
+        setGcalInteg(data || null);
+        const p = data?.metadata?.push || {};
+        setGcalPush({ event: p.event !== false, task: p.task !== false, project: p.project !== false });
+      })
+      .catch(() => setGcalInteg(null))
+      .finally(() => setGcalLoading(false));
+  }, [activeWorkstation?.id]);
+
+  const toggleGcalPush = async (kind) => {
+    if (!activeWorkstation?.id) return;
+    const next = { ...gcalPush, [kind]: !gcalPush[kind] };
+    setGcalPush(next);                 // optimistic
+    setGcalError('');
+    try {
+      await setGoogleSyncPrefs(activeWorkstation.id, next);
+    } catch (e) {
+      setGcalPush(gcalPush);           // revert on failure
+      setGcalError(e.message || 'Failed to update sync settings');
+    }
+  };
+
+  const connectGoogleCalendar = () => {
+    if (!activeWorkstation?.id) return;
+    setGcalError('');
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) { setGcalError('VITE_GOOGLE_CLIENT_ID is not configured.'); return; }
+    const EDGE_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-calendar-oauth`;
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: EDGE_FN,
+      response_type: 'code',
+      access_type: 'offline',          // required to receive a refresh token
+      prompt: 'consent',               // required to re-issue refresh token
+      include_granted_scopes: 'true',
+      scope: 'https://www.googleapis.com/auth/calendar openid email profile',
+      state: `${activeWorkstation.id}:${user.id}`,
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  };
+
+  const disconnectGoogleCalendar = async () => {
+    if (!activeWorkstation?.id) return;
+    setGcalDisconnecting(true);
+    try {
+      await supabase.from('workspace_integrations').delete().eq('workstation_id', activeWorkstation.id).eq('provider', 'google_calendar');
+      setGcalInteg(null);
+    } catch (e) {
+      setGcalError(e.message);
+    } finally {
+      setGcalDisconnecting(false);
     }
   };
 
@@ -611,9 +1160,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   };
 
   // ── Tag management ────────────────────────────────────────────────
-  const [newTagName,  setNewTagName]  = useState('');
+  const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#0099ff');
-  const [tagAddErr,   setTagAddErr]   = useState('');
+  const [tagAddErr, setTagAddErr] = useState('');
   const [tagAddSaving, setTagAddSaving] = useState(false);
   const [tagDeleteConfirm, setTagDeleteConfirm] = useState({ isOpen: false, id: null, name: '' });
 
@@ -664,9 +1213,9 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
 
   const [newPriorityLabel, setNewPriorityLabel] = useState('');
   const [newPriorityColor, setNewPriorityColor] = useState('#888888');
-  const [priorityAddErr,   setPriorityAddErr]   = useState('');
+  const [priorityAddErr, setPriorityAddErr] = useState('');
   const [priorityAddSaving, setPriorityAddSaving] = useState(false);
-  const [priorityDragIdx, setPriorityDragIdx]   = useState(null);
+  const [priorityDragIdx, setPriorityDragIdx] = useState(null);
   const [priorityDeleteConfirm, setPriorityDeleteConfirm] = useState({ isOpen: false, id: null, label: '' });
 
   const handleUpdatePriority = async (id, label, color) => {
@@ -776,17 +1325,19 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
   const navItems = [
     { id: 'profile', label: 'Profile & General', icon: 'users' },
     { id: 'workspace', label: 'Workspace', icon: 'layers' },
-    { 
-      id: 'kanban', 
-      label: 'Task Kanban', 
+    {
+      id: 'kanban',
+      label: 'Task Kanban',
       icon: 'list',
       children: [
-        { id: 'kanban-cols',       label: 'Column Management' },
-        { id: 'kanban-types',      label: 'Project Types' },
-        { id: 'kanban-tags',       label: 'Task Tags' },
+        { id: 'kanban-cols', label: 'Column Management' },
+        { id: 'kanban-types', label: 'Project Types' },
+        { id: 'kanban-tags', label: 'Task Tags' },
         { id: 'kanban-priorities', label: 'Priority Types' },
       ]
     },
+    { id: 'members', label: 'Members', icon: 'users' },
+    ...(myRole === 'owner' ? [{ id: 'permissions', label: 'Permissions', icon: 'shield' }] : []),
     { id: 'integrations', label: 'Integrations', icon: 'link' },
   ];
 
@@ -854,7 +1405,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     <span>{item.label}</span>
                     {isActive && !item.children && <div className="active-indicator" />}
                   </button>
-                  
+
                   {isActive && item.children && (
                     <div className="settings-nav-sub">
                       {item.children.map(child => (
@@ -1265,6 +1816,28 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
               </div>
             )}
 
+            {activeTab === 'members' && (
+              <MembersSection
+                activeWorkstation={activeWorkstation}
+                members={members}
+                setMembers={setMembers}
+                pendingInvites={pendingInvites}
+                setPendingInvites={setPendingInvites}
+                myRole={myRole}
+                wsPermissions={wsPermissions}
+                currentUserId={user?.id}
+                setTasks={setTasks}
+              />
+            )}
+
+            {activeTab === 'permissions' && myRole === 'owner' && (
+              <PermissionsSection
+                activeWorkstation={activeWorkstation}
+                wsPermissions={wsPermissions}
+                setWsPermissions={setWsPermissions}
+              />
+            )}
+
             {activeTab === 'integrations' && (
               <div className="settings-section-inner slide-in-up">
                 <div className="section-group">
@@ -1362,11 +1935,82 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     </div>
                   )}
 
+                  {/* Google Calendar card */}
+                  <div className={`intg-real-card ${gcalInteg ? 'connected' : ''}`}>
+                    <div className="intg-real-left">
+                      <div className="intg-real-icon">
+                        <Icon name="calendar" size={22} />
+                      </div>
+                      <div className="intg-real-info">
+                        <div className="intg-real-name">Google Calendar</div>
+                        {gcalLoading ? (
+                          <div className="intg-real-sub">Checking…</div>
+                        ) : gcalInteg ? (
+                          <div className="intg-real-sub connected">
+                            {gcalInteg.avatar_url && <img src={gcalInteg.avatar_url} className="intg-gh-av" alt="" />}
+                            {gcalInteg.email}
+                            <span className="intg-connected-dot" />
+                            Connected
+                            {gcalInteg.connected_at && (
+                              <span className="intg-connected-time" style={{ marginLeft: 4 }}>
+                                · {new Date(gcalInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="intg-real-sub">Two-way sync of tasks, projects and events</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="intg-real-right">
+                      {gcalInteg ? (
+                        <button className="intg-btn-disconnect" onClick={disconnectGoogleCalendar} disabled={gcalDisconnecting}>
+                          <Icon name="x" size={13} /> {gcalDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      ) : (
+                        <button className="intg-btn-connect" onClick={connectGoogleCalendar} disabled={gcalLoading}>
+                          <Icon name="calendar" size={13} /> Connect Google
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {gcalInteg && (
+                    <div className="gcal-push-prefs">
+                      <div className="gcal-push-head">
+                        <span className="gcal-push-title">Push to Google Calendar</span>
+                        <span className="gcal-push-hint">Applies on next sync. Turning one off removes those events from Google.</span>
+                      </div>
+                      <div className="gcal-push-toggles">
+                        {[
+                          { kind: 'event',   label: 'Orbit events' },
+                          { kind: 'task',    label: 'Task due dates' },
+                          { kind: 'project', label: 'Project timelines' },
+                        ].map(({ kind, label }) => (
+                          <button
+                            key={kind}
+                            className={`gcal-push-toggle ${gcalPush[kind] ? 'on' : ''}`}
+                            onClick={() => toggleGcalPush(kind)}
+                          >
+                            <span className="gcal-push-switch"><span className="gcal-push-knob" /></span>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {gcalError && (
+                    <div className="form-error" style={{ marginBottom: 4 }}>
+                      <Icon name="alert-circle" size={12} /> {gcalError}
+                    </div>
+                  )}
+
                   <div className="intg-coming-soon-grid">
                     {[
-                      { name: 'Slack',  icon: 'message-square', color: '#4A154B' },
-                      { name: 'Linear', icon: 'layers',          color: '#5E6AD2' },
-                      { name: 'Stripe', icon: 'credit-card',     color: '#0070BA' },
+                      { name: 'Slack', icon: 'message-square', color: '#4A154B' },
+                      { name: 'Linear', icon: 'layers', color: '#5E6AD2' },
+                      { name: 'Stripe', icon: 'credit-card', color: '#0070BA' },
                     ].map(p => (
                       <div key={p.name} className="intg-soon-card">
                         <div className="intg-soon-icon" style={{ color: p.color }}>

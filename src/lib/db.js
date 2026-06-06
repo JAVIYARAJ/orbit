@@ -18,6 +18,14 @@ const relTime = (ts) => {
   return new Date(ts).toLocaleDateString()
 }
 
+// Audit attribution carried on every content record (created_by/updated_by/deleted_by).
+// Resolve to a display name client-side via the workspace `members` list.
+const auditFields = (r) => ({
+  createdBy: r.created_by || null,
+  updatedBy: r.updated_by || null,
+  deletedBy: r.deleted_by || null,
+})
+
 // ─── DB → App shape converters ────────────────────────────────────
 
 const fromDbProject = (r) => ({
@@ -39,6 +47,7 @@ const fromDbProject = (r) => ({
   repo:        r.repo,
   budget:      r.budget,
   deletedAt:   r.deleted_at  || null,
+  ...auditFields(r),
 })
 
 const fromDbTask = (r) => ({
@@ -57,6 +66,8 @@ const fromDbTask = (r) => ({
   loggedMinutes: r.logged_minutes || 0,
   ghBranch:      r.gh_branch      || '',
   deletedAt:     r.deleted_at     || null,
+  assigneeId:    r.assignee_id    || null,
+  ...auditFields(r),
 })
 
 const fromDbNote = (r) => ({
@@ -69,6 +80,7 @@ const fromDbNote = (r) => ({
   edited:     relTime(r.updated_at),
   updatedAt:  r.updated_at  || null,
   body:       r.body,
+  ...auditFields(r),
 })
 
 const fromDbNoteFolder = (r) => ({
@@ -90,6 +102,7 @@ const fromDbLearning = (r) => ({
   lastReviewed: r.last_reviewed,
   difficulty:   r.difficulty  || null,
   createdAt:    r.created_at  || null,
+  ...auditFields(r),
 })
 
 const fromDbVault = (r) => ({
@@ -99,6 +112,7 @@ const fromDbVault = (r) => ({
   value:       r.value,
   isEncrypted: r.is_encrypted ?? false,
   updated:     r.updated_at,
+  ...auditFields(r),
 })
 
 // ─── App → RPC payload builders ───────────────────────────────────
@@ -135,6 +149,7 @@ const taskPayload = (t) => ({
   parent_task_id:   t.parentId    || null,
   est_minutes:      t.estMinutes  || 0,
   gh_branch:        t.ghBranch    || null,
+  assignee_id:      t.assigneeId  || null,
 })
 
 const learningPayload = (i) => ({
@@ -197,10 +212,12 @@ const transformData = (raw) => ({
   },
   emailTemplates: (raw.email_templates || []).map(r => ({
     id: r.template_id, cat: r.cat, name: r.name, body: r.body,
+    ...auditFields(r),
   })),
   ganttTasks: (raw.gantt_tasks || []).map(r => ({
     id: r.id, projectId: r.project_id,
     name: r.name, sub: r.sub, start: r.start_week, end: r.end_week, status: r.status,
+    ...auditFields(r),
   })),
 })
 
@@ -324,6 +341,88 @@ export const getProjectTasks = async (workstationId, projectShortId) => {
   })
   if (error) throw error
   return (data || []).map(fromDbTask)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRUD — Calendar events (native Orbit events)
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbCalendarEvent = (r) => ({
+  id:        r.id,
+  title:     r.title,
+  description: r.description || '',
+  location:  r.location || '',
+  start:     r.starts_at,
+  end:       r.ends_at,
+  allDay:    r.all_day ?? false,
+  color:     r.color || null,
+  projectId: r.project_short_id || null,
+  remindMinutes: r.remind_minutes ?? null,
+  recurrenceRule: r.recurrence_rule || null,
+  meetLink:  r.meet_link || null,
+  ...auditFields(r),
+})
+
+const calendarEventPayload = (e) => ({
+  title:            e.title,
+  description:      e.description || '',
+  location:         e.location || null,
+  starts_at:        e.start,
+  ends_at:          e.end,
+  all_day:          e.allDay ?? false,
+  color:            e.color || null,
+  project_short_id: e.projectId || null,
+  remind_minutes:   (e.remindMinutes === '' || e.remindMinutes == null) ? null : Number(e.remindMinutes),
+  recurrence_rule:  e.recurrenceRule || null,
+})
+
+export const createCalendarEvent = async (e, workstationId) => {
+  const { data, error } = await supabase.rpc('create_calendar_event', {
+    p_workstation_id: workstationId,
+    p_data:           calendarEventPayload(e),
+  })
+  if (error) throw error
+  return fromDbCalendarEvent(data)
+}
+
+export const updateCalendarEvent = async (id, e) => {
+  const { data, error } = await supabase.rpc('update_calendar_event', {
+    p_id:   id,
+    p_data: calendarEventPayload(e),
+  })
+  if (error) throw error
+  return fromDbCalendarEvent(data)
+}
+
+export const deleteCalendarEvent = async (id) => {
+  const { error } = await supabase.rpc('delete_calendar_event', { p_id: id })
+  if (error) throw error
+}
+
+// Which Orbit kinds get pushed to Google. prefs = { event, task, project } booleans.
+export const setGoogleSyncPrefs = async (workstationId, prefs) => {
+  const { error } = await supabase.rpc('set_google_sync_prefs', {
+    p_workstation_id: workstationId,
+    p_prefs:          prefs,
+  })
+  if (error) throw error
+}
+
+// Single round-trip read for the calendar page: native events + cached Google
+// events + tasks-with-due_date + projects-with-dates within [from, to].
+export const loadCalendarWindow = async (workstationId, from, to) => {
+  const { data, error } = await supabase.rpc('list_calendar_window', {
+    p_workstation_id: workstationId,
+    p_from:           from,
+    p_to:             to,
+  })
+  if (error) throw error
+  return {
+    events:   (data?.events   || []).map(fromDbCalendarEvent),
+    google:   data?.google    || [],
+    tasks:    data?.tasks     || [],
+    projects: data?.projects  || [],
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -474,6 +573,7 @@ export const resetVault = async (workstationId) => {
 const fromDbGantt = (r) => ({
   id: r.id, projectId: r.project_id,
   name: r.name, sub: r.sub || '', start: r.start_week, end: r.end_week, status: r.status,
+  ...auditFields(r),
 })
 
 export const createGanttTask = async (workstationId, projectDbId, name, sub, startWeek, endWeek, status) => {
@@ -827,6 +927,139 @@ export const getTaskStatusLogs = async (taskDbId) => {
   }))
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// TASK COMMENTS
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbComment = (r) => ({
+  id:             r.id,
+  parentId:       r.parentId       || null,
+  userId:         r.userId,
+  authorName:     r.authorName     || 'Unknown',
+  authorAvatar:   r.authorAvatar   || null,
+  authorAvatarUrl:r.authorAvatarUrl|| null,
+  body:           r.body,
+  createdAt:      r.createdAt,
+  editedAt:       r.editedAt       || null,
+})
+
+// Paginated by top-level comment (newest first). Returns { comments, total } where
+// `total` is the count of top-level comments (for the "show more" affordance).
+export const getTaskComments = async (taskDbId, { limit = 10, offset = 0 } = {}) => {
+  const { data, error } = await supabase.rpc('get_task_comments', {
+    p_task_id: taskDbId,
+    p_limit:   limit,
+    p_offset:  offset,
+  })
+  if (error) throw error
+  return {
+    comments: (data?.comments || []).map(fromDbComment),
+    total:    data?.total ?? 0,
+  }
+}
+
+export const addTaskComment = async (taskDbId, body, mentionedUserIds = [], parentId = null) => {
+  const { data, error } = await supabase.rpc('add_task_comment', {
+    p_task_id:   taskDbId,
+    p_body:      body,
+    p_mentions:  mentionedUserIds,
+    p_parent_id: parentId,
+  })
+  if (error) throw error
+  return fromDbComment(data)
+}
+
+export const updateTaskComment = async (commentId, body) => {
+  const { data, error } = await supabase.rpc('update_task_comment', { p_comment_id: commentId, p_body: body })
+  if (error) throw error
+  return fromDbComment(data)
+}
+
+export const deleteTaskComment = async (commentId) => {
+  const { error } = await supabase.rpc('delete_task_comment', { p_comment_id: commentId })
+  if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TASK ATTACHMENTS (Cloudinary-backed; file lives in Cloudinary, meta here)
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbAttachment = (r) => ({
+  id:                r.id,
+  taskId:            r.taskId            ?? r.task_id,
+  commentId:         r.commentId         ?? r.comment_id ?? null,
+  provider:          r.provider          ?? 'cloudinary',
+  publicId:          r.publicId          ?? r.public_id,
+  resourceType:      r.resourceType      ?? r.resource_type,
+  secureUrl:         r.secureUrl         ?? r.secure_url,
+  fileName:          r.fileName          ?? r.file_name,
+  mimeType:          r.mimeType          ?? r.mime_type ?? null,
+  format:            r.format            ?? null,
+  sizeBytes:         r.sizeBytes         ?? r.size_bytes ?? null,
+  width:             r.width             ?? null,
+  height:            r.height            ?? null,
+  uploadedBy:        r.uploadedBy        ?? r.uploaded_by ?? null,
+  uploaderName:      r.uploaderName      ?? 'Unknown',
+  uploaderAvatarUrl: r.uploaderAvatarUrl ?? null,
+  createdAt:         r.createdAt         ?? r.created_at,
+})
+
+export const getTaskAttachments = async (taskDbId) => {
+  const { data, error } = await supabase.rpc('get_task_attachments', { p_task_id: taskDbId })
+  if (error) throw error
+  return (data || []).map(fromDbAttachment)
+}
+
+// meta = output of uploadAttachment() in src/lib/cloudinary.js
+export const addTaskAttachment = async (taskDbId, commentId, meta) => {
+  const { data, error } = await supabase.rpc('add_task_attachment', {
+    p_task_id:    taskDbId,
+    p_comment_id: commentId,
+    p_data:       meta,
+  })
+  if (error) throw error
+  return fromDbAttachment(data)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbNotification = (r) => ({
+  id:             r.id,
+  type:           r.type,
+  readAt:         r.readAt         || null,
+  createdAt:      r.createdAt,
+  actorName:      r.actorName      || 'Unknown',
+  actorAvatarUrl: r.actorAvatarUrl || null,
+  taskTitle:      r.taskTitle      || '',
+  taskDbId:       r.taskDbId       || null,
+  commentId:      r.commentId      || null,
+  preview:        r.preview        || '',
+  entityType:     r.entityType     || null,
+  entityId:       r.entityId       || null,
+  title:          r.title          || '',
+  meta:           r.meta           || {},
+  workstationId:  r.workstationId  || null,
+})
+
+export const getNotifications = async (limit = 30) => {
+  const { data, error } = await supabase.rpc('get_notifications', { p_limit: limit })
+  if (error) throw error
+  return (data || []).map(fromDbNotification)
+}
+
+export const markNotificationsRead = async (ids) => {
+  const { error } = await supabase.rpc('mark_notifications_read', { p_ids: ids })
+  if (error) throw error
+}
+
+export const getUnreadNotificationsCount = async () => {
+  const { data, error } = await supabase.rpc('get_unread_notifications_count')
+  if (error) return 0
+  return data || 0
+}
+
 export const createLearningItem = async (item, column, workstationId) => {
   const { data, error } = await supabase.rpc('create_learning_item', {
     p_workstation_id: workstationId,
@@ -896,5 +1129,139 @@ export const getLearningActivity = async (workstationId, startDate = null, endDa
   const { data, error } = await supabase.rpc('get_learning_activity', params)
   if (error) throw error
   return (data || []).map(r => ({ date: r.activity_date, hours: Number(r.total_hours) || 0 }))
+}
+
+// ─── Team / Members ───────────────────────────────────────────────
+
+const fromDbMember = (r) => ({
+  userId:    r.user_id,
+  role:      r.role,
+  name:      r.name || r.email?.split('@')[0] || 'Unknown',
+  email:     r.email,
+  avatar:    r.avatar || (r.name?.[0] || '?').toUpperCase(),
+  avatarUrl: r.avatar_url || null,
+  joinedAt:  r.joined_at,
+})
+
+const fromDbInvite = (r) => ({
+  id:        r.id,
+  email:     r.email,
+  role:      r.role,
+  token:     r.token,
+  createdAt: r.created_at,
+  expiresAt: r.expires_at,
+})
+
+export const listWorkspaceMembers = async (workstationId) => {
+  const { data, error } = await supabase.rpc('list_workspace_members', { p_workstation_id: workstationId })
+  if (error) throw error
+  return (data || []).map(fromDbMember)
+}
+
+export const inviteMember = async (workstationId, email, role, workspaceName, inviterName) => {
+  const { data, error } = await supabase.rpc('invite_member', {
+    p_workstation_id: workstationId,
+    p_email:          email,
+    p_role:           role,
+    p_workspace_name: workspaceName,
+    p_inviter_name:   inviterName,
+  })
+  if (error) throw error
+  return data
+}
+
+export const acceptInvite = async (token) => {
+  const { data, error } = await supabase.rpc('accept_invite', { p_token: token })
+  if (error) throw error
+  return data
+}
+
+export const cancelInvite = async (inviteId) => {
+  const { error } = await supabase.rpc('cancel_invite', { p_invite_id: inviteId })
+  if (error) throw error
+}
+
+export const getPendingInvites = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_pending_invites', { p_workstation_id: workstationId })
+  if (error) throw error
+  return (data || []).map(fromDbInvite)
+}
+
+export const getInviteByToken = async (token) => {
+  const { data, error } = await supabase.rpc('get_invite_by_token', { p_token: token })
+  if (error) throw error
+  return data
+}
+
+export const updateMemberRole = async (workstationId, userId, role) => {
+  const { error } = await supabase.rpc('update_member_role', {
+    p_workstation_id: workstationId,
+    p_user_id:        userId,
+    p_role:           role,
+  })
+  if (error) throw error
+}
+
+export const removeMember = async (workstationId, userId) => {
+  const { error } = await supabase.rpc('remove_member', {
+    p_workstation_id: workstationId,
+    p_user_id:        userId,
+  })
+  if (error) throw error
+}
+
+export const transferOwnership = async (workstationId, newOwnerId) => {
+  const { error } = await supabase.rpc('transfer_ownership', {
+    p_workstation_id: workstationId,
+    p_new_owner_id:   newOwnerId,
+  })
+  if (error) throw error
+}
+
+// ─── Workspace Permissions ────────────────────────────────────────
+
+export const getWorkspacePermissions = async (workstationId) => {
+  const { data, error } = await supabase.rpc('get_workspace_permissions', { p_workstation_id: workstationId })
+  if (error) throw error
+  return data || {}
+}
+
+export const upsertPermission = async (workstationId, role, key, allowed) => {
+  const { error } = await supabase.rpc('upsert_permission', {
+    p_workstation_id: workstationId,
+    p_role:           role,
+    p_key:            key,
+    p_allowed:        allowed,
+  })
+  if (error) throw error
+}
+
+// ─── Activity log (audit trail) ───────────────────────────────────
+// Who did what across the workspace. entityType/action are enum-backed strings.
+
+const fromDbActivity = (r) => ({
+  id:            r.id,
+  action:        r.action,        // created | updated | deleted | restored
+  entityType:    r.entityType,    // project | task | note | … | member | invite | permission | workspace
+  entityId:      r.entityId       || null,
+  entityLabel:   r.entityLabel    || '',
+  meta:          r.meta           || {},
+  createdAt:     r.createdAt,
+  actorId:       r.actorId        || null,
+  actorName:     r.actorName      || 'Unknown',
+  actorAvatar:   r.actorAvatar    || null,
+  actorAvatarUrl:r.actorAvatarUrl || null,
+})
+
+// opts: { limit?, entityType?, entityId? } — entityType/entityId scope to one record's history
+export const getActivity = async (workstationId, opts = {}) => {
+  const { data, error } = await supabase.rpc('get_activity', {
+    p_workstation_id: workstationId,
+    p_limit:          opts.limit      ?? 50,
+    p_entity_type:    opts.entityType ?? null,
+    p_entity_id:      opts.entityId   ?? null,
+  })
+  if (error) throw error
+  return (data || []).map(fromDbActivity)
 }
 

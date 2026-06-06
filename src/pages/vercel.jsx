@@ -435,27 +435,28 @@ const TABS = [
   { id: 'domains',     label: 'Domains',     icon: 'link'     },
 ];
 
-export function VercelPage({ onNav }) {
+export function VercelPage({ onNav, activeWorkstation }) {
   const [integ,   setInteg]   = useState(null);
   const [vcUser,  setVcUser]  = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab,     setTab]     = useState('projects');
 
   useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { setLoading(false); return; }
-      const { data } = await supabase
-        .from('user_integrations')
-        .select('username, display_name, email, metadata, connected_at')
-        .eq('user_id', user.id)
-        .eq('provider', 'vercel')
-        .maybeSingle();
-      if (data) {
-        setInteg(data);
-        vcGetUser().then(setVcUser).catch(() => {});
-      }
-    }).finally(() => setLoading(false));
-  }, []);
+    if (!activeWorkstation?.id) { setLoading(false); return; }
+    supabase
+      .from('workspace_integrations')
+      .select('username, display_name, email, metadata, connected_at')
+      .eq('workstation_id', activeWorkstation.id)
+      .eq('provider', 'vercel')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setInteg(data);
+          vcGetUser().then(setVcUser).catch(() => {});
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [activeWorkstation?.id]);
 
   if (loading) return <div className="gh-page"><div className="gh-spin-wrap full"><div className="gh-spin" /></div></div>;
   if (!integ)  return <div className="gh-page"><NotConnected onGoSettings={onNav} /></div>;

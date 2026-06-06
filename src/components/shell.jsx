@@ -1,6 +1,8 @@
 // shell.jsx — Sidebar, Topbar, Command Palette, SlidePanel
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { canAccessModule } from '../lib/permissions.js';
 
 // ─── Icons (inline SVG, 16px viewbox) ─────────────────────────────
 export const Icon = ({ name, size = 16 }) => {
@@ -27,7 +29,7 @@ export const Icon = ({ name, size = 16 }) => {
     chev: <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     chevD: <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
     chevU: <path d="M4 10L8 6L12 10" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />,
-    trash: <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 3h3"/><path d="M2.5 5.5h11"/><path d="M5 5.5l.8 7.5h4.4l.8-7.5"/></g>,
+    trash: <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 3h3" /><path d="M2.5 5.5h11" /><path d="M5 5.5l.8 7.5h4.4l.8-7.5" /></g>,
     git: <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="4" cy="4" r="1.5" /><circle cx="4" cy="12" r="1.5" /><circle cx="12" cy="8" r="1.5" /><path d="M4 5.5V10.5M5.5 12H10.5C10.5 9.5 4 11 4 6" /></g>,
     pin: <path d="M8 2L11 5L10 6L11 7L9 9L8 14L7 9L5 7L6 6L5 5L8 2Z" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />,
     tag: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M2 7L7 2H13V8L8 13L2 7Z" /><circle cx="10" cy="6" r="0.8" fill="currentColor" /></g>,
@@ -69,6 +71,10 @@ export const Icon = ({ name, size = 16 }) => {
     'alert-circle': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="8" cy="8" r="6" /><path d="M8 5V8.5" strokeLinecap="round" /><circle cx="8" cy="11" r="0.6" fill="currentColor" /></g>,
     'external-link': <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M7 3H3V13H13V9M9 2H14V7M14 2L8 8" strokeLinecap="round" strokeLinejoin="round" /></g>,
     upload: <g stroke="currentColor" strokeWidth="1.2" fill="none"><path d="M8 11V2M4 6L8 2L12 6M2 14H14" strokeLinecap="round" strokeLinejoin="round" /></g>,
+    'user-plus': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="3" /><path d="M1 14C1 11.24 3.24 9 6 9C8.76 9 11 11.24 11 14" /><path d="M13 6V10M11 8H15" /></g>,
+    'user-minus': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="3" /><path d="M1 14C1 11.24 3.24 9 6 9C8.76 9 11 11.24 11 14" /><path d="M11 8H15" /></g>,
+    shield: <path d="M8 1L2 3V7.5C2 11.5 4.5 14.5 8 16C11.5 14.5 14 11.5 14 7.5V3L8 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
+    calendar: <g stroke="currentColor" strokeWidth="1.2" fill="none"><rect x="2" y="3" width="12" height="11" rx="1" /><path d="M2 6H14M5 2V4M11 2V4" strokeLinecap="round" /><circle cx="5.5" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="8" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="10.5" cy="9" r="0.6" fill="currentColor" stroke="none" /></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
@@ -84,6 +90,7 @@ export const NAV = [
       { id: 'home', label: 'Command Center', icon: 'home', kbd: 'G H' },
       { id: 'projects', label: 'Projects', icon: 'folder', kbd: 'G P' },
       { id: 'tasks', label: 'Tasks', icon: 'list', kbd: 'G T' },
+      { id: 'calendar', label: 'Calendar', icon: 'calendar', kbd: 'G Y' },
       { id: 'pm', label: 'Project Mgmt', icon: 'chart', kbd: 'G M' },
     ]
   },
@@ -124,6 +131,35 @@ export const NAV = [
 // Flat list (for cmd palette + lookup)
 export const NAV_FLAT = NAV.flatMap(g => g.items.map(it => ({ ...it, section: g.section })));
 
+// ─── Notification rendering catalog ───────────────────────────────
+// system: show a type icon instead of the actor avatar. preview: show the
+// secondary preview line. render(n) → the main JSX line.
+const NOTIF_CONFIG = {
+  task_assigned:        { icon: 'list',            render: n => <><strong>{n.actorName}</strong> assigned you <strong>{n.title}</strong></> },
+  task_unassigned:      { icon: 'list',            render: n => <><strong>{n.actorName}</strong> unassigned you from <strong>{n.title}</strong></> },
+  task_status_changed:  { icon: 'check-circle',    preview: true, render: n => <><strong>{n.actorName}</strong> updated <strong>{n.title}</strong></> },
+  task_due_soon:        { icon: 'alert-circle', system: true, render: n => <><strong>{n.title}</strong> is {String(n.preview).toLowerCase() === 'overdue' ? 'overdue' : 'due today'}</> },
+  task_commented:       { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> commented on <strong>{n.title}</strong></> },
+  mention:              { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> mentioned you in <strong>{n.title || 'a task'}</strong></> },
+  comment_reply:        { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> replied in <strong>{n.title}</strong></> },
+  invite_accepted:      { icon: 'user-plus',       render: n => <><strong>{n.actorName}</strong> joined <strong>{n.title}</strong></> },
+  role_changed:         { icon: 'shield',          render: n => <>{n.preview || 'Your role changed'}</> },
+  member_removed:       { icon: 'user-minus',      render: n => <>{n.preview || 'You were removed from a workspace'}</> },
+  ownership_transferred:{ icon: 'shield',          render: n => <>{n.preview || 'You are now the owner'}</> },
+  calendar_reminder:    { icon: 'bell', system: true, render: n => <><strong>Reminder</strong> · {n.preview}</> },
+  integration_reconnect_needed: { icon: 'alert-circle', system: true, render: n => <>Reconnect <strong>{n.title}</strong> to resume sync</> },
+};
+const notifRoute = (n, onNav, onSelectTask) => {
+  switch (n.entityType) {
+    case 'task':        return (n.entityId && onSelectTask) ? onSelectTask(n.entityId) : onNav?.('tasks');
+    case 'event':       return onNav?.('calendar');
+    case 'workspace':
+    case 'member':      return onNav?.('collab');
+    case 'integration': return onNav?.('settings');
+    default:            return onNav?.('home');
+  }
+};
+
 // ─── WorkstationPanel ──────────────────────────────────────────────
 const WorkstationPanel = ({ open, onClose, workstations = [], active, onSwitch, onNew }) => {
   useEffect(() => {
@@ -156,8 +192,14 @@ const WorkstationPanel = ({ open, onClose, workstations = [], active, onSwitch, 
               <div className="ws-item-glow" style={{ background: ws.color }} />
               <div className="ws-item-dot" style={{ background: ws.color }} />
               <div className="ws-item-content">
-                <div className="ws-item-name">{ws.name}</div>
-                <div className="ws-item-meta">{ws.id} · {active?.id === ws.id ? 'Current' : 'Select'}</div>
+                <div className="ws-item-name-row">
+                  <div className="ws-item-name">{ws.name}</div>
+                  {ws.role === 'owner'
+                    ? <span className="ws-role-tag ws-role-owner">Owner</span>
+                    : <span className="ws-role-tag ws-role-invited">Invited</span>
+                  }
+                </div>
+                <div className="ws-item-meta">{active?.id === ws.id ? 'Current workspace' : 'Click to switch'}</div>
               </div>
               {ws.id === active?.id && (
                 <div className="ws-item-check"><Icon name="check" size={14} /></div>
@@ -186,16 +228,17 @@ export const Sidebar = ({
   user, onLogout,
   workstations, activeWorkstation, onWsSwitch, onNewWs,
   enabledModules = {},
+  myRole = 'viewer', wsPermissions = {},
 }) => {
   const [panelOpen, setPanelOpen] = useState(false);
 
   return (
     <aside className="sb">
       <div className="sb-brand">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{flexShrink:0}}>
-          <circle cx="9" cy="9" r="3" fill="currentColor"/>
-          <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none"/>
-          <circle cx="9" cy="3" r="1.5" fill="currentColor"/>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
+          <circle cx="9" cy="9" r="3" fill="currentColor" />
+          <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
+          <circle cx="9" cy="3" r="1.5" fill="currentColor" />
         </svg>
         <span className="label">Orbit</span>
         <span className="v">v1.0</span>
@@ -203,7 +246,11 @@ export const Sidebar = ({
 
       <div className="sb-scroll">
         {NAV.map(g => {
-          const visibleItems = g.items.filter(it => enabledModules[it.id] !== false);
+          // Hide modules the user can't access (or that are disabled by remote config) —
+          // an unclickable nav item has no reason to be shown. CRUD action buttons inside
+          // pages stay visible-but-disabled; navigation is hidden.
+          const visibleItems = g.items.filter(it =>
+            enabledModules[it.id] !== false && canAccessModule(myRole, it.id, wsPermissions));
           if (visibleItems.length === 0) return null;
           return (
             <div key={g.section}>
@@ -270,8 +317,44 @@ export const Sidebar = ({
 };
 
 // ─── Topbar ────────────────────────────────────────────────────────
-export const Topbar = ({ onOpenCmdK, timer, onTimerJump, theme = 'dark', onThemeToggle }) => {
+const timeAgo = (dateStr) => {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 2)   return 'just now';
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30)  return `${d}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+};
+
+export const Topbar = ({
+  onOpenCmdK, timer, onTimerJump, theme = 'dark', onThemeToggle,
+  notifications = [], unreadCount = 0, onMarkRead, onNav, onSelectTask,
+}) => {
   const isLight = theme === 'light';
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
+  const bellRef = useRef(null);
+
+  const handleBellClick = (e) => {
+    e.stopPropagation();
+    if (bellRef.current) {
+      const rect = bellRef.current.getBoundingClientRect();
+      setPanelPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+    }
+    setNotifOpen(o => !o);
+  };
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handler = () => setNotifOpen(false);
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, [notifOpen]);
+
   return (
     <header className="tb">
       <button className="tb-search" onClick={onOpenCmdK}>
@@ -302,10 +385,75 @@ export const Topbar = ({ onOpenCmdK, timer, onTimerJump, theme = 'dark', onTheme
           </svg>
         )}
       </button>
-      <button className="tb-icon-btn" title="Notifications">
+
+      {/* Bell button */}
+      <button
+        ref={bellRef}
+        className="tb-icon-btn"
+        title="Notifications"
+        onClick={handleBellClick}
+      >
         <Icon name="bell" size={14} />
-        <span className="badge"></span>
+        {unreadCount > 0 && <span className="badge" />}
       </button>
+
+      {/* Notification panel — rendered via portal to escape stacking context */}
+      {notifOpen && createPortal(
+        <div
+          className="notif-panel"
+          style={{ position: 'fixed', top: panelPos.top, right: panelPos.right }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="notif-panel-hd">
+            <span>Notifications</span>
+            {unreadCount > 0 && (
+              <button
+                className="notif-mark-all"
+                onClick={() => onMarkRead?.(notifications.filter(n => !n.readAt).map(n => n.id))}
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          {notifications.length === 0 ? (
+            <div className="notif-empty">No notifications yet.</div>
+          ) : (
+            <div className="notif-list">
+              {notifications.map(n => {
+                const cfg = NOTIF_CONFIG[n.type] || { icon: 'bell', render: x => x.preview || x.title || 'Notification' };
+                return (
+                <div
+                  key={n.id}
+                  className={'notif-row' + (n.readAt ? '' : ' unread')}
+                  onClick={() => {
+                    if (!n.readAt) onMarkRead?.([n.id]);
+                    setNotifOpen(false);
+                    notifRoute(n, onNav, onSelectTask);
+                  }}
+                >
+                  <div className="notif-avatar">
+                    {cfg.system
+                      ? <div className="notif-ava notif-ava-init"><Icon name={cfg.icon} size={14} /></div>
+                      : n.actorAvatarUrl
+                        ? <img src={n.actorAvatarUrl} className="notif-ava" alt={n.actorName} />
+                        : <div className="notif-ava notif-ava-init">{n.actorName?.[0]?.toUpperCase() || '?'}</div>
+                    }
+                  </div>
+                  <div className="notif-content">
+                    <div className="notif-text">{cfg.render(n)}</div>
+                    {cfg.preview && n.preview && <div className="notif-preview">"{n.preview}"</div>}
+                    <div className="notif-time">{timeAgo(n.createdAt)}</div>
+                  </div>
+                  {!n.readAt && <div className="notif-dot" />}
+                </div>
+                );
+              })}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </header>
   );
 };
@@ -340,21 +488,24 @@ export const SlidePanel = ({ open, onClose, title, subtitle, children, width = 5
 };
 
 // ─── Cmd+K Palette ────────────────────────────────────────────────
-export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchData = {}, onSearchSelect }) => {
+export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchData = {}, onSearchSelect, myRole = 'viewer', wsPermissions = {} }) => {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
 
   useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => inputRef.current?.focus(), 50); } }, [open]);
 
-  const isEnabled = (id) => enabledModules[id] !== false;
+  // A module shows in the palette only if it's enabled by remote config AND the
+  // current role is permitted to access it.
+  const isEnabled = (id) =>
+    enabledModules[id] !== false && canAccessModule(myRole, id, wsPermissions);
 
   const ACTIONS = [
-    { type: 'action', label: 'Start new timer', hint: 'T S', icon: 'play', moduleId: 'timer',    do: () => { onNav('timer'); onClose(); } },
-    { type: 'action', label: 'New task',         hint: 'T N', icon: 'plus', moduleId: 'tasks',    do: () => { onNav('tasks'); onClose(); } },
-    { type: 'action', label: 'New note',         hint: 'N N', icon: 'plus', moduleId: 'notes',    do: () => { onNav('notes'); onClose(); } },
-    { type: 'action', label: 'New project',      hint: 'P N', icon: 'plus', moduleId: 'projects', do: () => { onNav('projects'); onClose(); } },
-    { type: 'action', label: 'Reveal vault item', hint: '',   icon: 'eye',  moduleId: 'vault',    do: () => { onNav('vault'); onClose(); } },
+    { type: 'action', label: 'Start new timer', hint: 'T S', icon: 'play', moduleId: 'timer', do: () => { onNav('timer'); onClose(); } },
+    { type: 'action', label: 'New task', hint: 'T N', icon: 'plus', moduleId: 'tasks', do: () => { onNav('tasks'); onClose(); } },
+    { type: 'action', label: 'New note', hint: 'N N', icon: 'plus', moduleId: 'notes', do: () => { onNav('notes'); onClose(); } },
+    { type: 'action', label: 'New project', hint: 'P N', icon: 'plus', moduleId: 'projects', do: () => { onNav('projects'); onClose(); } },
+    { type: 'action', label: 'Reveal vault item', hint: '', icon: 'eye', moduleId: 'vault', do: () => { onNav('vault'); onClose(); } },
   ].filter(a => isEnabled(a.moduleId));
 
   const NAV_ITEMS = NAV_FLAT
@@ -379,7 +530,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
 
     const results = [];
 
-    tasks
+    (isEnabled('tasks') ? tasks : [])
       .filter(t => !t.deleted && (
         t.title?.toLowerCase().includes(lq) ||
         t.description?.toLowerCase().includes(lq) ||
@@ -393,7 +544,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
         do: () => { onSearchSelect?.('tasks', t._dbId); onClose(); },
       }));
 
-    projects
+    (isEnabled('projects') ? projects : [])
       .filter(p => !p.deleted && (
         p.name?.toLowerCase().includes(lq) ||
         p.client?.toLowerCase().includes(lq) ||
@@ -408,7 +559,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
         do: () => { onSearchSelect?.('projects', p.id); onClose(); },
       }));
 
-    notes
+    (isEnabled('notes') ? notes : [])
       .filter(n => !n.deleted && (
         n.title?.toLowerCase().includes(lq) ||
         n.body?.toLowerCase().includes(lq)
@@ -421,7 +572,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
         do: () => { onSearchSelect?.('notes', n.id); onClose(); },
       }));
 
-    emailTemplates
+    (isEnabled('email') ? emailTemplates : [])
       .filter(e => (
         e.name?.toLowerCase().includes(lq) ||
         e.subject?.toLowerCase().includes(lq) ||
@@ -436,11 +587,11 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
       }));
 
     const STATUS_LABEL = { toLearn: 'To Learn', inProgress: 'In Progress', completed: 'Completed' };
-    [
+    (isEnabled('learning') ? [
       ...toLearn.map(i => ({ ...i, _status: 'toLearn' })),
       ...inProgress.map(i => ({ ...i, _status: 'inProgress' })),
       ...completed.map(i => ({ ...i, _status: 'completed' })),
-    ]
+    ] : [])
       .filter(item => (
         item.topic?.toLowerCase().includes(lq) ||
         item.notes?.toLowerCase().includes(lq) ||
@@ -483,7 +634,7 @@ export const CmdPalette = ({ open, onClose, onNav, enabledModules = {}, searchDa
   });
 
   const actions = filteredCmds.filter(a => a.type === 'action');
-  const navs    = filteredCmds.filter(a => a.type === 'nav');
+  const navs = filteredCmds.filter(a => a.type === 'nav');
 
   let idx = -1;
   const renderRow = (a) => {

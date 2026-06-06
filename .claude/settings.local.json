@@ -16,7 +16,9 @@
       "Bash(grep -nB2 \"background-color:\\\\s*#0\\\\|background-color:\\\\s*#1\\\\|background-color:\\\\s*#2[0-4]\\\\|color:\\\\s*#f0f0f2\\\\|color:\\\\s*#a0a0a8\\\\|color:\\\\s*#6a6a78\\\\|color:\\\\s*#45454f\\\\|border.*#0[0-9a-fA-F]\\\\|border.*#1[0-9a-fA-F]\\\\|border.*#2[0-4][0-9a-fA-F]\" /home/raj-javiya/Documents/dev_os_dashboard/src/styles/global.css)",
       "Bash(grep -n \"const renderMdCore\\\\|export const renderMd\\\\|const NoteLinkMenu\\\\|const NoteCard\\\\|return \\(\\\\|\\);$\" /Users/rajjaviya/Documents/Product/dev_os_dashboard/dev_os_dashboard/src/pages/tools.jsx)",
       "Bash(find /Users/rajjaviya -name \"vercel-proxy\" -o -name \"vercel-proxy.ts\" 2>/dev/null | grep -v node_modules | head -10)",
-      "Read(//Users/rajjaviya/**)"
+      "Read(//Users/rajjaviya/**)",
+      "Bash(npx eslint *)",
+      "mcp__claude_ai_Supabase__deploy_edge_function"
     ]
   }
 }

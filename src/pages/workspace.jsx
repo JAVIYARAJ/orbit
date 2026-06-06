@@ -11,13 +11,20 @@ import {
   createLearningSession, listLearningSessions, deleteLearningSession, getWeeklyLearningHours,
   createTag,
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
+  getTaskComments, addTaskComment, updateTaskComment, deleteTaskComment,
+  loadCalendarWindow,
+  getTaskAttachments, addTaskAttachment,
 } from '../lib/db.js';
+import {
+  uploadAttachment, destroyAttachment, thumbUrl, isImageAttachment, formatBytes, cloudinaryConfigured,
+} from '../lib/cloudinary.js';
 import {
   deriveKey, generateSalt, encryptValue, decryptValue,
   createVerifier, verifyKey,
   setSessionKey, getSessionKey, getSessionFingerprint, clearSessionKey, isVaultUnlocked,
 } from '../lib/vault-crypto.js';
 import { VAULT_AUTO_LOCK_MS } from '../lib/constants.js';
+import { canDo } from '../lib/permissions.js';
 import { renderMd } from './tools.jsx';
 import { supabase } from '../lib/supabase.js';
 import { ghGetRepos, ghGetLastCommit, ghCreateBranch, ghGetBranches, ghCreateRepo, ghDeleteRepo, ghDeleteBranch, ghGetTokenScopes } from '../lib/github.js';
@@ -26,6 +33,13 @@ import {
 } from 'recharts';
 
 // ─── Helpers ──────────────────────────────────────────────────────
+const _avaColors = ['#0099ff', '#7c3aed', '#16a34a', '#d97706', '#ef4444', '#06b6d4', '#ec4899'];
+const avaColor = (str = '') => {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return _avaColors[Math.abs(h) % _avaColors.length];
+};
+
 const getDueClass = (date) => {
   if (!date || date === '—') return '';
 
@@ -253,6 +267,22 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
   }, []);
   const clockStr = time.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+  // ── Today's calendar events (for the agenda digest) ───────────────
+  const [todayEventCount, setTodayEventCount] = useStateA(0);
+  useEffectA(() => {
+    if (!workstationId) return;
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const end = new Date(start); end.setDate(end.getDate() + 1);
+    loadCalendarWindow(workstationId, start.toISOString(), end.toISOString())
+      .then(d => setTodayEventCount((d.events?.length || 0) + (d.google?.length || 0)))
+      .catch(() => setTodayEventCount(0));
+  }, [workstationId]);
+
+  const agendaParts = [
+    `${dueTodayTasks.length} task${dueTodayTasks.length === 1 ? '' : 's'} due`,
+    `${todayEventCount} event${todayEventCount === 1 ? '' : 's'}`,
+  ];
+
   // ── Remote stats (timer-based) ────────────────────────────────────
   const [stats, setStats] = useStateA(null);
   useEffectA(() => {
@@ -337,6 +367,20 @@ export const HomePage = ({ user, timer, onNav, projects, tasks, notes, emailTemp
           <div className="cc-clock-val">{clockStr}</div>
           <div className="cc-clock-lbl">Local Time ({tzStr})</div>
         </div>
+      </div>
+
+      {/* 1b. TODAY'S AGENDA DIGEST */}
+      <div className="cc-agenda-digest" onClick={() => onNav('calendar')} role="button" tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter') onNav('calendar'); }}>
+        <div className="cc-agenda-ic"><Icon name="calendar" size={16} /></div>
+        <div className="cc-agenda-body">
+          <span className="cc-agenda-label">Today</span>
+          <span className="cc-agenda-summary">
+            {agendaParts.join(' · ')}
+            {overdueCount > 0 && <span className="cc-agenda-overdue"> · {overdueCount} overdue</span>}
+          </span>
+        </div>
+        <span className="cc-agenda-cta">View calendar <Icon name="chev" size={13} /></span>
       </div>
 
       {/* 2. COMMAND LAUNCHER DOCK */}
@@ -761,7 +805,7 @@ const RepoSelector = ({ repos, loading, value, onChange, takenRepos = {} }) => {
   );
 };
 
-const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], isGithubConnected = false, projects = [] }) => {
+const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], isGithubConnected = false, canGithubWrite = false, projects = [] }) => {
   const isEdit = !!initial;
 
   const toForm = (p) => p ? {
@@ -959,8 +1003,8 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
                   </div>
                 )}
               </div>
-              {/* Card: Create new */}
-              <div className="branch-opt">
+              {/* Card: Create new — write permission required */}
+              {canGithubWrite && <div className="branch-opt">
                 <label className="branch-opt-toggle" onClick={() => setRepoMode('new')}>
                   <span className={'branch-opt-check' + (repoMode === 'new' ? ' on' : '')}>
                     {repoMode === 'new' && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1.5 6 4.5 9 10.5 3" /></svg>}
@@ -988,7 +1032,7 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
                     </label>
                   </>
                 )}
-              </div>
+              </div>}
             </div>
           </>
         ) : (
@@ -1027,7 +1071,7 @@ const timeAgo = (dateStr) => {
   return new Date(dateStr).toLocaleDateString();
 };
 
-const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], isGithubConnected = false, timer = null }) => {
+const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTypes = [], tasks = [], statuses = [], isGithubConnected = false, timer = null, canEdit = true, canDelete = true, canGithubWrite = false }) => {
   // All hooks unconditionally before any early return
   const [lastCommit, setLastCommit] = useStateA(null);
   const [commitLoading, setCommitLoading] = useStateA(false);
@@ -1304,14 +1348,14 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
           )}
 
           {/* Scope pre-flight warning */}
-          {repoFullName && isGithubConnected && !hasDeleteScope && (
+          {repoFullName && isGithubConnected && canGithubWrite && !hasDeleteScope && (
             <div style={{ fontSize: 11, marginBottom: 8, padding: '8px 12px', background: '#f59e0b10', border: '1px solid #f59e0b30', borderRadius: 8, lineHeight: 1.6, color: '#f59e0b' }}>
               Your GitHub token is missing the <code style={{ fontFamily: 'var(--f-mono)', background: '#f59e0b20', padding: '1px 4px', borderRadius: 3 }}>delete_repo</code> scope — repo deletion will fail. Go to <strong>Settings → Integrations</strong> and reconnect GitHub to grant it.
             </div>
           )}
 
-          {/* Optional: also delete the linked GitHub repo */}
-          {repoFullName && isGithubConnected && (
+          {/* Optional: also delete the linked GitHub repo — write permission required */}
+          {repoFullName && isGithubConnected && canGithubWrite && (
             <div
               className={'danger-repo-opt' + (deleteRepo ? ' active' : '')}
               onClick={() => { setDeleteRepo(d => !d); setRepoDeleteErr(''); }}
@@ -1351,9 +1395,11 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
 
           {!showDeleteConfirm ? (
             <button
-              className="btn danger"
+              className={'btn danger' + (canDelete ? '' : ' perm-denied')}
               style={{ fontSize: 12, width: '100%' }}
               onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); }}
+              disabled={!canDelete}
+              title={canDelete ? '' : "You don't have permission"}
             >
               Delete project{deleteRepo && repoFullName && isGithubConnected ? ' & repository' : ''}
             </button>
@@ -1403,7 +1449,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
       </div>
       <div className="sp-footer">
         <button className="btn ghost" onClick={onClose}>Close</button>
-        <button className="btn primary" onClick={onEdit}>
+        <button className={'btn primary' + (canEdit ? '' : ' perm-denied')} onClick={onEdit} disabled={!canEdit} title={canEdit ? '' : "You don't have permission"}>
           <Icon name="edit" size={12} /> Edit project
         </button>
       </div>
@@ -1411,7 +1457,12 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null, jumpToItem }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null, jumpToItem, myRole = 'viewer', wsPermissions = {} }) => {
+  const canCreate = canDo(myRole, 'create_project', wsPermissions);
+  const canEdit = canDo(myRole, 'edit_project', wsPermissions);
+  const canDelete = canDo(myRole, 'delete_project', wsPermissions);
+  const canGithubWrite = canDo(myRole, 'github_write', wsPermissions);
+  const NO_PERM = "You don't have permission";
   const [view, setView] = useStateA('card');
   const [filter, setFilter] = useStateA('all');
   const [search, setSearch] = useStateA('');
@@ -1477,7 +1528,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
             <button className={view === 'card' ? 'active' : ''} onClick={() => setView('card')}>CARDS</button>
             <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>LIST</button>
           </div>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>
+          <button className={'btn primary' + (canCreate ? '' : ' perm-denied')} onClick={() => setShowAdd(true)} disabled={!canCreate} title={canCreate ? 'New project' : NO_PERM}>
             <Icon name="plus" size={12} /> New project
           </button>
         </div>
@@ -1519,7 +1570,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
           <Icon name="folder" size={32} />
           <div className="empty-title">No projects yet</div>
           <div className="empty-sub">Create your first project to start tracking work, hours, and progress.</div>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>
+          <button className={'btn primary' + (canCreate ? '' : ' perm-denied')} onClick={() => setShowAdd(true)} disabled={!canCreate} title={canCreate ? 'New project' : NO_PERM}>
             <Icon name="plus" size={12} /> New project
           </button>
         </div>
@@ -1540,9 +1591,10 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                     <div className="pc-actions">
                       <StatusPill status={p.status} />
                       <button
-                        className="btn sm ghost pc-edit"
+                        className={'btn sm ghost pc-edit' + (canEdit ? '' : ' perm-denied')}
                         onClick={e => { e.stopPropagation(); setEditing(p); }}
-                        title="Edit project"
+                        disabled={!canEdit}
+                        title={canEdit ? 'Edit project' : NO_PERM}
                       >
                         <Icon name="edit" size={12} />
                       </button>
@@ -1593,7 +1645,7 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
                   <td className="mono">{fmtHours(p.hoursLogged)}</td>
                   <td className="mono">{fmtDate(p.end)}</td>
                   <td>
-                    <button className="btn sm ghost" onClick={e => { e.stopPropagation(); setEditing(p); }} title="Edit project">
+                    <button className={'btn sm ghost' + (canEdit ? '' : ' perm-denied')} onClick={e => { e.stopPropagation(); setEditing(p); }} disabled={!canEdit} title={canEdit ? 'Edit project' : NO_PERM}>
                       <Icon name="edit" size={12} />
                     </button>
                   </td>
@@ -1615,9 +1667,12 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         timer={timer}
         onEdit={() => { setEditing(viewing); setViewing(null); }}
         onDelete={handleDelete}
+        canEdit={canEdit}
+        canDelete={canDelete}
+        canGithubWrite={canGithubWrite}
       />
-      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} isGithubConnected={isGithubConnected} projects={projects} />
-      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} isGithubConnected={isGithubConnected} initial={editing} projects={projects} />
+      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} projects={projects} />
+      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} initial={editing} projects={projects} />
     </div>
   );
 };
@@ -1724,12 +1779,15 @@ const TagPicker = ({ selectedIds = [], onChange, allTags = [], onCreateTag }) =>
   );
 };
 
-const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities = [], onDragStart, onDragEnd, onClick }) => {
+const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities = [], members = [], onDragStart, onDragEnd, onClick }) => {
   const proj = projects.find(p => p.id === t.proj);
   const subs = tasks ? tasks.filter(s => s.parentId === t._dbId) : [];
   const subsDone = doneStatusId ? subs.filter(s => s.col === doneStatusId).length : 0;
   const isDone = doneStatusId && t.col === doneStatusId;
   const prioObj = priorities.find(pr => pr.id === t.p);
+  const assignee = t.assigneeId ? members.find(m => m.userId === t.assigneeId) : null;
+
+
   return (
     <div
       className={'tcard' + (isDone ? ' tcard-done' : getDueClass(t.due).includes('overdue') ? ' overdue' : '')}
@@ -1754,6 +1812,14 @@ const TaskCard = ({ t, tasks, projects, allTags = [], doneStatusId, priorities =
       <div className="foot">
         {subs.length > 0 && (
           <div className="subs"><Icon name="list" size={10} /> {subsDone}/{subs.length}</div>
+        )}
+        {assignee && (
+          <div className="tcard-assignee" title={assignee.name}>
+            {assignee.avatarUrl
+              ? <img src={assignee.avatarUrl} className="assignee-ava" alt={assignee.name} />
+              : <div className="assignee-ava assignee-ava-init" style={{ background: avaColor(assignee.name) }}>{assignee.avatar}</div>
+            }
+          </div>
         )}
       </div>
     </div>
@@ -1805,11 +1871,14 @@ const extractUrls = (text) => {
   return found;
 };
 
-const renderDescription = (text) => {
-  if (!text) return null;
+// Inline media markdown: !video[name](url)  OR  ![alt](url)
+const IMG_MD_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+const MEDIA_RE  = /!video\[([^\]]*)\]\(([^)\s]+)\)|!\[([^\]]*)\]\(([^)\s]+)\)|!file\[([^\]]*)\]\(([^)\s]+)\)/g;
+
+// Linkify a plain-text segment (no media markdown inside).
+const linkifyText = (text, kp) => {
   const parts = [];
-  let last = 0;
-  let match;
+  let last = 0, match;
   URL_RE.lastIndex = 0;
   while ((match = URL_RE.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
@@ -1817,7 +1886,7 @@ const renderDescription = (text) => {
     let label;
     try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = url; }
     parts.push(
-      <a key={match.index} href={url} target="_blank" rel="noopener noreferrer" className="desc-link"
+      <a key={`${kp}-l${match.index}`} href={url} target="_blank" rel="noopener noreferrer" className="desc-link"
         onClick={e => e.stopPropagation()}>
         {label}
       </a>
@@ -1827,6 +1896,65 @@ const renderDescription = (text) => {
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 };
+
+// Render text with inline images + video players + file badges. withLinks → also linkify URLs.
+// imgClass lets comments use slightly smaller media.
+const renderRich = (text, kp, withLinks, imgClass = '') => {
+  if (!text) return withLinks ? null : [];
+  const out = [];
+  let last = 0, m, k = 0;
+  MEDIA_RE.lastIndex = 0;
+  const seg = (s, key) => { if (s) out.push(...(withLinks ? linkifyText(s, key) : [s])); };
+  while ((m = MEDIA_RE.exec(text)) !== null) {
+    seg(text.slice(last, m.index), `${kp}t${k}`);
+    if (m[1] !== undefined) {            // video: m[1]=name, m[2]=url
+      out.push(
+        <video key={`${kp}v${k}`} src={m[2]} controls preload="metadata"
+          className={`desc-video ${imgClass}`} onClick={e => e.stopPropagation()} />
+      );
+    } else if (m[3] !== undefined) {     // image: m[3]=alt, m[4]=url
+      out.push(
+        <a key={`${kp}i${k}`} href={m[4]} target="_blank" rel="noopener noreferrer"
+          className="desc-img-link" onClick={e => e.stopPropagation()}>
+          <img src={m[4]} alt={m[3] || ''} className={`desc-img ${imgClass}`} loading="lazy" />
+        </a>
+      );
+    } else if (m[5] !== undefined) {     // file: m[5]=name, m[6]=url
+      const fileName = m[5] || 'file';
+      const fileUrl = m[6];
+      const fileMeta = getFileTypeMeta(fileName, '', 14);
+      out.push(
+        <span key={`${kp}f${k}`} className="desc-inline-file-wrap" onClick={e => e.stopPropagation()}>
+          <a 
+            href={fileUrl} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="desc-inline-file-card"
+            style={{ borderLeftColor: fileMeta.color }}
+          >
+            <span className="file-icon" style={{ display: 'flex', color: fileMeta.color }}>
+              {fileMeta.icon}
+            </span>
+            <span className="file-name">{fileName}</span>
+            <span className="file-download-ic">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </span>
+          </a>
+        </span>
+      );
+    }
+    last = m.index + m[0].length;
+    k++;
+  }
+  seg(text.slice(last), `${kp}tl`);
+  return out;
+};
+
+const renderDescription = (text) => (text ? renderRich(text, 'd', true) : null);
 
 // ── Link preview — instant, no external API ────────────────────────
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?.*)?$/i;
@@ -1928,32 +2056,196 @@ const LinkPreview = ({ url }) => {
   );
 };
 
-const DescriptionField = ({ value, onChange }) => {
+const DescriptionField = ({ value, onChange, onUploadImage }) => {
   const [editing, setEditing] = useStateA(false);
-  const taRef = useRefA(null);
+  const [uploadingImg, setUploadingImg] = useStateA(false);
+  const editorRef = useRefA(null);
   const urls = editing ? [] : extractUrls(value || '').slice(0, 3);
 
+  const markdownToHtmlForEdit = (markdown) => {
+    if (!markdown) return '';
+    let html = markdown;
+    
+    // Replace images
+    html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, url) => {
+      return `<img src="${url}" alt="${alt}" data-markdown-img="${alt}" class="desc-img" style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px; cursor: default;" />`;
+    });
+    
+    // Replace videos
+    html = html.replace(/!video\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, url) => {
+      return `<video src="${url}" data-markdown-video="${alt}" class="desc-video" controls style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px;" />`;
+    });
+    
+    // Replace files
+    html = html.replace(/!file\[([^\]]*)\]\(([^)\s]+)\)/g, (match, name, url) => {
+      const fileMeta = getFileTypeMeta(name, '', 12);
+      return `<span class="desc-inline-file-wrap" contenteditable="false" data-markdown-file-name="${name}" data-markdown-file-url="${url}"><a href="${url}" target="_blank" rel="noopener noreferrer" class="desc-inline-file-card" style="border-left-color: ${fileMeta.color}; pointer-events: none;"><span class="file-icon" style="color: ${fileMeta.color}; display: inline-flex; vertical-align: middle;">${fileMeta.icon}</span><span class="file-name">${name}</span></a></span>`;
+    });
+    
+    // Replace newlines with <br>
+    html = html.replace(/\n/g, '<br>');
+    
+    return html;
+  };
+
+  const serializeHtmlToMarkdown = (html) => {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    
+    const walk = (node) => {
+      let md = '';
+      for (let child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          md += child.textContent;
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          if (child.tagName === 'IMG' && child.hasAttribute('data-markdown-img')) {
+            const alt = child.getAttribute('data-markdown-img') || '';
+            const src = child.getAttribute('src') || '';
+            md += `![${alt}](${src})`;
+          } else if (child.tagName === 'VIDEO' && child.hasAttribute('data-markdown-video')) {
+            const alt = child.getAttribute('data-markdown-video') || '';
+            const src = child.getAttribute('src') || '';
+            md += `!video[${alt}](${src})`;
+          } else if (child.classList.contains('desc-inline-file-wrap')) {
+            const name = child.getAttribute('data-markdown-file-name') || 'file';
+            const url = child.getAttribute('data-markdown-file-url') || '';
+            md += `!file[${name}](${url})`;
+          } else if (child.tagName === 'BR') {
+            md += '\n';
+          } else if (child.tagName === 'DIV' || child.tagName === 'P') {
+            const inner = walk(child);
+            if (inner) {
+              md += '\n' + inner;
+            } else {
+              md += '\n';
+            }
+          } else {
+            md += walk(child);
+          }
+        }
+      }
+      return md;
+    };
+    
+    let result = walk(temp);
+    result = result.replace(/\n{3,}/g, '\n\n').trim();
+    return result;
+  };
+
+  const htmlForEditToken = (r) => {
+    if (r.resourceType === 'video') {
+      return `<video src="${r.url}" data-markdown-video="${r.name || 'video'}" class="desc-video" controls style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px;" />`;
+    }
+    const ext = (r.name || '').split('.').pop().toLowerCase();
+    const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'bmp'].includes(ext);
+    if (isImg && r.resourceType === 'image') {
+      return `<img src="${r.url}" alt="${r.name || 'image'}" data-markdown-img="${r.name || 'image'}" class="desc-img" style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px; cursor: default;" />`;
+    }
+    const fileMeta = getFileTypeMeta(r.name || 'file', '', 12);
+    return `<span class="desc-inline-file-wrap" contenteditable="false" data-markdown-file-name="${r.name || 'file'}" data-markdown-file-url="${r.url}"><a href="${r.url}" target="_blank" rel="noopener noreferrer" class="desc-inline-file-card" style="border-left-color: ${fileMeta.color}; pointer-events: none;"><span class="file-icon" style="color: ${fileMeta.color}; display: inline-flex; vertical-align: middle;">${fileMeta.icon}</span><span class="file-name">${r.name || 'file'}</span></a></span>`;
+  };
+
+  const insertHtmlAtCursor = (html) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      const sel = window.getSelection();
+      if (sel.getRangeAt && sel.rangeCount) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const el = document.createElement("div");
+        el.innerHTML = html;
+        const frag = document.createDocumentFragment();
+        let node, lastNode;
+        while ((node = el.firstChild)) {
+          lastNode = frag.appendChild(node);
+        }
+        range.insertNode(frag);
+        if (lastNode) {
+          range.setStartAfter(lastNode);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    }
+  };
+
+  const handleFiles = async (files) => {
+    const allFiles = Array.from(files || []);
+    if (!allFiles.length || !onUploadImage) return;
+    setUploadingImg(true);
+    for (const f of allFiles) {
+      try {
+        const r = await onUploadImage(f);
+        if (r?.url) {
+          insertHtmlAtCursor(htmlForEditToken(r));
+        }
+      } catch (e) {
+        console.error('Failed to upload file:', e);
+      }
+    }
+    setUploadingImg(false);
+  };
+
+  const onPaste = (e) => {
+    const files = Array.from(e.clipboardData?.files || []);
+    if (files.length) {
+      e.preventDefault();
+      handleFiles(files);
+    }
+  };
+
+  const onDrop = (e) => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) {
+      e.preventDefault();
+      setEditing(true);
+      handleFiles(files);
+    }
+  };
+
+  const handleBlur = (e) => {
+    if (e.relatedTarget && editorRef.current?.contains(e.relatedTarget)) {
+      return;
+    }
+    if (editorRef.current) {
+      const html = editorRef.current.innerHTML;
+      const markdown = serializeHtmlToMarkdown(html);
+      onChange(markdown);
+    }
+    setEditing(false);
+  };
+
   useEffectA(() => {
-    if (editing && taRef.current) {
-      taRef.current.focus();
-      const len = taRef.current.value.length;
-      taRef.current.setSelectionRange(len, len);
+    if (editing && editorRef.current) {
+      editorRef.current.focus();
+      // Move caret to end
+      const range = document.createRange();
+      range.selectNodeContents(editorRef.current);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
     }
   }, [editing]);
 
   if (editing) {
+    const initialHtml = markdownToHtmlForEdit(value);
     return (
       <div>
         <div className="tpanel-section">Description</div>
-        <textarea
-          ref={taRef}
-          className="tpanel-desc"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="Add a description — scope, context, acceptance criteria…"
-          rows={5}
-          onBlur={() => setEditing(false)}
+        <div
+          ref={editorRef}
+          contentEditable
+          className="tpanel-desc-editor"
+          onBlur={handleBlur}
+          onPaste={onPaste}
+          onDrop={onDrop}
+          onDragOver={e => e.preventDefault()}
+          placeholder="Add a description — scope, context, acceptance criteria… (paste or drop files to embed)"
+          dangerouslySetInnerHTML={{ __html: initialHtml }}
         />
+        {uploadingImg && <div className="att-uploading"><span className="att-spin" /> Uploading file…</div>}
       </div>
     );
   }
@@ -1964,6 +2256,8 @@ const DescriptionField = ({ value, onChange }) => {
       <div
         className={'tpanel-desc-view' + (!value ? ' tpanel-desc-empty' : '')}
         onClick={() => setEditing(true)}
+        onDrop={onDrop}
+        onDragOver={e => e.preventDefault()}
         title="Click to edit"
       >
         {value
@@ -1997,13 +2291,432 @@ const fmtMin = (min) => {
   return `${m}m`;
 };
 
+// ── Helper to detect file extensions & map color/icon themes ─────────
+const getFileTypeMeta = (fileName = '', mimeType = '', size = 28) => {
+  const ext = fileName.split('.').pop().toLowerCase();
+  
+  // Extensions lists
+  const archiveExts = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2'];
+  const codeExts = ['js', 'jsx', 'ts', 'tsx', 'py', 'html', 'css', 'c', 'cpp', 'cs', 'go', 'rs', 'sql', 'json', 'sh', 'xml', 'yaml', 'yml'];
+  const sheetExts = ['xlsx', 'xls', 'csv', 'ods'];
+  const docExts = ['docx', 'doc', 'txt', 'rtf'];
+  const mediaExts = ['mp3', 'wav', 'ogg', 'mp4', 'mkv', 'avi', 'mov', 'webm'];
+  
+  if (ext === 'pdf') {
+    return {
+      ext,
+      color: '#ef4444',
+      bg: 'rgba(239, 68, 68, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <line x1="10" y1="9" x2="8" y2="9" />
+        </svg>
+      )
+    };
+  } else if (archiveExts.includes(ext)) {
+    return {
+      ext,
+      color: '#d97706',
+      bg: 'rgba(217, 119, 6, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          <path d="M2 10h20" />
+        </svg>
+      )
+    };
+  } else if (codeExts.includes(ext)) {
+    return {
+      ext,
+      color: '#0284c7',
+      bg: 'rgba(2, 132, 199, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="16 18 22 12 16 6" />
+          <polyline points="8 6 2 12 8 18" />
+          <line x1="12" y1="2" x2="12" y2="22" />
+        </svg>
+      )
+    };
+  } else if (sheetExts.includes(ext)) {
+    return {
+      ext,
+      color: '#16a34a',
+      bg: 'rgba(22, 163, 74, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <line x1="16" y1="9" x2="8" y2="9" />
+        </svg>
+      )
+    };
+  } else if (mediaExts.includes(ext) || (mimeType && (mimeType.startsWith('video/') || mimeType.startsWith('audio/')))) {
+    return {
+      ext,
+      color: '#7c3aed',
+      bg: 'rgba(124, 58, 237, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+          <line x1="7" y1="2" x2="7" y2="22" />
+          <line x1="17" y1="2" x2="17" y2="22" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <line x1="2" y1="7" x2="7" y2="7" />
+          <line x1="2" y1="17" x2="7" y2="17" />
+          <line x1="17" y1="17" x2="22" y2="17" />
+          <line x1="17" y1="7" x2="22" y2="7" />
+        </svg>
+      )
+    };
+  } else if (docExts.includes(ext)) {
+    return {
+      ext,
+      color: '#4b5563',
+      bg: 'rgba(75, 85, 99, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <line x1="16" y1="9" x2="8" y2="9" />
+        </svg>
+      )
+    };
+  } else {
+    // Default file (document/gray)
+    return {
+      ext,
+      color: '#6b7280',
+      bg: 'rgba(107, 114, 128, 0.08)',
+      icon: (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+      )
+    };
+  }
+};
+
+// ── Attachment Grid & List (Jira-style redesign) ────────────────────
+function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout = 'grid' }) {
+  if (!attachments.length) return null;
+  const images = attachments.filter(isImageAttachment);
+
+  if (layout === 'list') {
+    return (
+      <div className="jira-list">
+        <div className="jira-list-header">
+          <div></div>
+          <div>Name</div>
+          <div>Size</div>
+          <div>Uploaded By &amp; Date</div>
+          <div style={{ textAlign: 'right' }}>Actions</div>
+        </div>
+        {attachments.map(att => {
+          const isImg = isImageAttachment(att);
+          const meta = getFileTypeMeta(att.fileName, att.mimeType, 15);
+          const dateStr = att.createdAt
+            ? new Date(att.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : '—';
+          return (
+            <div key={att.id} className="jira-list-row" title={att.fileName}>
+              <div className="jira-list-icon">
+                {isImg ? (
+                  <div style={{ width: 15, height: 15, borderRadius: 3, overflow: 'hidden', border: '1px solid var(--border-2)' }}>
+                    <img src={thumbUrl(att)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                ) : (
+                  <span style={{ display: 'flex', color: meta.color }}>
+                    {meta.icon}
+                  </span>
+                )}
+              </div>
+              <div 
+                className="jira-list-name" 
+                onClick={() => {
+                  if (isImg) {
+                    onOpenImage(images.findIndex(i => i.id === att.id));
+                  } else {
+                    window.open(att.secureUrl, '_blank', 'noopener,noreferrer');
+                  }
+                }}
+              >
+                {att.fileName}
+              </div>
+              <div className="jira-list-size">{formatBytes(att.sizeBytes)}</div>
+              <div className="jira-list-uploader-info">
+                {att.uploaderAvatarUrl ? (
+                  <img src={att.uploaderAvatarUrl} className="jira-card-ava-img" alt={att.uploaderName} />
+                ) : (
+                  <div className="jira-card-ava" style={{ background: avaColor(att.uploaderName || 'User') }}>
+                    {(att.uploaderName?.[0] || 'U').toUpperCase()}
+                  </div>
+                )}
+                <div className="jira-list-uploader-text">
+                  <span className="jira-uploader-name">{att.uploaderName || 'Unknown'}</span>
+                  <span className="jira-upload-date">{dateStr}</span>
+                </div>
+              </div>
+              <div className="jira-list-actions">
+                <a 
+                  className="jira-list-action-btn" 
+                  href={att.secureUrl} 
+                  download 
+                  target="_blank" 
+                  rel="noreferrer"
+                  title="Download"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <Icon name="download" size={11} />
+                </a>
+                {isImg && (
+                  <button 
+                    type="button" 
+                    className="jira-list-action-btn"
+                    onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}
+                    title="Preview"
+                  >
+                    <Icon name="eye" size={11} />
+                  </button>
+                )}
+                {canRemove(att) && (
+                  <button 
+                    type="button" 
+                    className="jira-list-action-btn delete" 
+                    title="Delete" 
+                    onClick={(e) => { e.stopPropagation(); onRemove(att); }}
+                  >
+                    <Icon name="trash" size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const isComment = layout === 'comment-grid';
+  return (
+    <div className={isComment ? "att-grid att-grid-comment" : "jira-grid"}>
+      {attachments.map(att => {
+        const isImg = isImageAttachment(att);
+        const meta = getFileTypeMeta(att.fileName, att.mimeType, 20);
+        const dateStr = att.createdAt
+          ? new Date(att.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          : '';
+
+        if (isComment) {
+          return (
+            <div key={att.id} className="att-item" title={att.fileName}>
+              {isImg ? (
+                <button type="button" className="att-thumb" onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}>
+                  <img src={thumbUrl(att)} alt={att.fileName} loading="lazy" />
+                </button>
+              ) : (
+                <a className="att-file" href={att.secureUrl} target="_blank" rel="noreferrer">
+                  <span style={{ display: 'flex', color: meta.color, justifyContent: 'center' }}>
+                    {meta.icon}
+                  </span>
+                  <span className="att-file-name" style={{ marginTop: 4 }}>{att.fileName}</span>
+                  <span className="att-file-size">{formatBytes(att.sizeBytes)}</span>
+                </a>
+              )}
+              {canRemove(att) && (
+                <button type="button" className="att-remove" title="Delete" onClick={(e) => { e.stopPropagation(); onRemove(att); }}>
+                  <Icon name="x" size={11} />
+                </button>
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <div key={att.id} className="jira-card" title={att.fileName}>
+            <div className="jira-card-graphic" style={{ background: isImg ? 'var(--bg-3)' : meta.bg }}>
+              {isImg ? (
+                <img src={thumbUrl(att)} alt={att.fileName} loading="lazy" />
+              ) : (
+                <div className="jira-file-graphics">
+                  <span style={{ color: meta.color }}>
+                    {meta.icon}
+                  </span>
+                  <span className="ext-badge" style={{ background: meta.color, color: '#fff' }}>
+                    {meta.ext || 'file'}
+                  </span>
+                </div>
+              )}
+              <div className="jira-card-actions">
+                <a 
+                  className="jira-action-btn" 
+                  href={att.secureUrl} 
+                  download 
+                  target="_blank" 
+                  rel="noreferrer"
+                  title="Download"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <Icon name="download" size={11} />
+                </a>
+                {isImg && (
+                  <button 
+                    type="button" 
+                    className="jira-action-btn"
+                    onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}
+                    title="Preview"
+                  >
+                    <Icon name="eye" size={11} />
+                  </button>
+                )}
+                {canRemove(att) && (
+                  <button 
+                    type="button" 
+                    className="jira-action-btn delete" 
+                    title="Delete" 
+                    onClick={(e) => { e.stopPropagation(); onRemove(att); }}
+                  >
+                    <Icon name="trash" size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="jira-card-info">
+              <div className="jira-card-name">{att.fileName}</div>
+              <div className="jira-card-meta">
+                <span className="jira-card-size">{formatBytes(att.sizeBytes)}</span>
+                <span className="jira-card-uploader" title={`Uploaded on ${dateStr} by ${att.uploaderName || 'Unknown'}`}>
+                  {att.uploaderAvatarUrl ? (
+                    <img src={att.uploaderAvatarUrl} className="jira-card-ava-img" alt={att.uploaderName} />
+                  ) : (
+                    <div className="jira-card-ava" style={{ background: avaColor(att.uploaderName || 'User') }}>
+                      {(att.uploaderName?.[0] || 'U').toUpperCase()}
+                    </div>
+                  )}
+                  <span>{dateStr}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Image Lightbox (with details top bar and carousel bottom strip) ─
+function AttachmentLightbox({ images, index, setIndex, onClose }) {
+  useEffectA(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') setIndex(i => (i + 1) % images.length);
+      else if (e.key === 'ArrowLeft') setIndex(i => (i - 1 + images.length) % images.length);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [images.length, setIndex, onClose]);
+  
+  const att = images[index];
+  if (!att) return null;
+
+  const dateStr = att.createdAt
+    ? new Date(att.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return createPortal(
+    <div className="att-lightbox" onClick={onClose}>
+      <div className="jira-lightbox-wrap">
+        {/* Top Details Bar */}
+        <div className="jira-lightbox-topbar" onClick={e => e.stopPropagation()}>
+          <div className="jira-lightbox-meta">
+            <span className="jira-lightbox-title">{att.fileName}</span>
+            <span className="jira-lightbox-sub">
+              {formatBytes(att.sizeBytes)} · Uploaded by {att.uploaderName || 'Unknown'} on {dateStr}
+            </span>
+          </div>
+          <div className="jira-lightbox-controls">
+            <a className="jira-lightbox-btn" href={att.secureUrl} download target="_blank" rel="noreferrer">
+              <Icon name="download" size={13} /> Download
+            </a>
+            <button className="att-lb-close" style={{ position: 'static', width: 34, height: 34 }} onClick={onClose}>
+              <Icon name="x" size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Center Image and Nav */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexGrow: 1, position: 'relative', width: '100%' }}>
+          {images.length > 1 && (
+            <button className="att-lb-nav prev" onClick={(e) => { e.stopPropagation(); setIndex((index - 1 + images.length) % images.length); }}>
+              <span style={{ display: 'flex', transform: 'rotate(180deg)' }}><Icon name="chev" size={22} /></span>
+            </button>
+          )}
+          
+          <img 
+            className="att-lb-img" 
+            src={att.secureUrl} 
+            alt={att.fileName} 
+            onClick={e => e.stopPropagation()} 
+            style={{ maxHeight: '68vh', maxWidth: '85vw', objectFit: 'contain' }}
+          />
+          
+          {images.length > 1 && (
+            <button className="att-lb-nav next" onClick={(e) => { e.stopPropagation(); setIndex((index + 1) % images.length); }}>
+              <Icon name="chev" size={22} />
+            </button>
+          )}
+        </div>
+
+        {/* Bottom Carousel / Thumbnail strip */}
+        <div className="jira-lightbox-carousel" onClick={e => e.stopPropagation()}>
+          {images.length > 1 && (
+            <>
+              <div className="jira-carousel-strip">
+                {images.map((img, i) => (
+                  <button 
+                    key={img.id}
+                    className={`jira-carousel-thumb${i === index ? ' active' : ''}`}
+                    onClick={() => setIndex(i)}
+                    title={img.fileName}
+                  >
+                    <img src={thumbUrl(img)} alt="" />
+                  </button>
+                ))}
+              </div>
+              <div className="jira-carousel-counter">
+                {index + 1} of {images.length}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 const TaskDetailModal = ({
   task, projects, statuses = [], priorities = [], subtasks = [], allTasks = [], onClose, onSave, onStatusChange,
   onAddSubtask, onLinkSubtask, onOpenSubtask, parentTask, onBack,
   allTags = [], onCreateTag,
   notes = [], linkedNoteIds = [], onLinkNote, onUnlinkNote,
   onLogTime, isGithubConnected = false, onBranchUpdate, onDelete,
+  members = [],
+  currentUserId = null,
+  workstationId = null,
+  myRole = 'viewer',
+  canEdit = true, canDelete = true, canAssign = true, canGithubWrite = false,
 }) => {
+  const NO_PERM = "You don't have permission";
   // Keyed by status UUID so lookups work after task.col became a UUID
   const COL_COLOR = Object.fromEntries(statuses.map(s => [s.id, s.color]));
   const COL_LABEL = Object.fromEntries(statuses.map(s => [s.id, s.label]));
@@ -2031,6 +2744,7 @@ const TaskDetailModal = ({
       tagIds: t.tags || [],
       estH: totalMin > 0 ? String(Math.floor(totalMin / 60)) : '',
       estM: totalMin > 0 ? String(totalMin % 60) : '',
+      assigneeId: t.assigneeId || '',
     };
   };
 
@@ -2079,6 +2793,9 @@ const TaskDetailModal = ({
   const [statusSaving, setStatusSaving] = useStateA(false);
   const [logsVisible, setLogsVisible] = useStateA(10);
   const LOG_PAGE = 10;
+  
+  const [activityTab, setActivityTab] = useStateA('comments'); // 'all', 'comments', 'history', 'work log'
+
 
   useEffectA(() => {
     if (!task._dbId) return;
@@ -2173,6 +2890,359 @@ const TaskDetailModal = ({
   const [deletingTask, setDeletingTask] = useStateA(false);
   const [deleteErr, setDeleteErr] = useStateA('');
 
+  // ── Attachments ───────────────────────────────────────────────────
+  const [attachments, setAttachments] = useStateA([]);
+  const [uploading, setUploading]     = useStateA([]);   // [{name}]
+  const [attErr, setAttErr]           = useStateA('');
+  const [lightbox, setLightbox]       = useStateA(null); // index into image attachments
+  const [dragOver, setDragOver]       = useStateA(false);
+  const [attViewMode, setAttViewMode] = useStateA(() => {
+    try { return localStorage.getItem('orbit_att_view') || 'grid'; }
+    catch { return 'grid'; }
+  });
+  const toggleAttViewMode = (mode) => {
+    setAttViewMode(mode);
+    try { localStorage.setItem('orbit_att_view', mode); } catch (e) {}
+  };
+  const attInputRef = useRefA(null);
+  const [composerFiles, setComposerFiles] = useStateA([]); // files staged on the comment composer
+  const composerFileRef = useRefA(null);
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    getTaskAttachments(task._dbId).then(setAttachments).catch(() => setAttachments([]));
+  }, [task._dbId]);
+
+  // Upload a list of files; commentId=null → task-level. Returns created rows.
+  const uploadFiles = async (fileList, commentId = null) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return [];
+    if (!cloudinaryConfigured()) { setAttErr('Cloudinary is not configured.'); return []; }
+    setAttErr('');
+    setUploading(prev => [...prev, ...files.map(f => ({ name: f.name }))]);
+    const created = [];
+    for (const file of files) {
+      try {
+        const meta = await uploadAttachment(file, { workstationId, taskDbId: task._dbId });
+        const row = await addTaskAttachment(task._dbId, commentId, meta);
+        created.push(row);
+        if (!commentId) setAttachments(prev => [...prev, row]);
+      } catch (e) {
+        setAttErr(e.message || `Failed to upload ${file.name}`);
+      }
+    }
+    setUploading(prev => prev.slice(files.length));
+    return created;
+  };
+
+  // Upload an image/video and return its URL for inline embedding (also tracked).
+  const uploadInlineImage = async (file) => {
+    if (!cloudinaryConfigured()) { setAttErr('Cloudinary is not configured.'); throw new Error('not configured'); }
+    const meta = await uploadAttachment(file, { workstationId, taskDbId: task._dbId });
+    const row = await addTaskAttachment(task._dbId, null, meta);
+    setAttachments(prev => [...prev, row]);
+    return { url: meta.secure_url, name: file.name, resourceType: meta.resource_type };
+  };
+  // Markdown token for an inline media item, by resource type.
+  const mediaToken = (r) => {
+    if (r.resourceType === 'video') {
+      return `\n!video[${r.name || 'video'}](${r.url})\n`;
+    }
+    const ext = (r.name || '').split('.').pop().toLowerCase();
+    const isImg = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'bmp'].includes(ext);
+    if (isImg && r.resourceType === 'image') {
+      return `\n![${r.name || 'image'}](${r.url})\n`;
+    }
+    return `\n!file[${r.name || 'file'}](${r.url})\n`;
+  };
+
+  const removeAttachment = async (att) => {
+    setAttachments(prev => prev.filter(a => a.id !== att.id));   // optimistic
+    try { await destroyAttachment(att.id); }
+    catch (e) { setAttErr(e.message || 'Failed to delete'); getTaskAttachments(task._dbId).then(setAttachments).catch(() => {}); }
+  };
+
+  const canRemoveAtt = (att) => att.uploadedBy === currentUserId || canEdit || canDelete;
+
+  const onPanelDrop = (e) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault(); setDragOver(false);
+    uploadFiles(e.dataTransfer.files, null);
+  };
+  // Insert markdown into the comment composer at the cursor.
+  const insertCommentMarkdown = (md) => {
+    const ta = commentTextareaRef.current;
+    const cur = newCommentBody;
+    if (ta && document.activeElement === ta) {
+      const s = ta.selectionStart ?? cur.length, e = ta.selectionEnd ?? s;
+      const next = cur.slice(0, s) + md + cur.slice(e);
+      setNewCommentBody(next);
+      requestAnimationFrame(() => { ta.focus(); const p = s + md.length; ta.setSelectionRange(p, p); });
+    } else {
+      setNewCommentBody((cur ? cur + '\n' : '') + md);
+    }
+  };
+  const handleCommentImageFiles = async (files) => {
+    const allFiles = Array.from(files || []);
+    if (!allFiles.length) return;
+    for (const f of allFiles) {
+      try { const r = await uploadInlineImage(f); if (r?.url) insertCommentMarkdown(mediaToken(r)); }
+      catch { /* error surfaced */ }
+    }
+  };
+  const onCommentPaste = (e) => {
+    const files = Array.from(e.clipboardData?.files || []);
+    if (files.length) { e.preventDefault(); handleCommentImageFiles(files); }
+  };
+  const onCommentDrop = (e) => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) { e.preventDefault(); handleCommentImageFiles(files); }
+  };
+
+  const taskLevelAtts = attachments.filter(a => !a.commentId);
+  const taskImages = taskLevelAtts.filter(isImageAttachment);
+  const attsByComment = attachments.reduce((m, a) => {
+    if (a.commentId) (m[a.commentId] = m[a.commentId] || []).push(a);
+    return m;
+  }, {});
+
+  // ── Comments ──────────────────────────────────────────────────────
+  const MAX_COMMENT = 5000;
+  const [comments, setComments] = useStateA([]);
+  const [commentsLoading, setCommentsLoading] = useStateA(false);
+  const COMMENTS_PAGE = 10;
+  const [commentTotal, setCommentTotal] = useStateA(0);            // total top-level comments (from server)
+  const [commentsLoadingMore, setCommentsLoadingMore] = useStateA(false);
+  const loadedParentsRef = useRefA(0);                             // top-level comments currently loaded (for realtime reload)
+  const [newCommentBody, setNewCommentBody] = useStateA('');
+  const [commentSubmitting, setCommentSubmitting] = useStateA(false);
+  const [editingCommentId, setEditingCommentId] = useStateA(null);
+  const [editingCommentBody, setEditingCommentBody] = useStateA('');
+  const [editSaving, setEditSaving] = useStateA(false);
+  const [deleteConfirmCommentId, setDeleteConfirmCommentId] = useStateA(null);
+  const [commentErr, setCommentErr] = useStateA('');
+
+  // ── Mention picker ────────────────────────────────────────────────
+  const [mentionQuery, setMentionQuery] = useStateA('');
+  const [mentionOpen, setMentionOpen] = useStateA(false);
+  const [mentionIndex, setMentionIndex] = useStateA(0);
+  const [pendingMentions, setPendingMentions] = useStateA([]);
+  const commentTextareaRef = useRefA(null);
+
+  const mentionMembers = members.filter(m =>
+    mentionQuery === '' ? true : m.name.toLowerCase().includes(mentionQuery.toLowerCase())
+  ).slice(0, 6);
+
+  const handleCommentInput = (e) => {
+    const val = e.target.value;
+    setNewCommentBody(val);
+    const cursor = e.target.selectionStart;
+    const textBefore = val.slice(0, cursor);
+    const match = textBefore.match(/@(\w*)$/);
+    if (match) {
+      setMentionQuery(match[1]);
+      setMentionOpen(true);
+      setMentionIndex(0);
+    } else {
+      setMentionOpen(false);
+      setMentionQuery('');
+    }
+  };
+
+  const handleMentionSelect = (member) => {
+    const cursor = commentTextareaRef.current?.selectionStart ?? newCommentBody.length;
+    const before = newCommentBody.slice(0, cursor);
+    const after  = newCommentBody.slice(cursor);
+    const replaced = before.replace(/@(\w*)$/, `@${member.name} `);
+    setNewCommentBody(replaced + after);
+    setMentionOpen(false);
+    setMentionQuery('');
+    setPendingMentions(prev =>
+      prev.find(m => m.userId === member.userId) ? prev : [...prev, { userId: member.userId, name: member.name }]
+    );
+    setTimeout(() => commentTextareaRef.current?.focus(), 0);
+  };
+
+  const renderCommentBody = (body) => {
+    if (!members || members.length === 0) {
+      const parts = body.split(/(@\w+)/g);
+      return parts.map((part, i) =>
+        part.startsWith('@')
+          ? <span key={i} className="mention-highlight">{part}</span>
+          : renderRich(part, `c${i}`, false, 'comment-media')
+      );
+    }
+    const names = members.map(m => m.name).sort((a, b) => b.length - a.length);
+    const escapedNames = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp(`(@(?:${escapedNames.join('|')}))`, 'gi');
+    const parts = body.split(regex);
+    return parts.map((part, i) =>
+      part.startsWith('@') && names.some(n => part.toLowerCase() === '@' + n.toLowerCase())
+        ? <span key={i} className="mention-highlight">{part}</span>
+        : renderRich(part, `c${i}`, false, 'comment-media')
+    );
+  };
+
+  // ── Reply state ───────────────────────────────────────────────────
+  const [replyToId, setReplyToId] = useStateA(null);   // comment id being replied to
+  const [replyBody, setReplyBody] = useStateA('');
+  const [replySubmitting, setReplySubmitting] = useStateA(false);
+  const [replyMentions, setReplyMentions] = useStateA([]);
+  const [replyMentionQuery, setReplyMentionQuery] = useStateA('');
+  const [replyMentionOpen, setReplyMentionOpen] = useStateA(false);
+  const [replyMentionIndex, setReplyMentionIndex] = useStateA(0);
+  const replyTextareaRef = useRefA(null);
+
+  const replyMentionMembers = members.filter(m =>
+    replyMentionQuery === '' ? true : m.name.toLowerCase().includes(replyMentionQuery.toLowerCase())
+  ).slice(0, 6);
+
+  const handleReplyInput = (e) => {
+    const val = e.target.value;
+    setReplyBody(val);
+    const cursor = e.target.selectionStart;
+    const match = val.slice(0, cursor).match(/@(\w*)$/);
+    if (match) { setReplyMentionQuery(match[1]); setReplyMentionOpen(true); setReplyMentionIndex(0); }
+    else { setReplyMentionOpen(false); setReplyMentionQuery(''); }
+  };
+
+  const handleReplyMentionSelect = (member) => {
+    const cursor = replyTextareaRef.current?.selectionStart ?? replyBody.length;
+    const replaced = replyBody.slice(0, cursor).replace(/@(\w*)$/, `@${member.name} `) + replyBody.slice(cursor);
+    setReplyBody(replaced);
+    setReplyMentionOpen(false);
+    setReplyMentionQuery('');
+    setReplyMentions(prev => prev.find(m => m.userId === member.userId) ? prev : [...prev, { userId: member.userId, name: member.name }]);
+    setTimeout(() => replyTextareaRef.current?.focus(), 0);
+  };
+
+  const handleSubmitReply = async () => {
+    const body = replyBody.trim();
+    if (!body || body.length > MAX_COMMENT) return;
+    setReplySubmitting(true);
+    setCommentErr('');
+    try {
+      const comment = await addTaskComment(task._dbId, body, replyMentions.map(m => m.userId), replyToId);
+      setComments(prev => [...prev, comment]);
+      setReplyToId(null);
+      setReplyBody('');
+      setReplyMentions([]);
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to post reply.');
+    } finally {
+      setReplySubmitting(false);
+    }
+  };
+
+  // Group comments into threads: top-level + their replies.
+  // Latest top-level comment first; replies stay chronological within a thread.
+  // The server already pages by top-level comment, so we render every loaded thread.
+  const commentThreads = comments
+    .filter(c => !c.parentId)
+    .map(parent => ({
+      ...parent,
+      replies: comments
+        .filter(c => c.parentId === parent.id)
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
+    }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  loadedParentsRef.current = commentThreads.length;
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    setCommentsLoading(true);
+    getTaskComments(task._dbId, { limit: COMMENTS_PAGE, offset: 0 })
+      .then(({ comments: c, total }) => { setComments(c); setCommentTotal(total); })
+      .catch(() => { setComments([]); setCommentTotal(0); })
+      .finally(() => setCommentsLoading(false));
+  }, [task._dbId]);
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    // Reload the window of threads currently on screen (at least one page) so a
+    // realtime change doesn't collapse an expanded list.
+    const reload = () => {
+      const limit = Math.max(loadedParentsRef.current, COMMENTS_PAGE);
+      getTaskComments(task._dbId, { limit, offset: 0 })
+        .then(({ comments: c, total }) => { setComments(c); setCommentTotal(total); })
+        .catch(() => {});
+    };
+    const ch = supabase
+      .channel(`task-comments-${task._dbId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` }, reload)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'task_comments', filter: `task_id=eq.${task._dbId}` }, reload)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [task._dbId]);
+
+  const handleShowMoreComments = async () => {
+    setCommentsLoadingMore(true);
+    try {
+      const offset = comments.filter(c => !c.parentId).length;
+      const { comments: more } = await getTaskComments(task._dbId, { limit: COMMENTS_PAGE, offset });
+      setComments(prev => {
+        const seen = new Set(prev.map(c => c.id));
+        return [...prev, ...more.filter(c => !seen.has(c.id))];
+      });
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to load more comments.');
+    } finally {
+      setCommentsLoadingMore(false);
+    }
+  };
+
+  const handleAddComment = async () => {
+    const body = newCommentBody.trim();
+    if ((!body && composerFiles.length === 0) || body.length > MAX_COMMENT) return;
+    setCommentSubmitting(true);
+    setCommentErr('');
+    try {
+      const comment = await addTaskComment(task._dbId, body, pendingMentions.map(m => m.userId));
+      setComments(prev => [...prev, comment]);
+      setCommentTotal(t => t + 1);
+      setNewCommentBody('');
+      setPendingMentions([]);
+      if (composerFiles.length) {
+        await uploadFiles(composerFiles, comment.id);
+        setComposerFiles([]);
+        getTaskAttachments(task._dbId).then(setAttachments).catch(() => {});
+      }
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to post comment.');
+    } finally {
+      setCommentSubmitting(false);
+    }
+  };
+
+  const handleEditComment = async (commentId) => {
+    const body = editingCommentBody.trim();
+    if (!body || body.length > MAX_COMMENT) return;
+    setEditSaving(true);
+    setCommentErr('');
+    try {
+      const updated = await updateTaskComment(commentId, body);
+      setComments(prev => prev.map(c => c.id === commentId ? updated : c));
+      setEditingCommentId(null);
+      setEditingCommentBody('');
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to update comment.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    try {
+      const wasTopLevel = comments.some(c => c.id === commentId && !c.parentId);
+      await deleteTaskComment(commentId);
+      setComments(prev => prev.filter(c => c.id !== commentId));
+      if (wasTopLevel) setCommentTotal(t => Math.max(0, t - 1));
+      setDeleteConfirmCommentId(null);
+    } catch (e) {
+      setCommentErr(e.message || 'Failed to delete comment.');
+    }
+  };
+
   useEffectA(() => {
     if (!showBranchSection || branchMode !== 'switch' || !branchOpen) return;
     setBranchesLoading(true);
@@ -2260,6 +3330,7 @@ const TaskDetailModal = ({
         due: form.due || '—',
         tags: form.tagIds,
         estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
+        assigneeId: form.assigneeId || null,
       });
     } catch (e) {
       setErr(e.message || 'Failed to save.');
@@ -2382,7 +3453,119 @@ const TaskDetailModal = ({
             <DescriptionField
               value={form.description}
               onChange={v => set('description', v)}
+              onUploadImage={uploadInlineImage}
             />
+
+            {/* Attachments */}
+            <div className="jira-att-section">
+              {taskLevelAtts.length === 0 && uploading.length === 0 ? (
+                // Jira-style empty dropzone
+                <div>
+                  <div className="tpanel-section">Attachments</div>
+                  <div 
+                    className={`jira-dropzone-empty${dragOver ? ' drag-over' : ''}`}
+                    onClick={() => attInputRef.current?.click()}
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={onPanelDrop}
+                  >
+                    <div className="dz-icon">
+                      <Icon name="upload" size={20} />
+                    </div>
+                    <div className="dz-title">
+                      Drag &amp; drop files here, or <span>Browse</span> to upload
+                    </div>
+                    <div className="dz-sub">
+                      Max file size: 100 MB · Any file type is allowed
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // Header with list/grid toggle and "Add" button
+                <div>
+                  <div className="jira-att-header">
+                    <div className="jira-att-title-wrap">
+                      <span className="jira-att-title">
+                        <Icon name="upload" size={13} /> Attachments
+                      </span>
+                      <span className="jira-att-count">{taskLevelAtts.length}</span>
+                    </div>
+                    <div className="jira-att-actions">
+                      <div className="jira-view-toggle">
+                        <button 
+                          type="button" 
+                          className={`jira-view-btn${attViewMode === 'grid' ? ' active' : ''}`} 
+                          onClick={() => toggleAttViewMode('grid')}
+                          title="Grid view"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <rect x="3" y="3" width="7" height="7" />
+                            <rect x="14" y="3" width="7" height="7" />
+                            <rect x="14" y="14" width="7" height="7" />
+                            <rect x="3" y="14" width="7" height="7" />
+                          </svg>
+                        </button>
+                        <button 
+                          type="button" 
+                          className={`jira-view-btn${attViewMode === 'list' ? ' active' : ''}`} 
+                          onClick={() => toggleAttViewMode('list')}
+                          title="List view"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <line x1="8" y1="6" x2="21" y2="6" />
+                            <line x1="8" y1="12" x2="21" y2="12" />
+                            <line x1="8" y1="18" x2="21" y2="18" />
+                            <line x1="3" y1="6" x2="3.01" y2="6" />
+                            <line x1="3" y1="12" x2="3.01" y2="12" />
+                            <line x1="3" y1="18" x2="3.01" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                      <button type="button" className="btn sm ghost" onClick={() => attInputRef.current?.click()}>
+                        <Icon name="plus" size={12} /> Add
+                      </button>
+                    </div>
+                  </div>
+
+                  <AttachmentGrid
+                    attachments={taskLevelAtts}
+                    onOpenImage={(i) => setLightbox({ images: taskImages, index: i })}
+                    onRemove={removeAttachment}
+                    canRemove={canRemoveAtt}
+                    layout={attViewMode}
+                  />
+
+                  {/* Compact dropzone for adding more files */}
+                  <div 
+                    className={`jira-dropzone-compact${dragOver ? ' drag-over' : ''}`}
+                    onClick={() => attInputRef.current?.click()}
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={onPanelDrop}
+                  >
+                    <Icon name="upload" size={12} />
+                    <span>Drag &amp; drop files here to attach, or click to browse</span>
+                  </div>
+                </div>
+              )}
+
+              <input ref={attInputRef} type="file" multiple style={{ display: 'none' }}
+                onChange={e => { uploadFiles(e.target.files, null); e.target.value = ''; }} />
+
+              {uploading.map((u, i) => (
+                <div key={i} className="att-uploading"><span className="att-spin" /> Uploading {u.name}…</div>
+              ))}
+              {attErr && <div className="form-error" style={{ marginTop: 8 }}><Icon name="alert-circle" size={12} /> {attErr}</div>}
+            </div>
+
+            {lightbox && lightbox.images.length > 0 && (
+              <AttachmentLightbox
+                images={lightbox.images}
+                index={lightbox.index}
+                setIndex={(fn) => setLightbox(lb => ({ ...lb, index: typeof fn === 'function' ? fn(lb.index) : fn }))}
+                onClose={() => setLightbox(null)}
+              />
+            )}
 
             {/* Subtasks — only on parent tasks */}
             {!parentTask && (
@@ -2605,15 +3788,58 @@ const TaskDetailModal = ({
               )}
             </div>
 
-            {/* ── Status History ── */}
-            <div>
-              <div className="tpanel-section" style={{ marginTop: 4 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Icon name="activity" size={12} />
-                  Status History
-                  {statusLogs.length > 0 && <span className="subtasks-count">{statusLogs.length}</span>}
-                </span>
+            {/* ── Activity Tabs ── */}
+            <div style={{ marginTop: 24 }}>
+              <div className="tpanel-section" style={{ borderBottom: 'none', paddingBottom: 0, marginBottom: 8 }}>
+                <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Activity</span>
               </div>
+              
+              <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 16 }}>
+                {['comments', 'history', 'work log'].map(tab => {
+                  const isActive = activityTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setActivityTab(tab)}
+                      style={{
+                        padding: '6px 14px',
+                        fontSize: 13,
+                        fontWeight: 400,
+                        borderRadius: 6,
+                        background: isActive ? 'var(--primary-fade, rgba(0, 153, 255, 0.1))' : 'transparent',
+                        color: isActive ? 'var(--primary, #0099ff)' : 'var(--text-3)',
+                        border: isActive ? '1px solid var(--primary, #0099ff)' : '1px solid transparent',
+                        margin: -1,
+                        cursor: 'pointer',
+                        textTransform: 'capitalize',
+                        transition: 'all 0.15s ease',
+                        position: isActive ? 'relative' : 'static',
+                        zIndex: isActive ? 2 : 1
+                      }}
+                      onMouseEnter={e => {
+                        if (!isActive) e.target.style.color = 'var(--text)';
+                      }}
+                      onMouseLeave={e => {
+                        if (!isActive) e.target.style.color = 'var(--text-3)';
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Content ── */}
+              
+              {(activityTab === 'all' || activityTab === 'history') && (
+                <div>
+                  <div className="tpanel-section" style={{ marginTop: 4, display: activityTab === 'all' ? 'flex' : 'none' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Icon name="activity" size={12} />
+                      Status History
+                      {statusLogs.length > 0 && <span className="subtasks-count">{statusLogs.length}</span>}
+                    </span>
+                  </div>
               {logsLoading ? (
                 <div className="subtasks-empty">Loading…</div>
               ) : statusLogs.length === 0 ? (
@@ -2692,6 +3918,270 @@ const TaskDetailModal = ({
                   )}
                 </div>
               )}
+                </div>
+              )}
+
+              {(activityTab === 'all' || activityTab === 'comments') && (
+                <div style={{ marginTop: activityTab === 'all' ? 24 : 0 }}>
+                  <div className="tpanel-section" style={{ display: activityTab === 'all' ? 'flex' : 'none' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Icon name="message-square" size={12} />
+                      Comments
+                      {commentTotal > 0 && <span className="subtasks-count">{commentTotal}</span>}
+                    </span>
+                  </div>
+
+              {/* Composer */}
+              <div className="task-comment-composer" style={{ marginBottom: 24, borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+                <div style={{ position: 'relative' }}>
+                  <textarea
+                    ref={commentTextareaRef}
+                    className="task-comment-textarea"
+                    placeholder="Write a comment… @ to mention, paste/drop an image to embed (Ctrl+Enter to submit)"
+                    value={newCommentBody}
+                    onChange={handleCommentInput}
+                    rows={3}
+                    onPaste={onCommentPaste}
+                    onDrop={onCommentDrop}
+                    onDragOver={e => e.preventDefault()}
+                    onKeyDown={e => {
+                      if (mentionOpen) {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionMembers.length - 1)); return; }
+                        if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (mentionMembers[mentionIndex]) handleMentionSelect(mentionMembers[mentionIndex]); return; }
+                        if (e.key === 'Escape')    { setMentionOpen(false); return; }
+                      }
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment();
+                    }}
+                  />
+                  {mentionOpen && mentionMembers.length > 0 && (
+                    <div className="mention-dropdown">
+                      {mentionMembers.map((m, i) => (
+                        <div
+                          key={m.userId}
+                          className={'mention-item' + (i === mentionIndex ? ' active' : '')}
+                          onMouseDown={e => { e.preventDefault(); handleMentionSelect(m); }}
+                        >
+                          {m.avatarUrl
+                            ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 24, height: 24 }} alt={m.name} />
+                            : <div className="assignee-ava assignee-ava-init" style={{ width: 24, height: 24, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                          }
+                          <div className="mention-item-info">
+                            <span className="mention-item-name">{m.name}</span>
+                            <span className="mention-item-role">{m.role}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {composerFiles.length > 0 && (
+                  <div className="att-staged">
+                    {composerFiles.map((f, i) => (
+                      <span key={i} className="att-staged-chip">
+                        <Icon name="note" size={11} /> {f.name}
+                        <button type="button" onClick={() => setComposerFiles(prev => prev.filter((_, j) => j !== i))}><Icon name="x" size={10} /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="task-comment-composer-footer">
+                  <button type="button" className="btn ghost sm" title="Attach files" onClick={() => composerFileRef.current?.click()}>
+                    <Icon name="upload" size={13} />
+                  </button>
+                  <input ref={composerFileRef} type="file" multiple style={{ display: 'none' }}
+                    onChange={e => { setComposerFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+                  <span className="task-comment-char-count" style={{ marginLeft: 'auto', color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                    {newCommentBody.length}/{MAX_COMMENT}
+                  </span>
+                  <button className="btn sm primary" onClick={handleAddComment}
+                    disabled={commentSubmitting || (!newCommentBody.trim() && composerFiles.length === 0) || newCommentBody.length > MAX_COMMENT}>
+                    {commentSubmitting ? 'Posting…' : 'Comment'}
+                  </button>
+                </div>
+              </div>
+
+              {commentsLoading ? (
+                <div className="subtasks-empty">Loading…</div>
+              ) : comments.length === 0 ? (
+                <div className="subtasks-empty">No comments yet — start the conversation.</div>
+              ) : (
+                <div className="task-comments-list">
+                  {commentThreads.map(thread => {
+                    const renderCommentRow = (c, isReply = false) => {
+                      const isOwn = c.userId === currentUserId;
+                      const canRemove = isOwn || myRole === 'owner';
+                      const isEditing = editingCommentId === c.id;
+                      const isConfirming = deleteConfirmCommentId === c.id;
+                      return (
+                        <div key={c.id} className={'task-comment-row' + (isReply ? ' task-comment-reply' : '')}>
+                          <div className="task-comment-avatar">
+                            {c.authorAvatarUrl
+                              ? <img src={c.authorAvatarUrl} className="assignee-ava" alt={c.authorName} style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28 }} />
+                              : <div className="assignee-ava assignee-ava-init" style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28, fontSize: isReply ? 9 : 10, background: avaColor(c.authorName) }}>
+                                  {c.authorAvatar || c.authorName?.[0]?.toUpperCase() || '?'}
+                                </div>
+                            }
+                          </div>
+                          <div className="task-comment-content">
+                            <div className="task-comment-header">
+                              <span className="task-comment-author">{c.authorName}</span>
+                              <span className="task-comment-time">{timeAgo(c.createdAt)}</span>
+                              {c.editedAt && <span className="task-comment-edited">Edited</span>}
+                            </div>
+                            {isEditing ? (
+                              <div className="task-comment-edit-form">
+                                <textarea className="task-comment-textarea" value={editingCommentBody}
+                                  onChange={e => setEditingCommentBody(e.target.value)} rows={2} autoFocus />
+                                <div className="task-comment-edit-actions">
+                                  <span className="task-comment-char-count" style={{ color: editingCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                                    {editingCommentBody.length}/{MAX_COMMENT}
+                                  </span>
+                                  <button className="btn sm ghost" onClick={() => { setEditingCommentId(null); setEditingCommentBody(''); }}>Cancel</button>
+                                  <button className="btn sm primary" onClick={() => handleEditComment(c.id)}
+                                    disabled={editSaving || !editingCommentBody.trim() || editingCommentBody.length > MAX_COMMENT}>
+                                    {editSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : isConfirming ? (
+                              <div className="task-comment-delete-confirm">
+                                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Delete this comment?</span>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                  <button className="btn sm ghost" onClick={() => setDeleteConfirmCommentId(null)}>Cancel</button>
+                                  <button className="btn sm" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                                    onClick={() => handleDeleteComment(c.id)}>Delete</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="task-comment-body">{renderCommentBody(c.body)}</div>
+                                {attsByComment[c.id]?.length > 0 && (
+                                  <AttachmentGrid
+                                    attachments={attsByComment[c.id]}
+                                    onOpenImage={(i) => setLightbox({ images: attsByComment[c.id].filter(isImageAttachment), index: i })}
+                                    onRemove={removeAttachment}
+                                    canRemove={canRemoveAtt}
+                                    layout="comment-grid"
+                                  />
+                                )}
+                                <div className="task-comment-actions">
+                                  {!isReply && (
+                                    <button className="task-comment-action-btn"
+                                      onClick={() => { setReplyToId(c.id); setReplyBody(''); setTimeout(() => replyTextareaRef.current?.focus(), 50); }}>
+                                      Reply
+                                    </button>
+                                  )}
+                                  {isOwn && (
+                                    <button className="task-comment-action-btn"
+                                      onClick={() => { setEditingCommentId(c.id); setEditingCommentBody(c.body); }}>
+                                      Edit
+                                    </button>
+                                  )}
+                                  {canRemove && (
+                                    <button className="task-comment-action-btn danger"
+                                      onClick={() => setDeleteConfirmCommentId(c.id)}>
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <div key={thread.id} className="task-comment-thread">
+                        {renderCommentRow(thread, false)}
+
+                        {/* Replies */}
+                        {thread.replies.length > 0 && (
+                          <div className="task-comment-replies">
+                            {thread.replies.map(r => renderCommentRow(r, true))}
+                          </div>
+                        )}
+
+                        {/* Inline reply composer */}
+                        {replyToId === thread.id && (
+                          <div className="task-comment-reply-composer">
+                            <div style={{ position: 'relative' }}>
+                              <textarea
+                                ref={replyTextareaRef}
+                                className="task-comment-textarea"
+                                placeholder={`Reply to ${thread.authorName}… (@ to mention)`}
+                                value={replyBody}
+                                onChange={handleReplyInput}
+                                rows={2}
+                                onKeyDown={e => {
+                                  if (replyMentionOpen) {
+                                    if (e.key === 'ArrowDown') { e.preventDefault(); setReplyMentionIndex(i => Math.min(i + 1, replyMentionMembers.length - 1)); return; }
+                                    if (e.key === 'ArrowUp')   { e.preventDefault(); setReplyMentionIndex(i => Math.max(i - 1, 0)); return; }
+                                    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (replyMentionMembers[replyMentionIndex]) handleReplyMentionSelect(replyMentionMembers[replyMentionIndex]); return; }
+                                    if (e.key === 'Escape') { setReplyMentionOpen(false); return; }
+                                  }
+                                  if (e.key === 'Escape') { setReplyToId(null); setReplyBody(''); }
+                                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmitReply();
+                                }}
+                              />
+                              {replyMentionOpen && replyMentionMembers.length > 0 && (
+                                <div className="mention-dropdown">
+                                  {replyMentionMembers.map((m, i) => (
+                                    <div key={m.userId} className={'mention-item' + (i === replyMentionIndex ? ' active' : '')}
+                                      onMouseDown={e => { e.preventDefault(); handleReplyMentionSelect(m); }}>
+                                      {m.avatarUrl
+                                        ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 20, height: 20 }} alt={m.name} />
+                                        : <div className="assignee-ava assignee-ava-init" style={{ width: 20, height: 20, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                                      }
+                                      <div className="mention-item-info">
+                                        <span className="mention-item-name">{m.name}</span>
+                                        <span className="mention-item-role">{m.role}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="task-comment-composer-footer">
+                              <span className="task-comment-char-count" style={{ color: replyBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                                {replyBody.length}/{MAX_COMMENT}
+                              </span>
+                              <button className="btn sm ghost" onClick={() => { setReplyToId(null); setReplyBody(''); }}>Cancel</button>
+                              <button className="btn sm primary" onClick={handleSubmitReply}
+                                disabled={replySubmitting || !replyBody.trim() || replyBody.length > MAX_COMMENT}>
+                                {replySubmitting ? 'Posting…' : 'Reply'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {commentThreads.length < commentTotal && (
+                    <button
+                      className="btn sm ghost task-comments-more"
+                      onClick={handleShowMoreComments}
+                      disabled={commentsLoadingMore}
+                    >
+                      {commentsLoadingMore
+                        ? 'Loading…'
+                        : `Show more comments (${commentTotal - commentThreads.length})`}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {commentErr && <div style={{ fontSize: 11, color: '#ef4444', margin: '4px 0' }}>{commentErr}</div>}
+
+
+            </div>
+              )}
+
+              {activityTab === 'work log' && (
+                <div className="subtasks-empty">No work logs available.</div>
+              )}
             </div>
           </div>
 
@@ -2746,6 +4236,25 @@ const TaskDetailModal = ({
                 className={'tpanel-input' + (getDueClass(form.due).includes('overdue') ? ' overdue-input' : '')}
               />
             </div>
+
+            {/* Assignee */}
+            {members.length > 0 && (
+              <div className="tpanel-prop">
+                <div className="tpanel-prop-label">Assignee</div>
+                <select
+                  className={'tpanel-sel' + (canAssign ? '' : ' perm-denied')}
+                  value={form.assigneeId || ''}
+                  onChange={e => set('assigneeId', e.target.value || '')}
+                  disabled={!canAssign}
+                  title={canAssign ? '' : NO_PERM}
+                >
+                  <option value="">Unassigned</option>
+                  {members.map(m => (
+                    <option key={m.userId} value={m.userId}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Tags */}
             <div className="tpanel-prop">
@@ -2953,8 +4462,8 @@ const TaskDetailModal = ({
                   </a>
                 )}
 
-                {/* Toggle: switch to existing */}
-                <div className="branch-opt" style={{ marginTop: 2 }}>
+                {/* Toggle: switch to existing — write permission required */}
+                {canGithubWrite && <div className="branch-opt" style={{ marginTop: 2 }}>
                   <label className="branch-opt-toggle"
                     onClick={() => {
                       if (branchMode === 'switch') {
@@ -3019,10 +4528,10 @@ const TaskDetailModal = ({
                       </div>
                     </div>
                   )}
-                </div>
+                </div>}
 
-                {/* Toggle: create new branch */}
-                <div className="branch-opt" style={{ marginTop: 4 }}>
+                {/* Toggle: create new branch — write permission required */}
+                {canGithubWrite && <div className="branch-opt" style={{ marginTop: 4 }}>
                   <label className="branch-opt-toggle"
                     onClick={() => {
                       if (branchMode === 'create') {
@@ -3068,10 +4577,10 @@ const TaskDetailModal = ({
                       </div>
                     </div>
                   )}
-                </div>
+                </div>}
 
-                {/* Disconnect branch */}
-                {task.ghBranch && (
+                {/* Disconnect branch — write permission required */}
+                {canGithubWrite && task.ghBranch && (
                   <div className="branch-opt" style={{ marginTop: 4 }}>
                     <button
                       className="branch-opt-toggle"
@@ -3093,7 +4602,7 @@ const TaskDetailModal = ({
             )}
 
             {/* Delete zone */}
-            {onDelete && (
+            {onDelete && canDelete && (
               <div className="tpanel-prop" style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--border)' }}>
                 {!showDeleteConfirm ? (
                   <button
@@ -3158,7 +4667,7 @@ const TaskDetailModal = ({
         <div className="task-panel-footer">
           {err && <span style={{ flex: 1, fontSize: 12, color: '#ef4444' }}>{err}</span>}
           <button className="btn ghost" onClick={onClose} disabled={saving}>Close</button>
-          <button className="btn primary" onClick={handleSave} disabled={saving || !form.title.trim()}>
+          <button className={'btn primary' + (canEdit ? '' : ' perm-denied')} onClick={handleSave} disabled={saving || !form.title.trim() || !canEdit} title={canEdit ? '' : NO_PERM}>
             <Icon name="check" size={12} /> {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
@@ -3175,7 +4684,7 @@ const TaskDetailModal = ({
 const toBranchName = (title) =>
   'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, isGithubConnected = false, onBranchCreated }) => {
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, isGithubConnected = false, canGithubWrite = false, onBranchCreated }) => {
   const empty = { title: '', proj: projects[0]?.id || '', p: priorities[0]?.id || null, col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
@@ -3198,7 +4707,7 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
   const projRepoFull = selectedProj?.repo && selectedProj.repo !== '—'
     ? selectedProj.repo.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').split('?')[0]
     : null;
-  const showBranchOption = !!isGithubConnected && !!projRepoFull;
+  const showBranchOption = !!isGithubConnected && !!projRepoFull && !!canGithubWrite;
 
   // Auto-generate branch name from title unless user has manually edited it
   const handleTitleChange = (v) => {
@@ -3487,7 +4996,13 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem, members = [], myRole = 'viewer', wsPermissions = {}, user = null }) => {
+  const canCreateTask = canDo(myRole, 'create_task', wsPermissions);
+  const canEditTask = canDo(myRole, 'edit_task', wsPermissions);
+  const canGithubWrite = canDo(myRole, 'github_write', wsPermissions);
+  const canDeleteTask = canDo(myRole, 'delete_task', wsPermissions);
+  const canAssignTask = canDo(myRole, 'assign_task', wsPermissions);
+  const NO_PERM = "You don't have permission";
   const cols = statuses.length > 0 ? statuses : COL_DEFS;
 
   const [view, setView] = useStateA('board');
@@ -3643,6 +5158,8 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 
   // ── Drag handlers ─────────────────────────────────────────────────
   const handleDragStart = (e, task) => {
+    // Moving a card between columns changes its status — that's an edit.
+    if (!canEditTask) { e.preventDefault(); return; }
     dragTaskRef.current = task;
     setDraggingFromKey(task.col);
     e.dataTransfer.effectAllowed = 'move';
@@ -3772,7 +5289,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
             <button className={view === 'board' ? 'active' : ''} onClick={() => setView('board')}>BOARD</button>
             <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>LIST</button>
           </div>
-          <button className="btn primary" onClick={() => openAdd()}>
+          <button className={'btn primary' + (canCreateTask ? '' : ' perm-denied')} onClick={() => openAdd()} disabled={!canCreateTask} title={canCreateTask ? 'New task' : NO_PERM}>
             <Icon name="plus" size={12} /> New task
           </button>
         </div>
@@ -3900,7 +5417,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           <Icon name="list" size={32} />
           <div className="empty-title">No tasks yet</div>
           <div className="empty-sub">Add your first task to start tracking work across your projects.</div>
-          <button className="btn primary" onClick={() => openAdd()}>
+          <button className={'btn primary' + (canCreateTask ? '' : ' perm-denied')} onClick={() => openAdd()} disabled={!canCreateTask} title={canCreateTask ? 'New task' : NO_PERM}>
             <Icon name="plus" size={12} /> New task
           </button>
         </div>
@@ -4003,14 +5520,15 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                         >
                           {items.map(t => (
                             <TaskCard key={t.id} t={t} tasks={tasks} projects={projects} allTags={tags}
-                              doneStatusId={doneStatusId} priorities={priorities} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
+                              doneStatusId={doneStatusId} priorities={priorities} members={members} onDragStart={handleDragStart} onDragEnd={handleDragEnd}
                               onClick={() => setViewingTask(t)} />
                           ))}
                           {items.length === 0 && <div className="sg-col-empty" />}
                           <button
-                            className="btn ghost"
+                            className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
                             style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed', margin: '4px 0' }}
-                            onClick={() => openAdd(col.id, parentId)}>
+                            onClick={() => openAdd(col.id, parentId)}
+                            disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
                             <Icon name="plus" size={10} /> Add task
                           </button>
                         </div>
@@ -4051,15 +5569,17 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       allTags={tags}
                       doneStatusId={doneStatusId}
                       priorities={priorities}
+                      members={members}
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
                       onClick={() => setViewingTask(t)}
                     />
                   ))}
                   <button
-                    className="btn ghost"
+                    className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
                     style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed' }}
-                    onClick={() => openAdd(col.id)}>
+                    onClick={() => openAdd(col.id)}
+                    disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
                     <Icon name="plus" size={10} /> Add task
                   </button>
                 </div>
@@ -4131,9 +5651,10 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
                       <tr key={`add-${parentId}`}>
                         <td colSpan={7} style={{ paddingLeft: 32, paddingTop: 4, paddingBottom: 4 }}>
                           <button
-                            className="btn ghost"
+                            className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
                             style={{ fontSize: 11, padding: '4px 10px', color: 'var(--text-3)', borderStyle: 'dashed' }}
-                            onClick={() => openAdd(cols[0]?.id, parentId)}>
+                            onClick={() => openAdd(cols[0]?.id, parentId)}
+                            disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
                             <Icon name="plus" size={10} /> Add task
                           </button>
                         </td>
@@ -4182,7 +5703,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       <AddTaskPanel
         open={showAdd} onClose={() => { setShowAdd(false); setAddParentId(null); }} onAdd={handleAdd}
         projects={projects} defaultCol={addCol} defaultParentId={addParentId} statuses={cols} priorities={priorities}
-        allTags={tags} onCreateTag={handleCreateTag} isGithubConnected={isGithubConnected}
+        allTags={tags} onCreateTag={handleCreateTag} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite}
         onBranchCreated={({ branchName, url, task }) => {
           // Update local task state with the saved branch
           setTasks(prev => prev.map(t => t.id === task.id ? task : t));
@@ -4215,8 +5736,16 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           onUnlinkNote={(noteId) => handleUnlinkNote(viewingTask._dbId, noteId)}
           onLogTime={handleLogTime}
           isGithubConnected={isGithubConnected}
+          canGithubWrite={canGithubWrite}
           onBranchUpdate={handleBranchUpdate}
           onDelete={handleTaskDelete}
+          members={members}
+          currentUserId={user?.id}
+          workstationId={workstationId}
+          myRole={myRole}
+          canEdit={canEditTask}
+          canDelete={canDeleteTask}
+          canAssign={canAssignTask}
         />
       )}
     </div>
@@ -4227,11 +5756,11 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
 //  4. LEARNING PATH
 // ═══════════════════════════════════════════════════════════════════
 const LEARN_COLS = [
-  { key: 'toLearn',    label: 'TO LEARN',    dot: 'var(--text-3)' },
+  { key: 'toLearn', label: 'TO LEARN', dot: 'var(--text-3)' },
   { key: 'inProgress', label: 'IN PROGRESS', dot: 'var(--accent)' },
-  { key: 'completed',  label: 'COMPLETED',   dot: '#4ade80' },
+  { key: 'completed', label: 'COMPLETED', dot: '#4ade80' },
 ];
-const TAG_PALETTE = ['#54C5F8','#4ade80','#a855f7','#f97316','#ec4899','#f59e0b','#06b6d4','#84cc16','#ef4444','#fb923c'];
+const TAG_PALETTE = ['#54C5F8', '#4ade80', '#a855f7', '#f97316', '#ec4899', '#f59e0b', '#06b6d4', '#84cc16', '#ef4444', '#fb923c'];
 const getTagColor = (tag) => {
   if (!tag) return '#6b7280';
   let h = 0;
@@ -4267,7 +5796,7 @@ const LearnCard = ({ item, stage, onEdit, onDelete, onMove, onToggleRev, onLogHo
   const [menuOpen, setMenuOpen] = useStateA(false);
   const menuRef = useRefA(null);
   const color = getTagColor(item.cat);
-  const prog  = item.prog || 0;
+  const prog = item.prog || 0;
   const otherCols = LEARN_COLS.filter(c => c.key !== stage);
 
   useEffectA(() => {
@@ -4291,7 +5820,7 @@ const LearnCard = ({ item, stage, onEdit, onDelete, onMove, onToggleRev, onLogHo
       {selectMode && (
         <div className="lcard-cb-wrap">
           <span className={`lcard-cb${isSelected ? ' checked' : ''}`}>
-            {isSelected && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            {isSelected && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
           </span>
         </div>
       )}
@@ -4392,7 +5921,7 @@ const LearnCard = ({ item, stage, onEdit, onDelete, onMove, onToggleRev, onLogHo
 
 // ── Tag dropdown ─────────────────────────────────────────────────
 const TagDropdown = ({ value, onChange, allTags }) => {
-  const [open,   setOpen]   = useStateA(false);
+  const [open, setOpen] = useStateA(false);
   const [search, setSearch] = useStateA('');
   const ref = useRefA(null);
 
@@ -4403,9 +5932,9 @@ const TagDropdown = ({ value, onChange, allTags }) => {
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
-  const q        = search.trim().toLowerCase();
+  const q = search.trim().toLowerCase();
   const filtered = allTags.filter(t => !q || t.toLowerCase().includes(q));
-  const isNew    = search.trim() && !allTags.some(t => t.toLowerCase() === search.trim().toLowerCase());
+  const isNew = search.trim() && !allTags.some(t => t.toLowerCase() === search.trim().toLowerCase());
 
   const select = (tag) => { onChange(tag); setOpen(false); };
 
@@ -4482,12 +6011,12 @@ const TopicFormPanel = ({ open, onClose, onSave, initial, mode, allTags }) => {
     if (!open) return;
     setErr('');
     setForm(initial ? {
-      topic:        initial.topic        || '',
-      cat:          initial.cat          || '',
-      column:       initial._col         || 'toLearn',
-      est:          String(initial.est   || '4'),
-      link:         (initial.link === '—' ? '' : initial.link) || '',
-      note:         initial.note         || '',
+      topic: initial.topic || '',
+      cat: initial.cat || '',
+      column: initial._col || 'toLearn',
+      est: String(initial.est || '4'),
+      link: (initial.link === '—' ? '' : initial.link) || '',
+      note: initial.note || '',
       difficulty: initial.difficulty || null,
     } : empty);
   }, [open]);
@@ -4498,17 +6027,17 @@ const TopicFormPanel = ({ open, onClose, onSave, initial, mode, allTags }) => {
     if (!form.topic.trim()) { setErr('Topic name is required.'); return; }
     const item = {
       ...(initial || {}),
-      topic:        form.topic.trim(),
-      cat:          form.cat,
-      est:          parseFloat(form.est) || 4,
-      link:         form.link.trim() || '—',
-      note:         form.note.trim(),
+      topic: form.topic.trim(),
+      cat: form.cat,
+      est: parseFloat(form.est) || 4,
+      link: form.link.trim() || '—',
+      note: form.note.trim(),
       difficulty: form.difficulty || null,
     };
     if (mode === 'add') {
       item.rev = false;
       if (form.column === 'inProgress') { item.actual = 0; item.prog = 0; }
-      if (form.column === 'completed')  { item.actual = 0; item.lastReviewed = lTodayStr(); }
+      if (form.column === 'completed') { item.actual = 0; item.lastReviewed = lTodayStr(); }
     }
     setSaving(true);
     try { await onSave(form.column, item); onClose(); }
@@ -4586,7 +6115,7 @@ const TopicFormPanel = ({ open, onClose, onSave, initial, mode, allTags }) => {
 // ── Sessions panel ───────────────────────────────────────────────
 const SessionsPanel = ({ item, stage, onClose, onLogHours, onSessionDeleted }) => {
   const [sessions, setSessions] = useStateA(null);
-  const [loading,  setLoading]  = useStateA(false);
+  const [loading, setLoading] = useStateA(false);
   const [deleting, setDeleting] = useStateA(null);
 
   useEffectA(() => {
@@ -4654,18 +6183,18 @@ const SessionsPanel = ({ item, stage, onClose, onLogHours, onSessionDeleted }) =
 
 // ── Log Hours dialog ─────────────────────────────────────────────
 const LogHoursDialog = ({ item, onSave, onClose }) => {
-  const [hrs,  setHrs]  = useStateA('1');
+  const [hrs, setHrs] = useStateA('1');
   const [note, setNote] = useStateA('');
-  const [err,  setErr]  = useStateA('');
+  const [err, setErr] = useStateA('');
   const [busy, setBusy] = useStateA(false);
 
   useEffectA(() => { if (item) { setHrs('1'); setNote(''); setErr(''); } }, [item]);
   if (!item) return null;
 
-  const val     = parseFloat(hrs);
+  const val = parseFloat(hrs);
   const newActual = (item.actual || 0) + (isNaN(val) ? 0 : val);
-  const newProg   = item.est > 0 ? Math.min(100, Math.round((newActual / item.est) * 100)) : (item.prog || 0);
-  const color     = getTagColor(item.cat);
+  const newProg = item.est > 0 ? Math.min(100, Math.round((newActual / item.est) * 100)) : (item.prog || 0);
+  const color = getTagColor(item.cat);
 
   const adjustHrs = (amount) => {
     const current = parseFloat(hrs) || 0;
@@ -4684,24 +6213,24 @@ const LogHoursDialog = ({ item, onSave, onClose }) => {
 
   return createPortal(
     <div className="modal-overlay">
-      <div className="modal-box" style={{ width: 380, borderRadius: 16 }}>
+      <div className="modal-box" style={{ width: 380, maxWidth: '100%', borderRadius: 16 }}>
         <div className="modal-title" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>Log session</div>
         <div className="modal-sub" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
           <span className="tag-dot" style={{ background: color, width: 6, height: 6, borderRadius: '50%' }} />
           <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{item.topic}</span>
         </div>
         {err && <div className="modal-err" style={{ marginTop: 12 }}>{err}</div>}
-        
+
         {/* Large custom hrs stepper */}
         <div className="log-stepper-row">
           <button type="button" className="log-step-btn" onClick={() => adjustHrs(-0.5)}>
             <Icon name="minus" size={14} />
           </button>
           <div className="log-hrs-input-wrap">
-            <input 
-              type="number" 
-              value={hrs} 
-              min="0.25" 
+            <input
+              type="number"
+              value={hrs}
+              min="0.25"
               step="0.25"
               autoFocus
               onChange={e => { setHrs(e.target.value); setErr(''); }}
@@ -4718,9 +6247,9 @@ const LogHoursDialog = ({ item, onSave, onClose }) => {
         {/* Quick select presets */}
         <div className="log-presets">
           {[0.5, 1, 2, 4].map(preset => (
-            <button 
-              key={preset} 
-              type="button" 
+            <button
+              key={preset}
+              type="button"
               className="log-preset-btn"
               onClick={() => { setHrs(String(preset)); setErr(''); }}
             >
@@ -4762,10 +6291,10 @@ const LogHoursDialog = ({ item, onSave, onClose }) => {
           <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)' }}>
             What did you work on? <span className="opt-label">(optional)</span>
           </label>
-          <textarea 
+          <textarea
             className="log-notes-input"
-            value={note} 
-            onChange={e => setNote(e.target.value)} 
+            value={note}
+            onChange={e => setNote(e.target.value)}
             placeholder="e.g. completed core API integration, reviewed documentation"
             rows={2}
           />
@@ -4788,7 +6317,7 @@ const LearnDeleteDialog = ({ item, onConfirm, onCancel }) => {
   if (!item) return null;
   return createPortal(
     <div className="modal-overlay">
-      <div className="modal-box" style={{ width: 320 }}>
+      <div className="modal-box" style={{ width: 320, maxWidth: '100%' }}>
         <div className="modal-title">Delete topic?</div>
         <div style={{ fontSize: 13, color: 'var(--text-2)', margin: '8px 0 20px' }}>
           <strong>{item.topic}</strong> will be permanently deleted.
@@ -4805,24 +6334,24 @@ const LearnDeleteDialog = ({ item, onConfirm, onCancel }) => {
 
 // ── Main LearningPage ────────────────────────────────────────────
 export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem }) => {
-  const [showAdd,      setShowAdd]      = useStateA(false);
-  const [editItem,     setEditItem]     = useStateA(null);
+  const [showAdd, setShowAdd] = useStateA(false);
+  const [editItem, setEditItem] = useStateA(null);
   const [deleteTarget, setDeleteTarget] = useStateA(null);
   const [logHoursItem, setLogHoursItem] = useStateA(null);
   const [sessionsItem, setSessionsItem] = useStateA(null);
-  const [sessionsStage,setSessStage]    = useStateA(null);
-  const [streak,       setStreak]       = useStateA(() => lReadStreak());
+  const [sessionsStage, setSessStage] = useStateA(null);
+  const [streak, setStreak] = useStateA(() => lReadStreak());
   const [showReEngage, setShowReEngage] = useStateA(() => lShouldReEngage());
-  const [searchQ,      setSearchQ]      = useStateA('');
-  const [sortBy,       setSortBy]       = useStateA('date');
-  const [sortOpen,     setSortOpen]     = useStateA(false);
-  const [selectMode,   setSelectMode]   = useStateA(false);
-  const [selected,     setSelected]     = useStateA(new Set());
-  const [weeklyHours,  setWeeklyHours]  = useStateA(0);
-  const [weeklyGoal,   setWeeklyGoal]   = useStateA(() => Number(localStorage.getItem('orbit:learn:weeklyGoal')) || 10);
-  const [goalEdit,     setGoalEdit]     = useStateA(false);
-  const [goalInput,    setGoalInput]    = useStateA('');
-  const [overviewTab,  setOverviewTab]  = useStateA('revision');
+  const [searchQ, setSearchQ] = useStateA('');
+  const [sortBy, setSortBy] = useStateA('date');
+  const [sortOpen, setSortOpen] = useStateA(false);
+  const [selectMode, setSelectMode] = useStateA(false);
+  const [selected, setSelected] = useStateA(new Set());
+  const [weeklyHours, setWeeklyHours] = useStateA(0);
+  const [weeklyGoal, setWeeklyGoal] = useStateA(() => Number(localStorage.getItem('orbit:learn:weeklyGoal')) || 10);
+  const [goalEdit, setGoalEdit] = useStateA(false);
+  const [goalInput, setGoalInput] = useStateA('');
+  const [overviewTab, setOverviewTab] = useStateA('revision');
   const sortRef = useRefA(null);
 
   useEffectA(() => {
@@ -4832,7 +6361,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   }, []);
 
   useEffectA(() => {
-    getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => {});
+    getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => { });
   }, [workstationId]);
 
   // Jump to a learning item from global search
@@ -4843,9 +6372,9 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
     if (target) setEditItem(target);
   }, [jumpToItem?.ts]);
 
-  const total    = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
-  const done     = learning.completed.length;
-  const pct      = total > 0 ? Math.round((done / total) * 100) : 0;
+  const total = learning.toLearn.length + learning.inProgress.length + learning.completed.length;
+  const done = learning.completed.length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const totalEst = [...learning.toLearn, ...learning.inProgress, ...learning.completed]
     .reduce((s, i) => s + (i.est || 0), 0);
   const totalLogged =
@@ -4860,7 +6389,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   });
 
   const allItems = [...learning.toLearn, ...learning.inProgress, ...learning.completed];
-  const allTags  = [...new Set(allItems.map(i => i.cat).filter(Boolean))].sort();
+  const allTags = [...new Set(allItems.map(i => i.cat).filter(Boolean))].sort();
 
   const tagBreakdown = allTags.map(tag => {
     const items = allItems.filter(i => i.cat === tag);
@@ -4873,7 +6402,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   }).filter(t => t.hours > 0).sort((a, b) => b.hours - a.hours);
   const tagMaxHours = tagBreakdown[0]?.hours || 1;
 
-  const weekGoalPct  = weeklyGoal > 0 ? Math.min(100, Math.round((weeklyHours / weeklyGoal) * 100)) : 0;
+  const weekGoalPct = weeklyGoal > 0 ? Math.min(100, Math.round((weeklyHours / weeklyGoal) * 100)) : 0;
   const saveGoal = () => {
     const v = parseFloat(goalInput);
     if (!isNaN(v) && v > 0) { setWeeklyGoal(v); localStorage.setItem('orbit:learn:weeklyGoal', String(v)); }
@@ -4883,23 +6412,23 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   const R = 38, CIRC = 2 * Math.PI * R;
   const off = CIRC - (pct / 100) * CIRC;
 
-  const recordActivity    = () => { setStreak(lTouchStreak()); lTouchActive(); setShowReEngage(false); };
-  const refreshWeeklyHours = () => getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => {});
-  const reloadLearning = () => loadUserData(workstationId).then(d => { setLearning(d.learning); refreshWeeklyHours(); }).catch(() => {});
+  const recordActivity = () => { setStreak(lTouchStreak()); lTouchActive(); setShowReEngage(false); };
+  const refreshWeeklyHours = () => getWeeklyLearningHours(workstationId).then(setWeeklyHours).catch(() => { });
+  const reloadLearning = () => loadUserData(workstationId).then(d => { setLearning(d.learning); refreshWeeklyHours(); }).catch(() => { });
 
   const SORT_LABELS = { date: 'Date added', est: 'Est. hours', tag: 'Tag', diff: 'Difficulty' };
-  const DIFF_ORDER  = { hard: 0, medium: 1, easy: 2 };
+  const DIFF_ORDER = { hard: 0, medium: 1, easy: 2 };
   const applySearch = (items) => !searchQ.trim() ? items : items.filter(i => i.topic.toLowerCase().includes(searchQ.toLowerCase()));
-  const applySort   = (items) => {
+  const applySort = (items) => {
     const arr = [...items];
-    if (sortBy === 'est')  return arr.sort((a, b) => (b.est || 0) - (a.est || 0));
-    if (sortBy === 'tag')  return arr.sort((a, b) => (a.cat || '').localeCompare(b.cat || ''));
+    if (sortBy === 'est') return arr.sort((a, b) => (b.est || 0) - (a.est || 0));
+    if (sortBy === 'tag') return arr.sort((a, b) => (a.cat || '').localeCompare(b.cat || ''));
     if (sortBy === 'diff') return arr.sort((a, b) => (DIFF_ORDER[a.difficulty] ?? 3) - (DIFF_ORDER[b.difficulty] ?? 3));
     return arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   };
   const processItems = (items) => applySort(applySearch(items));
 
-  const toggleSelect   = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggleSelect = (id) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); };
 
   const handleBulkMove = async (toCol) => {
@@ -4937,9 +6466,9 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   const handleEditOpen = (item, column) => setEditItem({ item: { ...item, _col: column }, column });
 
   const handleEditSave = async (newColumn, updatedItem) => {
-    const oldColumn  = editItem.column;
+    const oldColumn = editItem.column;
     const colChanged = newColumn !== oldColumn;
-    const toSave     = { ...updatedItem };
+    const toSave = { ...updatedItem };
     if (colChanged && newColumn === 'completed' && !toSave.lastReviewed) toSave.lastReviewed = lTodayStr();
     const { item: saved } = await updateLearningItem(toSave, colChanged ? newColumn : null);
     setLearning(prev => {
@@ -4960,12 +6489,12 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
   const handleMove = async (item, fromCol, toCol) => {
     const toSave = { ...item };
     if (toCol === 'inProgress') { toSave.actual = toSave.actual ?? 0; toSave.prog = toSave.prog ?? 0; }
-    if (toCol === 'completed')  toSave.lastReviewed = lTodayStr();
+    if (toCol === 'completed') toSave.lastReviewed = lTodayStr();
     const { item: saved } = await updateLearningItem(toSave, toCol);
     setLearning(prev => {
       const next = { ...prev };
       next[fromCol] = next[fromCol].filter(x => x._dbId !== item._dbId);
-      next[toCol]   = [...next[toCol], saved];
+      next[toCol] = [...next[toCol], saved];
       return next;
     });
     recordActivity();
@@ -5079,7 +6608,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
               ) : (
                 <button className="learn-goal-edit-btn" onClick={() => { setGoalInput(String(weeklyGoal)); setGoalEdit(true); }} title="Set weekly goal">
                   {weeklyHours}h / {weeklyGoal}h goal
-                  <svg viewBox="0 0 12 12" fill="none"><path d="M8.5 1.5l2 2L4 10H2V8L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg>
+                  <svg viewBox="0 0 12 12" fill="none"><path d="M8.5 1.5l2 2L4 10H2V8L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg>
                 </button>
               )}
             </div>
@@ -5141,7 +6670,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
       {weekGoalPct >= 100 && (
         <div className="learn-goal-achieved">
           <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
-            <path d="M8 1.5l1.6 3.2 3.5.5-2.55 2.5.6 3.5L8 9.5l-3.15 1.7.6-3.5L3 5.2l3.5-.5z" fill="#4ade80" stroke="#4ade80" strokeWidth="0.8" strokeLinejoin="round"/>
+            <path d="M8 1.5l1.6 3.2 3.5.5-2.55 2.5.6 3.5L8 9.5l-3.15 1.7.6-3.5L3 5.2l3.5-.5z" fill="#4ade80" stroke="#4ade80" strokeWidth="0.8" strokeLinejoin="round" />
           </svg>
           <span><strong>Weekly goal reached!</strong> {weeklyHours}h logged this week — you&apos;re on a roll.</span>
         </div>
@@ -5151,8 +6680,8 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
       <div className="learn-toolbar">
         <div className="learn-search-wrap">
           <svg viewBox="0 0 16 16" fill="none">
-            <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
           <input
             className="learn-search"
@@ -5162,23 +6691,23 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
           />
           {searchQ && (
             <button className="learn-search-clear" onClick={() => setSearchQ('')}>
-              <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
             </button>
           )}
         </div>
 
         <div ref={sortRef} className="learn-sort-wrap">
           <button className={`learn-sort-btn${sortOpen ? ' open' : ''}`} onClick={() => setSortOpen(o => !o)}>
-            <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>
+            <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
             {SORT_LABELS[sortBy]}
-            <svg viewBox="0 0 16 16" fill="none" className="learn-sort-chev"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <svg viewBox="0 0 16 16" fill="none" className="learn-sort-chev"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
           {sortOpen && (
             <div className="learn-sort-menu">
               {Object.entries(SORT_LABELS).map(([k, v]) => (
                 <button key={k} className={`learn-sort-item${sortBy === k ? ' active' : ''}`}
                   onClick={() => { setSortBy(k); setSortOpen(false); }}>
-                  {sortBy === k && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  {sortBy === k && <svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                   {v}
                 </button>
               ))}
@@ -5190,7 +6719,7 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
           className={`learn-select-btn${selectMode ? ' active' : ''}`}
           onClick={() => { selectMode ? exitSelectMode() : setSelectMode(true); }}
         >
-          <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/></svg>
+          <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" /></svg>
           {selectMode ? 'Cancel' : 'Select'}
         </button>
       </div>
@@ -5253,9 +6782,9 @@ export const LearningPage = ({ learning, setLearning, workstationId, jumpToItem 
         </div>
       )}
 
-      <TopicFormPanel open={showAdd}    onClose={() => setShowAdd(false)}  onSave={handleAdd}      mode="add"  allTags={allTags} />
-      <TopicFormPanel open={!!editItem} onClose={() => setEditItem(null)}  onSave={handleEditSave} mode="edit" initial={editItem?.item} allTags={allTags} />
-      <LogHoursDialog   item={logHoursItem}       onSave={handleLogHoursSave}    onClose={() => setLogHoursItem(null)} />
+      <TopicFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSave={handleAdd} mode="add" allTags={allTags} />
+      <TopicFormPanel open={!!editItem} onClose={() => setEditItem(null)} onSave={handleEditSave} mode="edit" initial={editItem?.item} allTags={allTags} />
+      <LogHoursDialog item={logHoursItem} onSave={handleLogHoursSave} onClose={() => setLogHoursItem(null)} />
       <LearnDeleteDialog item={deleteTarget?.item} onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} />
       <SessionsPanel
         item={sessionsItem}
@@ -5741,7 +7270,9 @@ const DeleteConfirmDialog = ({ item, onConfirm, onCancel }) => {
   );
 };
 
-export const VaultPage = ({ vault, setVault, workstationId }) => {
+export const VaultPage = ({ vault, setVault, workstationId, myRole = 'viewer', wsPermissions = {} }) => {
+  const canManage = canDo(myRole, 'manage_vault', wsPermissions);
+  const NO_PERM = "You don't have permission";
   const [vaultState, setVaultState] = useStateA('loading'); // loading | setup | locked | unlocked
   const [cat, setCat] = useStateA('all');
   const [revealed, setRevealed] = useStateA({});
@@ -6030,7 +7561,7 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
           <button className="btn" onClick={handleExport}><Icon name="download" size={12} /> Export</button>
           <button className="btn ghost" onClick={() => setShowChangePw(true)}><Icon name="key" size={12} /> Change password</button>
           <button className="btn ghost" onClick={handleLock}><Icon name="lock" size={12} /> Lock</button>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>
+          <button className={'btn primary' + (canManage ? '' : ' perm-denied')} onClick={() => setShowAdd(true)} disabled={!canManage} title={canManage ? 'New secret' : NO_PERM}>
             <Icon name="plus" size={12} /> New secret
           </button>
         </div>
@@ -6097,13 +7628,17 @@ export const VaultPage = ({ vault, setVault, workstationId }) => {
                   <button className="iconbtn" title="Copy" onClick={() => handleCopy(v)}>
                     <Icon name="copy" size={13} />
                   </button>
-                  <button className="iconbtn" title="Edit" onClick={() => openEdit(v)}>
-                    <Icon name="edit" size={13} />
-                  </button>
-                  <button className="iconbtn" title="Delete" onClick={() => setDeleteItem(v)}
-                    style={{ color: '#ef4444' }}>
-                    <Icon name="trash" size={13} />
-                  </button>
+                  {canManage && (
+                    <>
+                      <button className="iconbtn" title="Edit" onClick={() => openEdit(v)}>
+                        <Icon name="edit" size={13} />
+                      </button>
+                      <button className="iconbtn" title="Delete" onClick={() => setDeleteItem(v)}
+                        style={{ color: '#ef4444' }}>
+                        <Icon name="trash" size={13} />
+                      </button>
+                    </>
+                  )}
                 </span>
               </div>
             );

@@ -15,11 +15,14 @@ function cached(key, ttlMs, fetcher) {
 
 export function vcClearCache() { _cache.clear() }
 
+let _workstationId = null
+export function vcSetWorkstationId(id) { _workstationId = id }
+
 // All Vercel API calls go through the vercel-proxy Edge Function.
 // The raw token never reaches the browser — it is decrypted server-side.
 async function vcProxy(path, params = {}, method = 'GET', body = null) {
   const { data, error } = await supabase.functions.invoke('vercel-proxy', {
-    body: { path, params, method, body },
+    body: { path, params, method, body, workstation_id: _workstationId },
   })
   if (error) throw new Error(error.message || 'Vercel proxy error')
   if (data?.status && data.status >= 400) {

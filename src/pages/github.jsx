@@ -1026,27 +1026,28 @@ const TABS = [
   { id: 'activity', label: 'Activity',      icon: 'activity'  },
 ];
 
-export function GitHubPage({ onNav }) {
+export function GitHubPage({ onNav, activeWorkstation }) {
   const [integ,   setInteg]   = useState(null);
   const [ghUser,  setGhUser]  = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab,     setTab]     = useState('repos');
 
   useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { setLoading(false); return; }
-      const { data } = await supabase
-        .from('user_integrations')
-        .select('username, display_name, avatar_url, email, metadata, connected_at')
-        .eq('user_id', user.id)
-        .eq('provider', 'github')
-        .maybeSingle();
-      if (data) {
-        setInteg(data);
-        ghGetUser().then(setGhUser).catch(() => {});
-      }
-    }).finally(() => setLoading(false));
-  }, []);
+    if (!activeWorkstation?.id) { setLoading(false); return; }
+    supabase
+      .from('workspace_integrations')
+      .select('username, display_name, avatar_url, email, metadata, connected_at')
+      .eq('workstation_id', activeWorkstation.id)
+      .eq('provider', 'github')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setInteg(data);
+          ghGetUser().then(setGhUser).catch(() => {});
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [activeWorkstation?.id]);
 
   if (loading) return <div className="gh-page"><div className="gh-spin-wrap full"><div className="gh-spin" /></div></div>;
   if (!integ)  return <div className="gh-page"><NotConnected onGoSettings={onNav} /></div>;

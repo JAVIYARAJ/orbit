@@ -1,8 +1,9 @@
 // auth.jsx — Login, Sign-up, Forgot password, Email confirmation, Reset password
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
+import { acceptInvite, getInviteByToken } from '../lib/db.js';
 
 const PILLS = ['Projects', 'Kanban', 'Analytics', 'Vault', 'Timer', 'Notes', 'Email Hub', 'Toolkit'];
 
@@ -559,6 +560,90 @@ export const ResetPasswordPage = ({ onDone }) => {
           )}
         </form>
       </main>
+    </div>
+  );
+};
+
+const ROLE_LABEL = { owner: 'Owner', admin: 'Admin', member: 'Member', viewer: 'Viewer' };
+
+export const InviteAcceptPage = ({ token, user, onAccepted, onDeclined }) => {
+  const [invite,  setInvite]  = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy,    setBusy]    = useState(false);
+  const [error,   setError]   = useState('');
+
+  useEffect(() => {
+    getInviteByToken(token)
+      .then(data => { setInvite(data); setLoading(false); })
+      .catch(() => { setError('Could not load invite details.'); setLoading(false); });
+  }, [token]);
+
+  const handleAccept = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await acceptInvite(token);
+      if (result?.error === 'email_mismatch') {
+        setError(`This invite was sent to ${invite?.email}. You are logged in as ${user?.email}. Please log in with the correct account.`);
+      } else if (result?.error === 'invite_not_found') {
+        setError('This invite has expired or already been used.');
+      } else {
+        onAccepted(result);
+      }
+    } catch {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return (
+    <div className="invite-page">
+      <div className="invite-card">
+        <div className="invite-loading">Loading invite…</div>
+      </div>
+    </div>
+  );
+
+  if (!invite || invite.status !== 'pending') return (
+    <div className="invite-page">
+      <div className="invite-card">
+        <div className="invite-icon expired"><Icon name="alert-circle" size={32} /></div>
+        <h2>Invite not available</h2>
+        <p>This invite has expired, been cancelled, or already been accepted.</p>
+        <button className="btn primary" onClick={onDeclined}>Go to app</button>
+      </div>
+    </div>
+  );
+
+  const isExpired = new Date(invite.expires_at) < new Date();
+
+  return (
+    <div className="invite-page">
+      <div className="invite-card">
+        <div className="invite-icon">
+          <Icon name="users" size={32} />
+        </div>
+        <div className="invite-from">{invite.inviter_name} invited you to join</div>
+        <h2 className="invite-ws-name">{invite.workspace_name}</h2>
+        <div className="invite-role-row">
+          <span>Your role:</span>
+          <span className={'role-badge role-' + invite.role}>{ROLE_LABEL[invite.role] || invite.role}</span>
+        </div>
+        {isExpired && <div className="invite-warn">This invite has expired.</div>}
+        {error && <div className="invite-error">{error}</div>}
+        <div className="invite-actions">
+          <button
+            className="btn primary"
+            onClick={handleAccept}
+            disabled={busy || isExpired}
+          >
+            {busy ? 'Accepting…' : 'Accept invitation'}
+          </button>
+          <button className="btn ghost" onClick={onDeclined}>Dismiss</button>
+        </div>
+        <div className="invite-meta">Logged in as <strong>{user?.email}</strong></div>
+      </div>
     </div>
   );
 };
