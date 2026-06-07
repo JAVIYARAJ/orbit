@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
 import { acceptInvite, getInviteByToken } from '../lib/db.js';
+import { useAuthConfig } from '../lib/useRemoteConfig.js';
 
 const PILLS = ['Projects', 'Kanban', 'Analytics', 'Vault', 'Timer', 'Notes', 'Email Hub', 'Toolkit'];
 
@@ -45,6 +46,7 @@ const Spinner = ({ light }) => (
 );
 
 export const AuthPage = ({ onAuth }) => {
+  const { googleAuthOnly, ready } = useAuthConfig();
   const [mode, setMode] = useState('login');   // login | signup | forgot
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -232,24 +234,56 @@ export const AuthPage = ({ onAuth }) => {
 
       {/* ── Right form panel ──────────────────────────────────── */}
       <main className="auth-form-wrap">
+        {!ready ? (
+          <div className="auth-form" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 320 }}>
+            <Spinner />
+          </div>
+        ) : (
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
 
           {/* Heading */}
           <div className="auth-form-head">
             <h2>
-              {mode === 'login' ? 'Welcome back' :
+              {googleAuthOnly ? 'Welcome to Orbit' :
+                mode === 'login' ? 'Welcome back' :
                 mode === 'signup' ? 'Create account' :
                   'Reset password'}
             </h2>
             <p>
-              {mode === 'login' ? 'Sign in to your workspace' :
+              {googleAuthOnly ? 'Sign in with your Google account to continue' :
+                mode === 'login' ? 'Sign in to your workspace' :
                 mode === 'signup' ? 'Set up your Orbit workspace' :
                   "We'll send a reset link to your email"}
             </p>
           </div>
 
-          {/* ── Email sent confirmation (signup confirm OR reset) ── */}
-          {emailSent ? (
+          {/* ── Google-only mode ── */}
+          {googleAuthOnly ? (
+            <>
+              <div className="auth-warning" role="note">
+                <Icon name="alert-triangle" size={14} />
+                <span>
+                  <strong style={{ color: 'var(--text)' }}>Email sign-in is temporarily disabled</strong><br />
+                  Due to email confirmation rate limits, login and registration with email &amp; password are unavailable right now. Please use Google to continue.
+                </span>
+              </div>
+              {error && (
+                <div className="auth-error" role="alert">
+                  <Icon name="x" size={13} />
+                  {error}
+                </div>
+              )}
+              <button
+                type="button"
+                className="auth-google-btn"
+                onClick={handleGoogle}
+                disabled={busy}
+              >
+                {googleLoading ? <Spinner /> : <GoogleIcon />}
+                {googleLoading ? 'Connecting…' : 'Continue with Google'}
+              </button>
+            </>
+          ) : emailSent ? (
             <div className="auth-email-sent">
               <div className="auth-email-sent-icon">
                 <Icon name="mail" size={22} />
@@ -409,6 +443,7 @@ export const AuthPage = ({ onAuth }) => {
             </>
           )}
         </form>
+        )}
       </main>
     </div>
   );

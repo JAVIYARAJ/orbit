@@ -21,7 +21,9 @@ function getRC() {
   _rc = getRemoteConfig(firebaseApp);
   // Shorter interval in dev so changes in the Firebase console reflect quickly
   _rc.settings = { minimumFetchIntervalMillis: import.meta.env.DEV ? 60_000 : 300_000 };
-  _rc.defaultConfig = { enabled_modules: JSON.stringify(DEFAULT_MODULES) };
+  _rc.defaultConfig = {
+    enabled_modules: JSON.stringify(DEFAULT_MODULES),
+  };
   return _rc;
 }
 
@@ -50,4 +52,33 @@ export function useRemoteConfig() {
   }, []);
 
   return modules;
+}
+
+function parseAuthConfig() {
+  try {
+    const parsed = JSON.parse(getString(getRC(), 'enabled_modules'));
+    return { googleAuthOnly: parsed.google_auth_only === true };
+  } catch {
+    return { googleAuthOnly: false };
+  }
+}
+
+/**
+ * Returns auth feature flags from Firebase Remote Config.
+ *
+ * Remote Config key: google_auth_only
+ * Value: 'true' | 'false'  (string — Remote Config has no native boolean)
+ */
+export function useAuthConfig() {
+  const [config, setConfig] = useState(parseAuthConfig);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    fetchAndActivate(getRC())
+      .then(() => setConfig(parseAuthConfig()))
+      .catch(console.error)
+      .finally(() => setReady(true));
+  }, []);
+
+  return { ...config, ready };
 }
