@@ -1,26 +1,25 @@
 <div align="center">
 
-# ⚡ DevOS — Personal Command Center
+# 🪐 Orbit — Developer Team Platform
 
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev)
 [![Vite](https://img.shields.io/badge/Vite-Latest-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat-square&logo=supabase&logoColor=white)](https://supabase.com)
-[![ESLint](https://img.shields.io/badge/ESLint-9-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
-[![License](https://img.shields.io/badge/License-Private-red?style=flat-square)](./LICENSE)
+[![Firebase](https://img.shields.io/badge/Firebase-Remote_Config-FFCA28?style=flat-square&logo=firebase&logoColor=black)](https://firebase.google.com)
+[![Vercel](https://img.shields.io/badge/Deployed-Vercel-000000?style=flat-square&logo=vercel&logoColor=white)](https://orbit-sand-alpha.vercel.app)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
-*One dashboard. Every tool. Zero context switching.*
+*One platform. Every tool. Zero context switching.*
+
+**[Live Demo](https://orbit-sand-alpha.vercel.app)**
 
 </div>
 
 ---
 
-## What is DevOS?
+## What is Orbit?
 
-DevOS is a private, self-hosted operating system for developers — built to replace the 6+ tools a typical developer juggles daily. Projects, tasks, notes, secrets, time tracking, email templates, and developer utilities — all in one fast, keyboard-first interface.
-
-This is not a SaaS product. It's a personal tool. Built for one developer. Opinionated by design.
-
-> Built with React 19 + Vite + Supabase. Deployed privately on Vercel. Data lives in your own Supabase project (Mumbai region — `ap-south-1`).
+Orbit is a web-based productivity and project management platform built for developers and small teams. It replaces the entire stack of tools a dev team typically juggles — GitHub, Vercel, Google Calendar, task manager, notes, time tracker, and learning tracker — in a single fast, keyboard-first interface.
 
 ---
 
@@ -28,27 +27,41 @@ This is not a SaaS product. It's a personal tool. Built for one developer. Opini
 
 | Module | Description |
 |---|---|
-| 🗂 **Projects** | Track every project — client, status, health, timeline, milestones, tech stack |
-| ✅ **Tasks** | Kanban board with priority, effort, due dates — linked to projects or standalone |
-| 🧠 **Learning Path** | What to learn next, what's in progress, what needs revision + streak tracking |
-| 🔐 **Vault** | API keys, tokens, passwords — client-side AES-256 encrypted before storage |
-| 📋 **Project Hub** | Full project management — scope, deliverables, payments, invoices, contracts |
-| 📝 **Notes** | Markdown-first notes organized by project or tag, pinnable, timestamped |
-| ⏱ **Time Tracker** | One-click timer tied to project + task, daily timeline, weekly breakdown |
-| ✉️ **Email Templates** | Proposal, freelance, invoice, follow-up — fill variables, copy, send |
-| 🛠 **Dev Tools** | JSON formatter, Base64, UUID, regex tester, timestamp converter and more |
-| 📊 **Analytics** | Work pattern insights, project health overview, time distribution |
+| 🏠 **Home** | Agenda digest — today's tasks, meetings, and activity at a glance |
+| 🗂 **Projects** | Track every project — status, health, milestones, tech stack, linked repo |
+| ✅ **Tasks** | Kanban board with assignment, priority, subtasks, comments, and file attachments |
+| 📅 **Calendar** | Two-way Google Calendar sync, recurring events, Google Meet integration |
+| 👥 **Collaboration** | Team invites, role-based permissions, member management |
+| 🔔 **Notifications** | Real-time notification center covering all platform event types |
+| 🐙 **GitHub Hub** | Connect repos, view commits, create branches per task |
+| 🚀 **Vercel** | Track deployments, build status, and project health |
+| 🧠 **Learning Path** | Sessions, goals, dynamic tags, weekly targets, analytics charts |
+| 📝 **Notes** | Markdown-first notes with folders, focus mode, and inter-note linking |
+| ⏱ **Timer** | One-click time tracker tied to project and task |
+| 📋 **Project Hub** | Scope, deliverables, payments, invoices, contracts |
+| ✉️ **Email Templates** | Proposal, invoice, follow-up — fill variables and copy |
+| 🛠 **Dev Toolkit** | JSON formatter, Base64, UUID, regex tester, timestamp converter |
+| 🔐 **Vault** | API keys and secrets — AES-256 encrypted client-side before storage |
+| 📊 **Analytics** | Work patterns, project health, time distribution |
+| 🦋 **Flutter Init** | Flutter project code generator |
+| 🔍 **Global Search** | Search across tasks, projects, notes, learning, and email templates |
 
 ---
 
 ## Tech Stack
 
 ```
-Frontend    →   React 19 + Vite + Plain CSS Design System
-Database    →   Supabase (PostgreSQL) — ap-south-1 (Mumbai)
-Auth        →   Supabase Auth (Email/Password + Google OAuth)
-Secrets     →   Client-side AES-256 encryption (never stored raw)
-Deployment  →   Vercel (private, auth-protected)
+Frontend      →   React 19 + Vite + Plain CSS Design System
+Database      →   Supabase (PostgreSQL) — ap-south-1 (Mumbai)
+Auth          →   Supabase Auth (Email/Password + Google OAuth)
+Realtime      →   Supabase Realtime (Postgres change subscriptions)
+Feature Flags →   Firebase Remote Config (16 modules, no redeploy needed)
+Calendar      →   FullCalendar + rrule + Google Calendar API
+Charts        →   Recharts
+File Storage  →   Cloudinary
+Integrations  →   GitHub REST API · Vercel API
+Secrets       →   Client-side AES-256 encryption (never stored raw)
+Deployment    →   Vercel
 ```
 
 ---
@@ -56,7 +69,7 @@ Deployment  →   Vercel (private, auth-protected)
 ## Project Structure
 
 ```
-devos-dashboard/
+orbit/
 ├── src/
 │   ├── app/
 │   │   └── App.jsx                 # Main state, auth gate, routing, timer, themes
@@ -64,22 +77,30 @@ devos-dashboard/
 │   │   ├── shell.jsx               # Sidebar, topbar, command palette, nav config
 │   │   ├── tweaks-panel.jsx        # Runtime appearance controls
 │   │   └── workstation-setup.jsx   # First-run and workstation setup flow
-│   ├── data/
-│   │   └── dashboard-data.jsx      # Static fallback/demo data
 │   ├── lib/
 │   │   ├── db.js                   # Supabase RPC access and shape converters
-│   │   └── supabase.js             # Supabase client from env vars
+│   │   ├── supabase.js             # Supabase client
+│   │   ├── github.js               # GitHub API integration
+│   │   ├── vercel.js               # Vercel API integration
+│   │   ├── googleCalendar.js       # Google Calendar two-way sync
+│   │   ├── recurrence.js           # RRULE helpers
+│   │   ├── permissions.js          # Role-based permission matrix
+│   │   └── useRemoteConfig.js      # Firebase Remote Config hook
 │   ├── pages/
 │   │   ├── workspace.jsx           # Projects, tasks, learning, vault
 │   │   ├── tools.jsx               # Notes, timer, email templates, dev toolkit
-│   │   ├── analytics.jsx           # Analytics view
-│   │   ├── collaboration.jsx       # Collaboration view
+│   │   ├── github.jsx              # GitHub Hub
+│   │   ├── vercel.jsx              # Vercel deployments
+│   │   ├── calendar.jsx            # Calendar with Google sync
+│   │   ├── collaboration.jsx       # Team management
+│   │   ├── analytics.jsx           # Analytics
 │   │   ├── settings.jsx            # Settings
-│   │   └── auth.jsx                # Login, sign-up, OAuth UI
+│   │   ├── flutter-init.jsx        # Flutter generator
+│   │   └── auth.jsx                # Login, sign-up, invite accept
 │   └── styles/
 │       └── global.css              # Global layout, theme tokens, responsive
-├── .env.local                      # Supabase credentials (never commit)
-├── .gitignore
+├── screenshots/                    # Demo videos and screenshots
+├── .env                            # Environment variables (never commit secrets)
 ├── vite.config.js
 └── package.json
 ```
@@ -91,8 +112,8 @@ devos-dashboard/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/javiyaraj/devos-dashboard.git
-cd devos-dashboard
+git clone https://github.com/JAVIYARAJ/orbit.git
+cd orbit
 ```
 
 ### 2. Install dependencies
@@ -103,20 +124,32 @@ npm install
 
 ### 3. Configure environment
 
-Create `.env.local` in the root:
+Create `.env` in the root:
 
 ```env
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+VITE_FIREBASE_API_KEY=your_firebase_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+VITE_FIREBASE_APP_ID=your_app_id
+
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
+
+VITE_CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```
 
 ### 4. Set up Supabase
 
-- Create a project in [Supabase](https://supabase.com) — select **Asia Pacific (Mumbai) `ap-south-1`** region
-- Enable **Email/Password** auth
-- Enable **Google OAuth** if needed
+- Create a project at [supabase.com](https://supabase.com)
+- Enable **Email/Password** auth and **Google OAuth**
 - Add redirect URL: `http://localhost:5173`
-- Provision the RPC functions (see [Database Setup](#database-setup) below)
+- Provision the RPC functions (see Database Setup below)
 
 ### 5. Run locally
 
@@ -141,127 +174,56 @@ npm run lint      # Run ESLint
 
 ## Database Setup
 
-All data access goes through Supabase PostgreSQL RPC functions — the client never queries tables directly. You must provision the following functions in your Supabase project:
+All data access goes through Supabase PostgreSQL RPC functions — the client never queries tables directly.
 
-**Workstation**
-```
-get_my_workstations
-create_my_workstation
-switch_active_workstation
-load_workstation_data          ← returns full JSON payload on login
-```
+Key RPC functions include workstation management, projects, tasks, notes, vault, learning, calendar events, task comments, task attachments, notifications, workspace invites, and role permissions.
 
-**Projects**
-```
-create_project
-update_project
-delete_project
-```
-
-**Tasks**
-```
-create_task
-update_task
-delete_task
-```
-
-**Notes**
-```
-create_note
-update_note
-delete_note
-```
-
-**Vault**
-```
-create_vault_item              ← stores AES-256 encrypted blob only
-update_vault_item
-delete_vault_item
-```
-
-**Email Templates**
-```
-create_email_template
-update_email_template
-delete_email_template
-```
-
-**Learning**
-```
-create_learning_item
-```
-
-> `load_workstation_data` returns a single JSON payload containing projects, tasks, notes, vault items, learning items, email templates, Gantt tasks, and timer sessions. The UI converts this into app-ready objects before rendering.
-
-> ⚠️ Database migrations are not included in this repository. Schema and RPC functions must be provisioned separately in your Supabase dashboard or via the Supabase CLI.
-
----
-
-## Local Persistence
-
-DevOS uses `localStorage` for lightweight UI state — nothing sensitive:
-
-| Key | Purpose |
-|---|---|
-| `devos:activeWs` | Selected workstation |
-| `devos:nav` | Last active page |
-| `devos:timerSec` | Active timer seconds |
-| `devos:timerRunning` | Timer running state |
-| `devos:tweaks` | Theme and layout preferences |
-
-All primary application data is loaded from Supabase after auth and workstation selection.
+> ⚠️ Database migrations are not included in this repository. Schema and RPC functions must be provisioned separately via the Supabase dashboard or Supabase CLI.
 
 ---
 
 ## Security
 
-The **Vault** module handles secrets (API keys, tokens, passwords) with a non-negotiable rule:
+The **Vault** module handles secrets with a strict rule:
 
 - Encryption happens **client-side** before any data leaves the browser
 - Supabase stores **only the encrypted blob** — never plaintext
-- Decryption happens **client-side** after fetching
-- The encryption key (master password) never touches the server
+- The master password never touches the server
 
-> Never store raw secrets in any cloud database. If the Supabase project is ever compromised, vault data remains unreadable without the master password.
+---
+
+## Permissions
+
+Orbit uses a four-tier role system with a fully configurable permission matrix:
+
+| Role | Level |
+|---|---|
+| **Owner** | Full access to everything, including vault and role management |
+| **Admin** | Broad access, configurable per workspace |
+| **Member** | Standard access — create, edit, assign tasks |
+| **Viewer** | Read-only access |
+
+Owners can customize 20+ permission keys per role directly from the Collaboration settings page — no code change required.
 
 ---
 
 ## Theme & Appearance
 
-DevOS supports runtime theme tweaks without a page reload:
+Orbit supports runtime appearance tweaks without a page reload:
 
-- **Accent color** — switch between cyan, amber, green, and more
-- **Density** — compact, default, or comfortable spacing
-- **Typography** — font family and size preferences
-- **Surface** — background and card opacity
-- **Texture** — subtle grain, scanlines, or clean
-- **Scanlines** — optional CRT-style overlay
+- **Accent color** — cyan, amber, green, and more
+- **Density** — compact or comfortable spacing
+- **Typography** — font family preferences
+- **Surface** — background and card style
+- **Dark / Light** theme
 
-Tweaks are saved to `localStorage` and persist across sessions.
-
----
-
-## Roadmap
-
-- [ ] Supabase schema migrations (CLI-ready)
-- [ ] Vault master password setup flow
-- [ ] Mobile responsive layout
-- [ ] Offline support for notes and tasks
-- [ ] Export projects/tasks to PDF
-- [ ] Calendar integration
-- [ ] GitHub integration — link commits to tasks
-
----
-
-## Why DevOS?
-
-Most developers run their day across Notion, Jira, 1Password, Toggl, and a folder of half-finished email templates. DevOS collapses all of it into one fast, keyboard-first dashboard — built specifically for how a developer actually works, not how a project manager thinks a developer works.
+All tweaks are saved to `localStorage` and persist across sessions.
 
 ---
 
 <div align="center">
 
-Built by [Javiya Raj](https://github.com/javiyaraj) — Flutter developer, product builder.
+Built by [Javiya Raj](https://github.com/JAVIYARAJ)
 
 *Ship less tools. Do more work.*
 
