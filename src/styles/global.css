@@ -83,6 +83,7 @@
 
 /* ── Base ── */
 /* bg-0 = page canvas (light gray), bg-1 = elevated surface (white) */
+[data-theme="light"] html,
 [data-theme="light"] body {
   background: var(--bg-0);
   color: var(--text);
@@ -1122,6 +1123,9 @@ html,
 body {
   margin: 0;
   padding: 0;
+  /* Fill safe-area zones (top notch / bottom home bar) with the app canvas color
+     so viewport-fit=cover doesn't show the browser's gray in those gutters. */
+  background: var(--bg-0);
 }
 
 body {

@@ -260,13 +260,6 @@ export const AuthPage = ({ onAuth }) => {
           {/* ── Google-only mode ── */}
           {googleAuthOnly ? (
             <>
-              <div className="auth-warning" role="note">
-                <Icon name="alert-triangle" size={14} />
-                <span>
-                  <strong style={{ color: 'var(--text)' }}>Email sign-in is temporarily disabled</strong><br />
-                  Due to email confirmation rate limits, login and registration with email &amp; password are unavailable right now. Please use Google to continue.
-                </span>
-              </div>
               {error && (
                 <div className="auth-error" role="alert">
                   <Icon name="x" size={13} />
