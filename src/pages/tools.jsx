@@ -1250,7 +1250,6 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
   const NoteCard = ({ n }) => (
     <div
       className={'note-item' + (n.id === activeId ? ' active' : '')}
-      onClick={() => { setActiveId(n.id); setMobileView('editor'); }}
       draggable
       onDragStart={e => {
         e.dataTransfer.setData('text/plain', n.id);
