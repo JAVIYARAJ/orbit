@@ -11598,7 +11598,7 @@ body.scanlines::after {
 
   .tb {
     gap: 8px;
-    padding: 0 12px;
+    padding: var(--safe-top) 12px 0;
   }
 
   .tb-search {
@@ -11847,6 +11847,7 @@ body.scanlines::after {
   .app.collapsed .sb-brand {
     justify-content: flex-start;
     padding: 0 16px;
+    height: 56px;
   }
 
   .sb-brand .label,
@@ -11912,7 +11913,7 @@ body.scanlines::after {
   /* Topbar: show hamburger, keep controls tappable, no overflow */
   .tb {
     gap: 8px;
-    padding: 0 12px;
+    padding: var(--safe-top) 12px 0;
   }
 
   .tb-burger {
@@ -12496,6 +12497,7 @@ body.scanlines::after {
   position: relative;
   z-index: 1;
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -12643,9 +12645,11 @@ body.scanlines::after {
 .auth-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 6px;
   position: relative;
   z-index: 1;
+  /* Prevent preview section from collapsing to give pills enough room */
+  flex-shrink: 0;
 }
 
 .auth-pill {
@@ -12658,6 +12662,7 @@ body.scanlines::after {
   color: var(--text-3);
   background: rgba(255, 255, 255, 0.03);
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .auth-pill:hover {
@@ -12676,6 +12681,12 @@ body.scanlines::after {
 }
 
 /* ── Right form panel ─────────────────────────────────────────────── */
+/* Hide mobile-only brand elements on desktop */
+.auth-m-header,
+.auth-m-foot {
+  display: none;
+}
+
 .auth-form-wrap {
   display: grid;
   place-items: center;
@@ -12992,52 +13003,178 @@ body.scanlines::after {
   border-top-color: #fff;
 }
 
-/* Responsive — stack panels below 800px.
-   Drop the 2-column grid to a plain block flow so there's no empty second
-   column and no grid place-items centering quirk that clipped tall forms. */
+/* ─── Mobile auth — full-page redesign (≤800px) ───────────────────── */
 @media (max-width: 800px) {
   .auth-wrap {
     display: block !important;
     grid-template-columns: 1fr !important;
-    height: auto !important;
-    min-height: 100vh;
-    min-height: 100dvh;
-    overflow-x: hidden;
-    overflow-y: visible;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
   }
 
   .auth-panel {
     display: none !important;
   }
 
-  /* Form column → flex + margin:auto centers the form both axes AND stays
-     scrollable when the form is taller than the screen (auto-margins don't
-     clip the top the way align-items:center does). */
+  /* Full-screen form wrap with dark gradient + ambient glows */
   .auth-form-wrap {
     display: flex !important;
-    min-height: 100vh;
-    min-height: 100dvh;
-    padding: 32px 20px;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    height: 100vh;
+    height: 100dvh;
+    padding: calc(var(--safe-top) + 24px) 20px calc(var(--safe-bottom) + 24px);
     overflow-y: auto;
+    box-sizing: border-box;
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 153, 255, 0.18) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 40% at 50% 110%, rgba(124, 58, 237, 0.15) 0%, transparent 55%),
+                #080810;
+    position: relative;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Container wrapper */
+  .auth-form-container {
+    width: 100%;
+    max-width: 400px;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* Mobile-only brand header */
+  .auth-m-header {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+    width: 100%;
+  }
+
+  .auth-m-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--f-display);
+    font-weight: 800;
+    font-size: 24px;
+    letter-spacing: -0.02em;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(0, 153, 255, 0.2);
+  }
+
+  .auth-m-logo svg {
+    color: var(--accent);
+    filter: drop-shadow(0 0 8px rgba(0, 153, 255, 0.5));
+  }
+
+  .auth-m-subtitle {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-4);
+    font-weight: 600;
+  }
+
+  /* Glassmorphic form card */
+  .auth-form-card {
+    width: 100%;
+    background: rgba(15, 15, 22, 0.65);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 32px 24px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 
+                0 0 0 1px rgba(255, 255, 255, 0.02) inset;
     box-sizing: border-box;
   }
 
   .auth-form {
-    margin: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin: 0;
     width: 100%;
-    max-width: 400px;
-    min-width: 0;
   }
-}
 
-/* Phone tightening for auth */
-@media (max-width: 480px) {
-  .auth-form-wrap {
-    padding: 24px 16px;
+  .auth-form-head {
+    text-align: center;
+    margin-bottom: 8px;
   }
 
   .auth-form-head h2 {
-    font-size: 24px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 0 4px;
+  }
+
+  .auth-form-head p {
+    font-size: 13px;
+    color: var(--text-3);
+    margin: 0;
+  }
+
+  /* Prominent Google button */
+  .auth-google-btn {
+    padding: 13px 20px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    background: #fff !important;
+    color: #080810 !important;
+    border: none !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+    gap: 10px !important;
+    transition: transform 0.15s ease, background 0.15s ease !important;
+  }
+
+  .auth-google-btn:hover:not(:disabled),
+  .auth-google-btn:active:not(:disabled) {
+    transform: translateY(-1px) !important;
+    background: #f3f3f5 !important;
+  }
+
+  .auth-google-btn:disabled {
+    opacity: 0.5 !important;
+  }
+
+  /* Form inputs size adjustment for tap targets */
+  .auth-field input {
+    padding: 11px 14px;
+    font-size: 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .auth-field input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0, 153, 255, 0.15);
+  }
+
+  .auth-submit {
+    padding: 13px 20px;
+    font-size: 14px;
+    border-radius: 10px;
+  }
+
+  /* Footer tagline under card */
+  .auth-m-foot {
+    display: block !important;
+    text-align: center;
+    font-family: var(--f-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-4);
+    text-transform: uppercase;
+    margin-top: 4px;
   }
 }
 

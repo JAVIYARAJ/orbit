@@ -6,7 +6,12 @@ import { supabase } from '../lib/supabase.js';
 import { acceptInvite, getInviteByToken } from '../lib/db.js';
 import { useAuthConfig } from '../lib/useRemoteConfig.js';
 
-const PILLS = ['Projects', 'Kanban', 'Analytics', 'Vault', 'Timer', 'Notes', 'Email Hub', 'Toolkit'];
+const PILLS = [
+  'Projects', 'Kanban', 'Tasks', 'Analytics',
+  'Vault', 'Timer', 'Notes', 'Email Hub',
+  'Schedule', 'Learning Path', 'GitHub Hub',
+  'Vercel', 'Collaboration', 'Toolkit', 'Flutter Init', 'Settings',
+];
 
 const HEATMAP = [
   0, 1, 0, 2, 1, 3, 2, 1, 0, 1, 2, 3, 2, 1, 2, 3, 4, 3, 2, 1,
@@ -228,8 +233,6 @@ export const AuthPage = ({ onAuth }) => {
         <div className="auth-pills">
           {PILLS.map(p => <span key={p} className="auth-pill">{p}</span>)}
         </div>
-
-        <div className="auth-panel-foot">Secure · Local-first · Open source</div>
       </aside>
 
       {/* ── Right form panel ──────────────────────────────────── */}
@@ -239,203 +242,219 @@ export const AuthPage = ({ onAuth }) => {
             <Spinner />
           </div>
         ) : (
-        <form className="auth-form" onSubmit={handleSubmit} noValidate>
-
-          {/* Heading */}
-          <div className="auth-form-head">
-            <h2>
-              {googleAuthOnly ? 'Welcome to Orbit' :
-                mode === 'login' ? 'Welcome back' :
-                mode === 'signup' ? 'Create account' :
-                  'Reset password'}
-            </h2>
-            <p>
-              {googleAuthOnly ? 'Sign in with your Google account to continue' :
-                mode === 'login' ? 'Sign in to your workspace' :
-                mode === 'signup' ? 'Set up your Orbit workspace' :
-                  "We'll send a reset link to your email"}
-            </p>
-          </div>
-
-          {/* ── Google-only mode ── */}
-          {googleAuthOnly ? (
-            <>
-              {error && (
-                <div className="auth-error" role="alert">
-                  <Icon name="x" size={13} />
-                  {error}
-                </div>
-              )}
-              <button
-                type="button"
-                className="auth-google-btn"
-                onClick={handleGoogle}
-                disabled={busy}
-              >
-                {googleLoading ? <Spinner /> : <GoogleIcon />}
-                {googleLoading ? 'Connecting…' : 'Continue with Google'}
-              </button>
-            </>
-          ) : emailSent ? (
-            <div className="auth-email-sent">
-              <div className="auth-email-sent-icon">
-                <Icon name="mail" size={22} />
+          <div className="auth-form-container">
+            {/* Unified mobile header */}
+            <div className="auth-m-header">
+              <div className="auth-m-logo">
+                <svg width="28" height="28" viewBox="0 0 18 18" fill="none">
+                  <circle cx="9" cy="9" r="3" fill="currentColor" />
+                  <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
+                  <circle cx="9" cy="3" r="1.5" fill="currentColor" />
+                </svg>
+                <span>Orbit</span>
               </div>
-              <h3>Check your inbox</h3>
-              {emailSentType === 'confirm' ? (
-                <p>
-                  We sent a confirmation link to <strong>{email}</strong>.<br />
-                  Click the link to activate your account, then come back here to sign in.
-                </p>
-              ) : (
-                <p>
-                  We sent a password reset link to <strong>{email}</strong>.<br />
-                  Check your inbox and follow the instructions.
-                </p>
-              )}
-              <button
-                type="button"
-                className="auth-submit"
-                style={{ marginTop: 8 }}
-                onClick={() => reset('login')}
-              >
-                Back to sign in
-              </button>
-              <button type="button" className="auth-link" style={{ marginTop: 12 }}
-                onClick={async () => {
-                  setLoading(true);
-                  if (emailSentType === 'confirm') {
-                    await supabase.auth.resend({ type: 'signup', email });
-                  } else {
-                    await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
-                  }
-                  setLoading(false);
-                }}
-                disabled={loading}
-              >
-                {loading ? 'Sending…' : 'Resend email'}
-              </button>
+              <div className="auth-m-subtitle">Developer Workspace</div>
             </div>
-          ) : (
-            <>
-              {/* Google — only on login/signup */}
-              {mode !== 'forgot' && (
-                <>
-                  <button
-                    type="button"
-                    className="auth-google-btn"
-                    onClick={handleGoogle}
-                    disabled={busy}
-                  >
-                    {googleLoading ? <Spinner /> : <GoogleIcon />}
-                    {googleLoading ? 'Connecting…' : 'Continue with Google'}
-                  </button>
-                  <div className="auth-divider"><span>or</span></div>
-                </>
-              )}
 
-              {/* Error */}
-              {error && (
-                <div className="auth-error" role="alert">
-                  <Icon name="x" size={13} />
-                  {error}
+            <div className="auth-form-card">
+              <form className="auth-form" onSubmit={handleSubmit} noValidate>
+                {/* Heading */}
+                <div className="auth-form-head">
+                  <h2>
+                    {googleAuthOnly ? 'Welcome to Orbit' :
+                      mode === 'login' ? 'Welcome back' :
+                      mode === 'signup' ? 'Create account' :
+                        'Reset password'}
+                  </h2>
+                  <p>
+                    {googleAuthOnly ? 'Sign in with your Google account to continue' :
+                      mode === 'login' ? 'Sign in to your workspace' :
+                      mode === 'signup' ? 'Set up your Orbit workspace' :
+                        "We'll send a reset link to your email"}
+                  </p>
                 </div>
-              )}
 
-              {/* Name — signup only */}
-              {mode === 'signup' && (
-                <div className="auth-field">
-                  <label htmlFor="auth-name">Full name</label>
-                  <input
-                    id="auth-name" type="text" placeholder="Your name"
-                    value={name} onChange={e => setName(e.target.value)}
-                    autoComplete="name" disabled={busy} autoFocus
-                  />
-                </div>
-              )}
-
-              {/* Email */}
-              <div className="auth-field">
-                <label htmlFor="auth-email">Email address</label>
-                <input
-                  id="auth-email" type="email" placeholder="you@example.com"
-                  value={email}
-                  onChange={e => { setEmail(e.target.value); setError(''); }}
-                  autoComplete="email" disabled={busy}
-                  autoFocus={mode === 'login' || mode === 'forgot'}
-                />
-              </div>
-
-              {/* Password — not on forgot */}
-              {mode !== 'forgot' && (
-                <div className="auth-field">
-                  <label htmlFor="auth-pw">
-                    Password
-                    {mode === 'login' && (
-                      <button type="button" className="auth-link auth-forgot-link"
-                        onClick={() => reset('forgot')} tabIndex={-1}>
-                        Forgot password?
-                      </button>
+                {/* ── Google-only mode ── */}
+                {googleAuthOnly ? (
+                  <>
+                    {error && (
+                      <div className="auth-error" role="alert">
+                        <Icon name="x" size={13} />
+                        {error}
+                      </div>
                     )}
-                  </label>
-                  <div className="auth-pw-wrap">
-                    <input
-                      id="auth-pw"
-                      type={showPw ? 'text' : 'password'}
-                      placeholder={mode === 'signup' ? 'Min. 6 characters' : '••••••••'}
-                      value={password}
-                      onChange={e => { setPassword(e.target.value); setError(''); }}
-                      autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                    <button
+                      type="button"
+                      className="auth-google-btn"
+                      onClick={handleGoogle}
                       disabled={busy}
-                    />
-                    <button type="button" className="auth-pw-toggle"
-                      onClick={() => setShowPw(s => !s)} tabIndex={-1}
-                      aria-label={showPw ? 'Hide password' : 'Show password'}>
-                      <Icon name={showPw ? 'eye-off' : 'eye'} size={14} />
+                    >
+                      {googleLoading ? <Spinner /> : <GoogleIcon />}
+                      {googleLoading ? 'Connecting…' : 'Continue with Google'}
+                    </button>
+                  </>
+                ) : emailSent ? (
+                  <div className="auth-email-sent">
+                    <div className="auth-email-sent-icon">
+                      <Icon name="mail" size={22} />
+                    </div>
+                    <h3>Check your inbox</h3>
+                    {emailSentType === 'confirm' ? (
+                      <p>
+                        We sent a confirmation link to <strong>{email}</strong>.<br />
+                        Click the link to activate your account, then come back here to sign in.
+                      </p>
+                    ) : (
+                      <p>
+                        We sent a password reset link to <strong>{email}</strong>.<br />
+                        Check your inbox and follow the instructions.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      className="auth-submit"
+                      style={{ marginTop: 8 }}
+                      onClick={() => reset('login')}
+                    >
+                      Back to sign in
+                    </button>
+                    <button type="button" className="auth-link" style={{ marginTop: 12 }}
+                      onClick={async () => {
+                        setLoading(true);
+                        if (emailSentType === 'confirm') {
+                          await supabase.auth.resend({ type: 'signup', email });
+                        } else {
+                          await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+                        }
+                        setLoading(false);
+                      }}
+                      disabled={loading}
+                    >
+                      {loading ? 'Sending…' : 'Resend email'}
                     </button>
                   </div>
-                  {/* Password strength bar — signup only */}
-                  {mode === 'signup' && password.length > 0 && (
-                    <PasswordStrength password={password} />
-                  )}
-                </div>
-              )}
-
-              {/* Submit */}
-              <button type="submit" className="auth-submit" disabled={busy}>
-                {loading && <Spinner light />}
-                {loading
-                  ? mode === 'signup' ? 'Creating account…'
-                    : mode === 'forgot' ? 'Sending…'
-                      : 'Signing in…'
-                  : mode === 'login' ? 'Sign in'
-                    : mode === 'signup' ? 'Create account'
-                      : 'Send reset link'}
-              </button>
-
-              {/* Mode switch */}
-              <p className="auth-switch">
-                {mode === 'login' ? (
-                  <>New to Orbit?{' '}
-                    <button type="button" className="auth-link" onClick={() => reset('signup')}>
-                      Create a free account
-                    </button>
-                  </>
-                ) : mode === 'signup' ? (
-                  <>Already have an account?{' '}
-                    <button type="button" className="auth-link" onClick={() => reset('login')}>
-                      Sign in
-                    </button>
-                  </>
                 ) : (
-                  <button type="button" className="auth-link" onClick={() => reset('login')}>
-                    Back to sign in
-                  </button>
+                  <>
+                    {/* Google — only on login/signup */}
+                    {mode !== 'forgot' && (
+                      <>
+                        <button
+                          type="button"
+                          className="auth-google-btn"
+                          onClick={handleGoogle}
+                          disabled={busy}
+                        >
+                          {googleLoading ? <Spinner /> : <GoogleIcon />}
+                          {googleLoading ? 'Connecting…' : 'Continue with Google'}
+                        </button>
+                        <div className="auth-divider"><span>or</span></div>
+                      </>
+                    )}
+
+                    {/* Error */}
+                    {error && (
+                      <div className="auth-error" role="alert">
+                        <Icon name="x" size={13} />
+                        {error}
+                      </div>
+                    )}
+
+                    {/* Name — signup only */}
+                    {mode === 'signup' && (
+                      <div className="auth-field">
+                        <label htmlFor="auth-name">Full name</label>
+                        <input
+                          id="auth-name" type="text" placeholder="Your name"
+                          value={name} onChange={e => setName(e.target.value)}
+                          autoComplete="name" disabled={busy} autoFocus
+                        />
+                      </div>
+                    )}
+
+                    {/* Email */}
+                    <div className="auth-field">
+                      <label htmlFor="auth-email">Email address</label>
+                      <input
+                        id="auth-email" type="email" placeholder="you@example.com"
+                        value={email}
+                        onChange={e => { setEmail(e.target.value); setError(''); }}
+                        autoComplete="email" disabled={busy}
+                        autoFocus={mode === 'login' || mode === 'forgot'}
+                      />
+                    </div>
+
+                    {/* Password — not on forgot */}
+                    {mode !== 'forgot' && (
+                      <div className="auth-field">
+                        <label htmlFor="auth-pw">
+                          Password
+                          {mode === 'login' && (
+                            <button type="button" className="auth-link auth-forgot-link"
+                              onClick={() => reset('forgot')} tabIndex={-1}>
+                              Forgot password?
+                            </button>
+                          )}
+                        </label>
+                        <div className="auth-pw-wrap">
+                          <input
+                            id="auth-pw"
+                            type={showPw ? 'text' : 'password'}
+                            placeholder={mode === 'signup' ? 'Min. 6 characters' : '••••••••'}
+                            value={password}
+                            onChange={e => { setPassword(e.target.value); setError(''); }}
+                            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                            disabled={busy}
+                          />
+                          <button type="button" className="auth-pw-toggle"
+                            onClick={() => setShowPw(s => !s)} tabIndex={-1}
+                            aria-label={showPw ? 'Hide password' : 'Show password'}>
+                            <Icon name={showPw ? 'eye-off' : 'eye'} size={14} />
+                          </button>
+                        </div>
+                        {/* Password strength bar — signup only */}
+                        {mode === 'signup' && password.length > 0 && (
+                          <PasswordStrength password={password} />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Submit */}
+                    <button type="submit" className="auth-submit" disabled={busy}>
+                      {loading && <Spinner light />}
+                      {loading
+                        ? mode === 'signup' ? 'Creating account…'
+                          : mode === 'forgot' ? 'Sending…'
+                            : 'Signing in…'
+                        : mode === 'login' ? 'Sign in'
+                          : mode === 'signup' ? 'Create account'
+                            : 'Send reset link'}
+                    </button>
+
+                    {/* Mode switch */}
+                    <p className="auth-switch">
+                      {mode === 'login' ? (
+                        <>New to Orbit?{' '}
+                          <button type="button" className="auth-link" onClick={() => reset('signup')}>
+                            Create a free account
+                          </button>
+                        </>
+                      ) : mode === 'signup' ? (
+                        <>Already have an account?{' '}
+                          <button type="button" className="auth-link" onClick={() => reset('login')}>
+                            Sign in
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" className="auth-link" onClick={() => reset('login')}>
+                          Back to sign in
+                        </button>
+                      )}
+                    </p>
+                  </>
                 )}
-              </p>
-            </>
-          )}
-        </form>
+              </form>
+            </div>
+          </div>
         )}
       </main>
     </div>
@@ -518,75 +537,91 @@ export const ResetPasswordPage = ({ onDone }) => {
             <span className="auth-hero-accent">Stay in flow.</span>
           </h1>
         </div>
-        <div className="auth-panel-foot">Secure · Local-first · Open source</div>
       </aside>
 
       <main className="auth-form-wrap">
-        <form className="auth-form" onSubmit={handleSubmit} noValidate>
-          <div className="auth-form-head">
-            <h2>Set new password</h2>
-            <p>Choose a strong password for your account</p>
+        <div className="auth-form-container">
+          {/* Mobile-only brand header */}
+          <div className="auth-m-header">
+            <div className="auth-m-logo">
+              <svg width="28" height="28" viewBox="0 0 18 18" fill="none">
+                <circle cx="9" cy="9" r="3" fill="currentColor" />
+                <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
+                <circle cx="9" cy="3" r="1.5" fill="currentColor" />
+              </svg>
+              <span>Orbit</span>
+            </div>
+            <div className="auth-m-subtitle">Developer Workspace</div>
           </div>
 
-          {success ? (
-            <div className="auth-email-sent">
-              <div className="auth-email-sent-icon">
-                <Icon name="check" size={22} />
+          <div className="auth-form-card">
+            <form className="auth-form" onSubmit={handleSubmit} noValidate>
+              <div className="auth-form-head">
+                <h2>Set new password</h2>
+                <p>Choose a strong password for your account</p>
               </div>
-              <h3>Password updated!</h3>
-              <p>Your password has been changed. Redirecting you to sign in…</p>
-            </div>
-          ) : (
-            <>
-              {error && (
-                <div className="auth-error" role="alert">
-                  <Icon name="x" size={13} />
-                  {error}
-                </div>
-              )}
 
-              <div className="auth-field">
-                <label htmlFor="rp-pw">New password</label>
-                <div className="auth-pw-wrap">
-                  <input
-                    id="rp-pw"
-                    type={showPw ? 'text' : 'password'}
-                    placeholder="Min. 6 characters"
-                    value={password}
-                    onChange={e => { setPassword(e.target.value); setError(''); }}
-                    autoComplete="new-password"
-                    disabled={loading}
-                    autoFocus
-                  />
-                  <button type="button" className="auth-pw-toggle"
-                    onClick={() => setShowPw(s => !s)} tabIndex={-1}
-                    aria-label={showPw ? 'Hide password' : 'Show password'}>
-                    <Icon name={showPw ? 'eye-off' : 'eye'} size={14} />
+              {success ? (
+                <div className="auth-email-sent">
+                  <div className="auth-email-sent-icon">
+                    <Icon name="check" size={22} />
+                  </div>
+                  <h3>Password updated!</h3>
+                  <p>Your password has been changed. Redirecting you to sign in…</p>
+                </div>
+              ) : (
+                <>
+                  {error && (
+                    <div className="auth-error" role="alert">
+                      <Icon name="x" size={13} />
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="auth-field">
+                    <label htmlFor="rp-pw">New password</label>
+                    <div className="auth-pw-wrap">
+                      <input
+                        id="rp-pw"
+                        type={showPw ? 'text' : 'password'}
+                        placeholder="Min. 6 characters"
+                        value={password}
+                        onChange={e => { setPassword(e.target.value); setError(''); }}
+                        autoComplete="new-password"
+                        disabled={loading}
+                        autoFocus
+                      />
+                      <button type="button" className="auth-pw-toggle"
+                        onClick={() => setShowPw(s => !s)} tabIndex={-1}
+                        aria-label={showPw ? 'Hide password' : 'Show password'}>
+                        <Icon name={showPw ? 'eye-off' : 'eye'} size={14} />
+                      </button>
+                    </div>
+                    {password.length > 0 && <PasswordStrength password={password} />}
+                  </div>
+
+                  <div className="auth-field">
+                    <label htmlFor="rp-confirm">Confirm new password</label>
+                    <input
+                      id="rp-confirm"
+                      type={showPw ? 'text' : 'password'}
+                      placeholder="Re-enter password"
+                      value={confirm}
+                      onChange={e => { setConfirm(e.target.value); setError(''); }}
+                      autoComplete="new-password"
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <button type="submit" className="auth-submit" disabled={loading}>
+                    {loading && <Spinner light />}
+                    {loading ? 'Updating password…' : 'Update password'}
                   </button>
-                </div>
-                {password.length > 0 && <PasswordStrength password={password} />}
-              </div>
-
-              <div className="auth-field">
-                <label htmlFor="rp-confirm">Confirm new password</label>
-                <input
-                  id="rp-confirm"
-                  type={showPw ? 'text' : 'password'}
-                  placeholder="Re-enter password"
-                  value={confirm}
-                  onChange={e => { setConfirm(e.target.value); setError(''); }}
-                  autoComplete="new-password"
-                  disabled={loading}
-                />
-              </div>
-
-              <button type="submit" className="auth-submit" disabled={loading}>
-                {loading && <Spinner light />}
-                {loading ? 'Updating password…' : 'Update password'}
-              </button>
-            </>
-          )}
-        </form>
+                </>
+              )}
+            </form>
+          </div>
+        </div>
       </main>
     </div>
   );
