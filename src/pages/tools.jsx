@@ -586,6 +586,9 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
   const [tab, setTab] = useStateB('edit');
   const [q, setQ] = useStateB('');
   const [quickText, setQuickText] = useStateB('');
+  // Mobile drill-down: which single pane is shown at ≤768px. Ignored on desktop
+  // (all three panes always render there). 'folders' | 'list' | 'editor'.
+  const [mobileView, setMobileView] = useStateB('folders');
 
   // ── Folder state ────────────────────────────────────────────────
   // activeFolderId: null = All Notes, string uuid = specific folder
@@ -660,8 +663,18 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
     if (target) {
       setActiveFolderId(target.folderId || null);
       setActiveId(target.id);
+      setMobileView('editor');
     }
   }, [jumpToItem?.ts]);
+
+  // Split (side-by-side) view doesn't fit phones — force it to plain edit at
+  // ≤768px and keep it coerced if the viewport is resized down.
+  useEffectB(() => {
+    const sync = () => { if (window.innerWidth <= 768) setTab(t => (t === 'split' ? 'edit' : t)); };
+    sync();
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, []);
 
   const handleBodyChange = (val, cursor) => {
     setBody(val); bodyRef.current = val; setSaved(false);
@@ -849,6 +862,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
       );
       setNotes(prev => [saved, ...prev]);
       setActiveId(saved.id);
+      setMobileView('editor');
     } catch (err) {
       console.error('Failed to create note:', err);
     }
@@ -866,6 +880,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
         );
         setNotes(prev => [saved, ...prev]);
         setActiveId(saved.id);
+        setMobileView('editor');
       } catch (err) {
         console.error('Failed to quick-save note:', err);
       }
@@ -895,6 +910,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
       const folder = await dbCreateNoteFolder(workstationId, name);
       setNoteFolders(prev => [...prev, folder].sort((a, b) => a.name.localeCompare(b.name)));
       setActiveFolderId(folder.id);
+      setMobileView('list');
     } catch (err) {
       console.error('Failed to create folder:', err);
     }
@@ -935,6 +951,8 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
     const otherId = noteFolders.find(f => f.name === 'Other')?.id;
     setNotes(prev => prev.map(n => n.folderId === folder.id ? { ...n, folderId: otherId, folderName: 'Other' } : n));
     if (activeFolderId === folder.id) setActiveFolderId(null);
+    // Drilled into the deleted folder's list → go back to the folder list
+    setMobileView('folders');
     try {
       await dbDeleteNoteFolder(folder.id, workstationId);
     } catch (err) {
@@ -1232,7 +1250,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
   const NoteCard = ({ n }) => (
     <div
       className={'note-item' + (n.id === activeId ? ' active' : '')}
-      onClick={() => setActiveId(n.id)}
+      onClick={() => { setActiveId(n.id); setMobileView('editor'); }}
       draggable
       onDragStart={e => {
         e.dataTransfer.setData('text/plain', n.id);
@@ -1260,7 +1278,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
   );
 
   return (
-    <div className="page page-wide notes-page">
+    <div className={`page page-wide notes-page notes-page-${mobileView}`}>
       <div className="page-head">
         <div>
           <div className="crumb">TOOLS / NOTES</div>
@@ -1268,23 +1286,25 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
           <div className="sub">{notes.length} notes · {noteFolders.length} folders</div>
         </div>
         <div className="actions">
-          <button className="btn primary" onClick={createNote}><Icon name="plus" size={12}/> New note</button>
+          <button className="btn primary btn-new-folder" onClick={() => { setNewFolderName(''); setShowNewFolder(true); }}><Icon name="plus" size={12}/> New folder</button>
         </div>
       </div>
 
-      <div className="notes-layout">
+      <div className={`notes-layout notes-mob-${mobileView}`}>
 
         {/* ── Folder sidebar ── */}
         <div className="notes-folders">
           {/* Fixed top — never scrolls */}
           <button
             className={'nf-item' + (activeFolderId === null ? ' nf-active' : '')}
-            onClick={() => setActiveFolderId(null)}
+            onClick={() => { setActiveFolderId(null); setMobileView('list'); }}
           >
             <Icon name="list" size={12}/>
             <span>All Notes</span>
             <span className="nf-count">{notes.length}</span>
           </button>
+
+
 
           <div className="nf-divider" />
 
@@ -1315,7 +1335,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
                   transform: `translateY(${translateY}px)`,
                   transition: folderDrag ? 'transform 0.15s ease' : 'none',
                 }}
-                onClick={() => renamingFolder?.id !== f.id && setActiveFolderId(f.id)}
+                onClick={() => { if (renamingFolder?.id !== f.id) { setActiveFolderId(f.id); setMobileView('list'); } }}
                 onDoubleClick={() => f.name !== 'Other' && startRename(f)}
                 onDragOver={e => { e.preventDefault(); setNoteDragOverId(f.id); }}
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setNoteDragOverId(null); }}
@@ -1367,46 +1387,20 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
             return <div className="nf-insert-line-abs" style={{ top: lineTop }} />;
           })()}
           </div>{/* end nf-folders-scroll */}
-
-          {/* Fixed bottom — never scrolls */}
-          <div className="nf-divider" />
-
-          {showNewFolder ? (
-            <div className="nf-new-input">
-              <input
-                autoFocus
-                value={newFolderName}
-                onChange={e => setNewFolderName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setShowNewFolder(false); }}
-                placeholder="Folder name…"
-              />
-              <button onClick={createFolder} disabled={!newFolderName.trim()} title="Create">
-                <Icon name="check" size={11}/>
-              </button>
-              <button className="cancel" onClick={() => setShowNewFolder(false)} title="Cancel">
-                <Icon name="x" size={11}/>
-              </button>
-            </div>
-          ) : (
-            <button className="nf-new-btn" onClick={() => setShowNewFolder(true)}>
-              <Icon name="plus" size={11}/> New folder
-            </button>
-          )}
-
-          <button
-            className={'nf-item nf-trash' + (trashOpen ? ' nf-active' : '')}
-            onClick={trashOpen ? () => setTrashOpen(false) : openTrash}
-          >
-            <Icon name="trash" size={12}/>
-            <span>Trash</span>
-            {trashNotes.length > 0 && <span className="nf-count">{trashNotes.length}</span>}
-          </button>
         </div>
 
         {/* ── Note list ── */}
         <div className="notes-list">
+          <div className="nm-list-header">
+            <button className="notes-mobile-back" onClick={() => setMobileView('folders')}>
+              <Icon name="arrow" size={12}/> Folders
+            </button>
+          </div>
           <div className="notes-quick">
-            <div className="lbl">QUICK CAPTURE</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div className="lbl" style={{ margin: 0 }}>QUICK CAPTURE</div>
+              <button className="btn sm" onClick={createNote} style={{ padding: '2px 6px', height: 22 }}><Icon name="plus" size={9}/> New Note</button>
+            </div>
             <input
               value={quickText}
               onChange={e => setQuickText(e.target.value)}
@@ -1472,26 +1466,42 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
             )}
           </div>
 
-          {/* ── Trash panel (inside list column) ── */}
-          {trashOpen && (
-            <div className="notes-trash-list">
-              {trashLoading && <div className="notes-trash-empty">Loading…</div>}
-              {!trashLoading && trashNotes.length === 0 && <div className="notes-trash-empty">Trash is empty</div>}
-              {!trashLoading && trashNotes.map(n => (
-                <div key={n.id} className="notes-trash-item">
-                  <div className="notes-trash-title">{n.title}</div>
-                  <div className="notes-trash-actions">
-                    <button className="btn sm" onClick={() => handleRestore(n.id)}><Icon name="rev" size={9}/> Restore</button>
-                    <button className="btn sm" style={{ color: '#ff3d3d', borderColor: '#ff3d3d33' }} onClick={() => handlePurge(n.id)}><Icon name="x" size={9}/></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
         </div>
 
         {/* ── Delete folder confirmation dialog ── */}
+        {showNewFolder && createPortal(
+          <div className="nf-dialog-backdrop" onClick={() => setShowNewFolder(false)}>
+            <div className="nf-dialog" onClick={e => e.stopPropagation()}>
+              <div className="nf-dialog-icon" style={{ color: 'var(--accent)', background: 'var(--accent-tint)', borderColor: 'var(--accent)' }}>
+                <Icon name="folder" size={20}/>
+              </div>
+              <div className="nf-dialog-title">Create Folder</div>
+              <div className="nf-dialog-body">
+                <div style={{ color: 'var(--text-3)', fontSize: 12, marginBottom: 16 }}>
+                  Organize your notes by grouping them into a new folder.
+                </div>
+                <input
+                  className="nf-dialog-input"
+                  autoFocus
+                  value={newFolderName}
+                  onChange={e => setNewFolderName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setShowNewFolder(false); }}
+                  placeholder="Folder name…"
+                />
+              </div>
+              <div className="nf-dialog-actions">
+                <button className="btn" onClick={() => setShowNewFolder(false)}>
+                  Cancel
+                </button>
+                <button className="btn primary" onClick={createFolder} disabled={!newFolderName.trim()}>
+                  <Icon name="plus" size={11}/> Create folder
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
         {deleteFolderConfirm && createPortal(
           <div className="nf-dialog-backdrop" onClick={() => setDeleteFolderConfirm(null)}>
             <div className="nf-dialog" onClick={e => e.stopPropagation()}>
@@ -1588,11 +1598,23 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
 
         {!note ? (
           <div className="note-empty-state">
+            <button className="notes-mobile-back" onClick={() => setMobileView('list')}>
+              <Icon name="arrow" size={12}/> Notes
+            </button>
             <Icon name="note" size={28}/>
             <span>Select a note to start editing</span>
           </div>
         ) : (
           <div className="note-editor">
+            <button className="notes-mobile-back" onClick={() => setMobileView('list')}>
+              <Icon name="arrow" size={12}/> Notes
+            </button>
+            <div className="note-breadcrumb">
+              <Icon name="folder" size={11}/>
+              <span className="nb-folder">{noteFolders.find(f => f.id === note.folderId)?.name || note.folderName || 'Other'}</span>
+              <Icon name="chev" size={9}/>
+              <span className="nb-note">{title || 'Untitled note'}</span>
+            </div>
             <div className="note-eh">
               <input className="title" value={title} onChange={e => handleTitleChange(e.target.value)} />
               <div className="note-eh-actions">

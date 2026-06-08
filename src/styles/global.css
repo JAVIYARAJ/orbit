@@ -9179,31 +9179,6 @@ button.collab-role-pill:hover:not(:disabled) {
   margin: 10px 12px;
 }
 
-.nf-new-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 8px 10px;
-  font-family: var(--f-mono);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-3);
-  background: transparent;
-  border: 1px dashed var(--border-2);
-  border-radius: 4px;
-  cursor: pointer;
-  letter-spacing: 0.06em;
-  transition: all 0.15s ease;
-  margin-top: 4px;
-  justify-content: center;
-}
-
-.nf-new-btn:hover {
-  color: var(--text-1);
-  border-color: var(--border-3);
-  background: var(--bg-2);
-}
 
 .nf-new-input {
   display: flex;
@@ -9507,6 +9482,27 @@ button.collab-role-pill:hover:not(:disabled) {
   color: var(--accent-hi);
 }
 
+.nf-dialog-input {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: var(--text);
+  font-family: var(--f-mono);
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.nf-dialog-input:focus {
+  border-color: var(--accent);
+}
+
+.nf-dialog-input::placeholder {
+  color: var(--text-4);
+}
+
 .nf-dialog-body strong {
   color: var(--text);
   font-weight: 600;
@@ -9787,7 +9783,7 @@ button.collab-role-pill:hover:not(:disabled) {
 }
 
 .note-eh {
-  padding: 10px 14px;
+  padding: 4px 14px 10px 14px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -9927,6 +9923,68 @@ button.collab-role-pill:hover:not(:disabled) {
   font-size: 12px;
   background: var(--bg-1);
   border: 1px solid var(--border);
+}
+
+/* Mobile drill-down back button — hidden on desktop, shown at ≤768px */
+.notes-mobile-back {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  margin-bottom: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-2);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.notes-mobile-back svg {
+  transform: scaleX(-1);
+}
+
+.notes-mobile-back:hover {
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+
+/* Folder › Note breadcrumb shown above the editor for context */
+.note-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 14px 0 14px;
+  margin-bottom: 0;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  min-width: 0;
+}
+
+.note-breadcrumb svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.note-breadcrumb .nb-folder {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.note-breadcrumb .nb-note {
+  color: var(--accent-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .note-body-drop {
@@ -12025,6 +12083,169 @@ body.scanlines::after {
 
   .jira-grid {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  }
+}
+
+/* ───── Notes — drill-down navigation (ALL devices) ─────
+   One pane at a time on every screen size: Folders → Notes list → Editor,
+   driven by the .notes-mob-{folders|list|editor} class on .notes-layout.
+   `@media all` always matches, so this replaces the desktop 3-pane layout
+   everywhere. Overrides the base grid + the ≤900px stack rules (later in source). */
+@media all {
+  /* Lock the height to the viewport so panes can scroll internally and fill the screen entirely! */
+  .notes-page {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .notes-page-list .page-head,
+  .notes-page-editor .page-head {
+    display: none;
+  }
+
+  .notes-page-list,
+  .notes-page-editor {
+    padding-top: 12px !important;
+    padding-bottom: var(--pad) !important;
+  }
+
+  .notes-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    flex: 1;
+  }
+
+  /* Hide all three panes, then reveal only the active one */
+  .notes-layout > .notes-folders,
+  .notes-layout > .notes-list,
+  .notes-layout > .note-editor,
+  .notes-layout > .note-empty-state {
+    display: none;
+  }
+
+  .notes-mob-folders > .notes-folders {
+    display: flex;
+  }
+
+  .notes-mob-list > .notes-list {
+    display: flex;
+  }
+
+  .notes-mob-editor > .note-editor,
+  .notes-mob-editor > .note-empty-state {
+    display: flex;
+  }
+
+  /* Folders as a vertical drill-down list */
+  .notes-folders {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex: 1;
+  }
+
+  .notes-folders {
+    overflow: hidden;
+  }
+
+  .nf-folders-scroll {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    overflow-y: auto;
+    flex: 1;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .nf-divider {
+    display: block;
+  }
+
+  /* Allow the notes list to scroll internally */
+  .notes-list {
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .notes-scroll {
+    overflow-y: auto;
+    flex: 1;
+    height: 100%;
+  }
+
+  /* Editor: usable typing area */
+  .note-editor,
+  .note-empty-state {
+    width: 100%;
+    height: 100%;
+    flex: 1;
+  }
+
+  .note-editor .note-body textarea {
+    height: 100%;
+  }
+
+  /* Reveal the back buttons */
+  .notes-mobile-back {
+    display: flex;
+  }
+
+  /* Tap-friendly rows */
+  .nf-row,
+  .nf-item,
+  .note-item {
+    min-height: 44px;
+  }
+}
+
+/* Split (side-by-side) view is disabled on phones only — hide its toggle.
+   On medium devices the full-width editor pane has room for split.
+   EDIT = child 1, PREV = 2, SPLIT = 3. */
+@media (max-width: 768px) {
+  .note-tabs button:nth-child(3) {
+    display: none;
+  }
+}
+
+/* ───── Notes — focus reading mode on phones (≤768px) ───── */
+@media (max-width: 768px) {
+  .nfm-inner {
+    padding: 28px 18px 56px;
+  }
+
+  .nfm-header {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+  }
+
+  .nfm-title {
+    font-size: 24px;
+  }
+
+  /* Bottom control bar: wrap instead of overflowing; drop the duplicate
+     center stats (the percentage/words already show elsewhere). */
+  .nfm-bar {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .nfm-bar-l,
+  .nfm-bar-r {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .nfm-bar-c {
+    display: none;
   }
 }
 
