@@ -5488,6 +5488,7 @@ button.collab-role-pill:hover:not(:disabled) {
   width: 100%;
   max-width: 580px;
   max-height: 90vh;
+  max-height: 90dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -5566,6 +5567,7 @@ button.collab-role-pill:hover:not(:disabled) {
 .task-panel {
   width: min(980px, 100vw);
   height: 100vh;
+  height: 100dvh;
   background: var(--bg-1);
   border-left: 1px solid var(--border-2);
   display: flex;
@@ -5588,7 +5590,7 @@ button.collab-role-pill:hover:not(:disabled) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
+  padding: calc(12px + var(--safe-top)) 20px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   gap: 12px;
@@ -5648,7 +5650,7 @@ button.collab-role-pill:hover:not(:disabled) {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 12px 20px;
+  padding: 12px 20px calc(12px + var(--safe-bottom));
   border-top: 1px solid var(--border);
   flex-shrink: 0;
   background: var(--bg-1);
@@ -11251,7 +11253,9 @@ mark.note-hl {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   max-height: 100vh;
+  max-height: 100dvh;
   overflow: hidden;
   animation: sp-in 0.26s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 380px;
@@ -11263,7 +11267,7 @@ mark.note-hl {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 22px 24px;
+  padding: calc(22px + var(--safe-top)) 24px 22px;
   border-bottom: 1px solid var(--border);
   gap: 12px;
   flex: none;
@@ -11313,6 +11317,8 @@ mark.note-hl {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sp-body>* {
@@ -11320,7 +11326,7 @@ mark.note-hl {
 }
 
 .sp-footer {
-  padding: 16px 24px;
+  padding: 16px 24px calc(16px + var(--safe-bottom));
   border-top: 1px solid var(--border);
   display: flex;
   gap: 10px;
