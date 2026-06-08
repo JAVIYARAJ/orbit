@@ -22,10 +22,10 @@ const blankRecurEnd = () => ({ type: 'never', until: '', count: '' });
 
 // Source colours (aligned with the app's design tokens)
 const SOURCE_COLOR = {
-  event:   '#0099ff', // native Orbit events  (accent)
-  task:    '#f59e0b', // task due dates        (amber)
+  event: '#0099ff', // native Orbit events  (accent)
+  task: '#f59e0b', // task due dates        (amber)
   project: '#8b5cf6', // project timelines     (violet)
-  google:  '#22c55e', // Google Calendar       (green)
+  google: '#22c55e', // Google Calendar       (green)
 };
 const SOURCE_LABEL = { event: 'Events', task: 'Tasks', project: 'Projects', google: 'Google' };
 
@@ -102,10 +102,10 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
   const canEditTask = canDo(myRole, 'edit_task', wsPermissions);
   const windowWidth = useWindowWidth();
   const [connected, setConnected] = useState(null);   // null = unknown
-  const [loading, setLoading]     = useState(false);
-  const [syncing, setSyncing]     = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [reconnect, setReconnect] = useState(false);
-  const [data, setData]   = useState({ events: [], google: [], tasks: [], projects: [] });
+  const [data, setData] = useState({ events: [], google: [], tasks: [], projects: [] });
   const [range, setRange] = useState(null);
   const [enabled, setEnabled] = useState({ event: true, task: true, project: false, google: true });
   const [currentView, setCurrentView] = useState('dayGridMonth');
@@ -113,9 +113,9 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
   const [density, setDensity] = useState(() => localStorage.getItem('orbit:cal:density') || 'comfortable');
   const [showWeekends, setShowWeekends] = useState(() => localStorage.getItem('orbit:cal:weekends') !== 'false');
 
-  const [draft, setDraft]       = useState(null);   // create/edit native event modal
-  const [detail, setDetail]     = useState(null);   // read-only detail modal
-  const [saving, setSaving]     = useState(false);
+  const [draft, setDraft] = useState(null);   // create/edit native event modal
+  const [detail, setDetail] = useState(null);   // read-only detail modal
+  const [saving, setSaving] = useState(false);
   const [modalErr, setModalErr] = useState('');
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
 
@@ -193,26 +193,34 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
     const out = [];
     const today = new Date(); today.setHours(0, 0, 0, 0);
     for (const e of data.events) {
-      out.push({ key: `event:${e.id}`, source: 'event', title: e.title,
+      out.push({
+        key: `event:${e.id}`, source: 'event', title: e.title,
         start: e.start, end: e.end, allDay: e.allDay, recurrenceRule: e.recurrenceRule || null,
-        color: e.color || SOURCE_COLOR.event, editable: true, raw: e });
+        color: e.color || SOURCE_COLOR.event, editable: true, raw: e
+      });
     }
     for (const t of data.tasks) {
       const done = doneStatusIds.has(t.status_id);
       const overdue = !done && t.due_date && new Date(t.due_date) < today;
-      out.push({ key: `task:${t.task_id}`, source: 'task', title: t.title,
+      out.push({
+        key: `task:${t.task_id}`, source: 'task', title: t.title,
         start: t.due_date, end: undefined, allDay: true, done, overdue,
-        color: priColor[t.priority_id] || SOURCE_COLOR.task, editable: canEditTask, raw: t });
+        color: priColor[t.priority_id] || SOURCE_COLOR.task, editable: canEditTask, raw: t
+      });
     }
     for (const p of data.projects) {
-      out.push({ key: `project:${p.short_id}`, source: 'project', title: p.name,
+      out.push({
+        key: `project:${p.short_id}`, source: 'project', title: p.name,
         start: p.start_date, end: p.end_date ? addDayStr(p.end_date) : undefined, allDay: true,
-        color: SOURCE_COLOR.project, editable: false, raw: p });
+        color: SOURCE_COLOR.project, editable: false, raw: p
+      });
     }
     for (const g of data.google) {
-      out.push({ key: `google:${g.google_event_id}`, source: 'google', title: g.summary || '(no title)',
+      out.push({
+        key: `google:${g.google_event_id}`, source: 'google', title: g.summary || '(no title)',
         start: g.starts_at, end: g.ends_at, allDay: g.all_day,
-        color: SOURCE_COLOR.google, editable: false, raw: g });
+        color: SOURCE_COLOR.google, editable: false, raw: g
+      });
     }
     return out;
   }, [data, priColor, canEditTask, doneStatusIds]);
@@ -283,16 +291,20 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
     if (!canManage) return;
     setModalErr('');
     if (allDay) {
-      setDraft({ ...blankDraft(), allDay: true,
-        start: toDateInput(start), end: toDateInput(end || start) });
+      setDraft({
+        ...blankDraft(), allDay: true,
+        start: toDateInput(start), end: toDateInput(end || start)
+      });
       return;
     }
     // Timed: default to a 1-hour block when only a single slot/point was given.
     const sd = new Date(start);
     let ed = end ? new Date(end) : new Date(sd.getTime() + 3600000);
     if (ed <= sd) ed = new Date(sd.getTime() + 3600000);
-    setDraft({ ...blankDraft(), allDay: false,
-      start: toLocalInput(sd.toISOString()), end: toLocalInput(ed.toISOString()) });
+    setDraft({
+      ...blankDraft(), allDay: false,
+      start: toLocalInput(sd.toISOString()), end: toLocalInput(ed.toISOString())
+    });
   };
 
   const handleSelect = (arg) => openCreate(arg.startStr, arg.endStr, arg.allDay);
@@ -308,7 +320,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
         id: raw.id, title: raw.title, description: raw.description || '', location: raw.location || '',
         allDay: raw.allDay,
         start: raw.allDay ? toDateInput(raw.start) : toLocalInput(raw.start),
-        end:   raw.allDay ? toDateInput(raw.end) : toLocalInput(raw.end),
+        end: raw.allDay ? toDateInput(raw.end) : toLocalInput(raw.end),
         projectId: raw.projectId || '', color: raw.color || '',
         remindMinutes: raw.remindMinutes == null ? '' : String(raw.remindMinutes),
         repeat: detectPreset(raw.recurrenceRule, raw.start),
@@ -387,13 +399,13 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
         title: draft.title.trim(), description: draft.description, location: draft.location,
         allDay: draft.allDay,
         start: startISO,
-        end:   isoFromDraft(endVal, draft.allDay),
+        end: isoFromDraft(endVal, draft.allDay),
         projectId: draft.projectId || null, color: draft.color || null,
         remindMinutes: draft.remindMinutes === '' ? null : Number(draft.remindMinutes),
         recurrenceRule,
       };
       if (draft.id) await updateCalendarEvent(draft.id, payload);
-      else          await createCalendarEvent(payload, workstationId);
+      else await createCalendarEvent(payload, workstationId);
       setDraft(null);
       await reload();
       if (connected) runSync();
@@ -447,14 +459,14 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
           </div>
           <div className="cal-header-actions">
             {connected === false && (
-               <button className="btn outline sm cal-warn-btn" onClick={() => onNav?.('settings')}>
-                 <Icon name="alert-circle" size={14} /> Connect Google
-               </button>
+              <button className="btn outline sm cal-warn-btn" onClick={() => onNav?.('settings')}>
+                <Icon name="alert-circle" size={14} /> Connect Google
+              </button>
             )}
             {reconnect && (
-               <button className="btn danger sm" onClick={() => onNav?.('settings')}>
-                 <Icon name="alert-circle" size={14} /> Reconnect
-               </button>
+              <button className="btn danger sm" onClick={() => onNav?.('settings')}>
+                <Icon name="alert-circle" size={14} /> Reconnect
+              </button>
             )}
             {connected && (
               <div className="cal-sync-wrap">
@@ -472,7 +484,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
             )}
           </div>
         </div>
-        
+
         <div className="cal-filter-bar-premium">
           {Object.keys(SOURCE_LABEL).map(s => (
             <button
@@ -584,7 +596,7 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
             <h3>Upcoming</h3>
             <span className="cal-upcoming-count">{upcoming.length} events</span>
           </div>
-          
+
           <div className="cal-agenda-container">
             {upcoming.length === 0 && (
               <div className="cal-agenda-empty">
@@ -597,8 +609,8 @@ export function CalendarPage({ workstationId, projects = [], priorities = [], ta
                 <div className="cal-agenda-glow" style={{ background: i.color }}></div>
                 <div className="cal-agenda-card-content">
                   <div className="cal-agenda-time">
-                     <span className="cal-agenda-day">{new Date(i.start).toLocaleDateString('en-US', { day: 'numeric' })}</span>
-                     <span className="cal-agenda-month">{new Date(i.start).toLocaleDateString('en-US', { month: 'short' })}</span>
+                    <span className="cal-agenda-day">{new Date(i.start).toLocaleDateString('en-US', { day: 'numeric' })}</span>
+                    <span className="cal-agenda-month">{new Date(i.start).toLocaleDateString('en-US', { month: 'short' })}</span>
                   </div>
                   <div className="cal-agenda-details">
                     <div className="cal-agenda-title" title={i.title}>{i.title}</div>
@@ -817,7 +829,7 @@ function CalendarEventModal({ draft, setDraft, projects, onSave, onDelete, onClo
 
         {draft.meetLink && (
           <a className="cal-meet-join-banner" href={draft.meetLink} target="_blank" rel="noreferrer">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z" /></svg>
             Join Google Meet
           </a>
         )}
@@ -847,7 +859,7 @@ function DetailModal({ detail, onClose, onNav, onJump }) {
   const LABEL = { event: 'Event', task: 'Task', project: 'Project', google: 'Google Event' };
   const title = raw.title || raw.name || raw.summary || '(untitled)';
   const start = raw.start || raw.due_date || raw.start_date || raw.starts_at;
-  const end   = raw.end || raw.end_date || raw.ends_at;
+  const end = raw.end || raw.end_date || raw.ends_at;
 
   const iconMap = { task: 'check-circle', project: 'folder', google: 'calendar' };
   const themeColor = SOURCE_COLOR[source] || 'var(--accent)';
@@ -870,7 +882,7 @@ function DetailModal({ detail, onClose, onNav, onJump }) {
           </div>
           {meetLink && (
             <a className="cal-meet-join-btn" href={meetLink} target="_blank" rel="noreferrer">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z" /></svg>
               Join
             </a>
           )}

@@ -75,6 +75,7 @@ export const Icon = ({ name, size = 16 }) => {
     'user-minus': <g stroke="currentColor" strokeWidth="1.2" fill="none"><circle cx="6" cy="6" r="3" /><path d="M1 14C1 11.24 3.24 9 6 9C8.76 9 11 11.24 11 14" /><path d="M11 8H15" /></g>,
     shield: <path d="M8 1L2 3V7.5C2 11.5 4.5 14.5 8 16C11.5 14.5 14 11.5 14 7.5V3L8 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
     calendar: <g stroke="currentColor" strokeWidth="1.2" fill="none"><rect x="2" y="3" width="12" height="11" rx="1" /><path d="M2 6H14M5 2V4M11 2V4" strokeLinecap="round" /><circle cx="5.5" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="8" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="10.5" cy="9" r="0.6" fill="currentColor" stroke="none" /></g>,
+    menu: <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 4H14M2 8H14M2 12H14" /></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
@@ -229,11 +230,19 @@ export const Sidebar = ({
   workstations, activeWorkstation, onWsSwitch, onNewWs,
   enabledModules = {},
   myRole = 'viewer', wsPermissions = {},
+  mobileOpen = false, onCloseMobile,
 }) => {
   const [panelOpen, setPanelOpen] = useState(false);
 
   return (
-    <aside className="sb">
+    <>
+    {/* Backdrop for the mobile drawer — only interactive below the mobile breakpoint (CSS-gated) */}
+    <div
+      className={'sb-backdrop' + (mobileOpen ? ' show' : '')}
+      onClick={onCloseMobile}
+      aria-hidden="true"
+    />
+    <aside className={'sb' + (mobileOpen ? ' mobile-open' : '')}>
       <div className="sb-brand">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
           <circle cx="9" cy="9" r="3" fill="currentColor" />
@@ -313,6 +322,7 @@ export const Sidebar = ({
         onNew={onNewWs}
       />
     </aside>
+    </>
   );
 };
 
@@ -331,7 +341,7 @@ const timeAgo = (dateStr) => {
 };
 
 export const Topbar = ({
-  onOpenCmdK, timer, onTimerJump, theme = 'dark', onThemeToggle,
+  onOpenCmdK, onOpenMobileNav, timer, onTimerJump, theme = 'dark', onThemeToggle,
   notifications = [], unreadCount = 0, onMarkRead, onNav, onSelectTask,
 }) => {
   const isLight = theme === 'light';
@@ -357,6 +367,9 @@ export const Topbar = ({
 
   return (
     <header className="tb">
+      <button className="tb-burger" onClick={onOpenMobileNav} title="Menu" aria-label="Open navigation">
+        <Icon name="menu" size={18} />
+      </button>
       <button className="tb-search" onClick={onOpenCmdK}>
         <Icon name="search" size={13} />
         <span>Search anything…</span>

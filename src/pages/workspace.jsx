@@ -5354,7 +5354,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0, flex: 1 }}>
           <div ref={subDropRef} className="task-show-dropdown">
             <button
               onClick={() => setSubDropOpen(s => !s)}
@@ -7159,7 +7159,9 @@ const ChangePasswordDialog = ({ open, onClose, onSave }) => {
         borderRadius: '12px',
         boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)',
         padding: 28,
-        width: 380
+        width: 380,
+        maxWidth: 'calc(100vw - 32px)',
+        boxSizing: 'border-box'
       }}>
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Change Master Password</div>
         <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 20 }}>
@@ -7254,7 +7256,9 @@ const DeleteConfirmDialog = ({ item, onConfirm, onCancel }) => {
         borderRadius: '12px',
         boxShadow: '0 12px 40px rgba(0, 0, 0, 0.5)',
         padding: 28,
-        width: 340
+        width: 340,
+        maxWidth: 'calc(100vw - 32px)',
+        boxSizing: 'border-box'
       }}>
         <div style={{ fontWeight: 600, marginBottom: 8 }}>Delete secret?</div>
         <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 20 }}>

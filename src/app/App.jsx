@@ -384,6 +384,23 @@ export default function App() {
   });
   const [collapsed, setCollapsed] = useStateApp(t.sidebarStart === 'collapsed');
   const [cmdkOpen,  setCmdkOpen]  = useStateApp(false);
+  const [mobileNavOpen, setMobileNavOpen] = useStateApp(false);
+
+  // Mobile drawer: lock body scroll while open; auto-close when the viewport
+  // grows back past the mobile breakpoint (768px) so it can't get stuck open.
+  useEffectApp(() => {
+    if (!mobileNavOpen) return;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => { if (e.key === 'Escape') setMobileNavOpen(false); };
+    const onResize = () => { if (window.innerWidth > 768) setMobileNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [mobileNavOpen]);
 
   // Time tracking state
   const [activeEntry, setActiveEntry] = useStateApp(null);   // running/paused entry
@@ -672,9 +689,11 @@ export default function App() {
     <div className={'app' + (collapsed ? ' collapsed' : '') + (t.density === 'compact' ? ' dense' : '')}>
       <Sidebar
         current={current}
-        onNav={setCurrent}
+        onNav={(id) => { setCurrent(id); setMobileNavOpen(false); }}
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(c => !c)}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
         user={authUser}
         onLogout={handleLogout}
         workstations={workstations}
@@ -688,6 +707,7 @@ export default function App() {
       <div className="main">
         <Topbar
           onOpenCmdK={() => setCmdkOpen(true)}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
           timer={timer}
           onTimerJump={() => setCurrent('timer')}
           theme={t.theme || 'dark'}

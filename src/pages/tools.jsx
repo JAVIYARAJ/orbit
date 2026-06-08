@@ -35,7 +35,7 @@ const GanttModal = ({ task, onClose, onSave, saving, err }) => {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
       onClick={onClose}>
-      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 460, borderRadius: 4 }}
+      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 460, maxWidth: 'calc(100% - 32px)', borderRadius: 4, overflow: 'hidden' }}
         onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
           <span style={{ fontWeight: 600, fontSize: 14, userSelect: 'none' }}>{task.id ? 'Edit timeline task' : 'Add timeline task'}</span>
@@ -494,7 +494,7 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
       {confirmDel && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={() => setConfirmDel(null)}>
-          <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 360, borderRadius: 4 }}
+          <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 360, maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box', borderRadius: 4 }}
             onClick={e => e.stopPropagation()}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 14 }}>Delete timeline task?</div>
             <div style={{ padding: '14px 20px', fontSize: 13, color: 'var(--text-2)' }}>This will permanently remove the task from the timeline.</div>
@@ -1789,6 +1789,7 @@ export const TimerPage = ({
   const [busy,           setBusy]           = useStateB(false);
   const [err,            setErr]            = useStateB('');
   const [expandedEntry,  setExpandedEntry]  = useStateB(null);
+  const [confirmDiscard, setConfirmDiscard] = useStateB(false);
 
   // Group entries by date
   const groupedEntries = React.useMemo(() => {
@@ -1870,10 +1871,15 @@ export const TimerPage = ({
   const handlePause   = () => wrap(() => onTimerPause());
   const handleResume  = () => wrap(() => onTimerResume());
   const handleStop    = () => wrap(async () => { await onTimerStop(notes); setNotes(''); });
-  const handleDiscard = () => wrap(async () => {
-    if (!window.confirm('Discard this session? All time will be lost.')) return;
+  
+  const handleDiscardClick = () => {
+    setConfirmDiscard(true);
+  };
+
+  const confirmDiscardAction = () => wrap(async () => {
     await onTimerDiscard();
     setNotes('');
+    setConfirmDiscard(false);
   });
 
   // ── CSV export ─────────────────────────────────────────────────
@@ -2017,7 +2023,7 @@ export const TimerPage = ({
                 <button className="btn" style={{ borderColor: '#22c55e', color: '#22c55e' }} onClick={handleStop} disabled={busy}>
                   <Icon name="check-circle" size={12}/> STOP & LOG
                 </button>
-                <button className="btn ghost" onClick={handleDiscard} disabled={busy} style={{ color: '#ef4444' }}>
+                <button className="btn ghost" onClick={handleDiscardClick} disabled={busy} style={{ color: '#ef4444' }}>
                   <Icon name="trash" size={12}/> DISCARD
                 </button>
               </>)}
@@ -2224,6 +2230,30 @@ export const TimerPage = ({
           ))}
         </div>
       </div>
+
+      {/* ── Discard Confirmation Dialog ── */}
+      {confirmDiscard && createPortal(
+        <div className="nf-dialog-backdrop" onClick={() => setConfirmDiscard(false)}>
+          <div className="nf-dialog" onClick={e => e.stopPropagation()}>
+            <div className="nf-dialog-icon" style={{ color: '#ef4444', background: '#ef444415' }}>
+              <Icon name="trash" size={20}/>
+            </div>
+            <div className="nf-dialog-title">Discard session?</div>
+            <div className="nf-dialog-body">
+              This session will be discarded. All tracked time and notes will be permanently lost.
+            </div>
+            <div className="nf-dialog-actions">
+              <button className="btn" onClick={() => setConfirmDiscard(false)} disabled={busy}>
+                Cancel
+              </button>
+              <button className="btn nf-dialog-confirm" style={{ background: '#ef4444', color: '#fff', borderColor: '#dc2626' }} onClick={confirmDiscardAction} disabled={busy}>
+                {busy ? 'Discarding...' : <><Icon name="trash" size={11}/> Discard</>}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -2882,7 +2912,7 @@ export const EmailPage = ({ emailTemplates, setEmailTemplates, workstationId, ju
           onClick={() => setConfirmDel(null)}
         >
           <div
-            style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 360, borderRadius: 4 }}
+            style={{ background: 'var(--bg-1)', border: '1px solid var(--border-2)', width: 360, maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box', borderRadius: 4 }}
             onClick={e => e.stopPropagation()}
           >
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 14 }}>
