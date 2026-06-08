@@ -1540,10 +1540,20 @@ body.texture-grid::before {
 .sb-scroll {
   overflow-y: auto;
   flex: 1;
+  /* Prevent iOS scroll chaining out of the sidebar into the background content */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .app.collapsed .sb-scroll {
   overflow: hidden;
+}
+
+/* While the mobile drawer is open, freeze background content so touch-scroll
+   events on the sidebar don't bleed through to the page behind it. */
+.app.drawer-open .content {
+  overflow: hidden;
+  touch-action: none;
 }
 
 .sb-nav {

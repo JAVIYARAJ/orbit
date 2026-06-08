@@ -686,7 +686,7 @@ export default function App() {
   };
 
   return (
-    <div className={'app' + (collapsed ? ' collapsed' : '') + (t.density === 'compact' ? ' dense' : '')}>
+    <div className={'app' + (collapsed ? ' collapsed' : '') + (t.density === 'compact' ? ' dense' : '') + (mobileNavOpen ? ' drawer-open' : '')}>
       <Sidebar
         current={current}
         onNav={(id) => { setCurrent(id); setMobileNavOpen(false); }}
