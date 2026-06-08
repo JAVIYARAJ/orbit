@@ -1250,6 +1250,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
   const NoteCard = ({ n }) => (
     <div
       className={'note-item' + (n.id === activeId ? ' active' : '')}
+      onClick={() => { setActiveId(n.id); setMobileView('editor'); }}
       draggable
       onDragStart={e => {
         e.dataTransfer.setData('text/plain', n.id);
@@ -1294,14 +1295,13 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
         {/* ── Folder sidebar ── */}
         <div className="notes-folders">
           {/* Fixed top — never scrolls */}
-          <button
+          <div
             className={'nf-item' + (activeFolderId === null ? ' nf-active' : '')}
-            onClick={() => { setActiveFolderId(null); setMobileView('list'); }}
           >
             <Icon name="list" size={12}/>
             <span>All Notes</span>
             <span className="nf-count">{notes.length}</span>
-          </button>
+          </div>
 
 
 
