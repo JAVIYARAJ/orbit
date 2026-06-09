@@ -223,6 +223,34 @@ export default function App() {
     return () => { alive = false; };
   }, [authUser?.id]);
 
+  // If admin access is revoked in the DB while the panel is open, sign out of
+  // Orbit. Triggered by a 403 from any admin call, or by the poll below.
+  useEffectApp(() => {
+    const onRevoked = async () => {
+      sessionStorage.removeItem('orbit:roleChoice');
+      setRoleChoice(null);
+      setIsAdminFlag(false);
+      try { await supabase.auth.signOut(); } catch { /* ignore */ }
+      navigate('/auth');
+    };
+    window.addEventListener('orbit:admin-revoked', onRevoked);
+    return () => window.removeEventListener('orbit:admin-revoked', onRevoked);
+  }, [navigate]);
+
+  // While inside the admin panel, re-check admin status periodically so an
+  // idle admin whose access is removed is also signed out (not just on action).
+  useEffectApp(() => {
+    if (!authUser?.id || !route.startsWith('/admin')) return;
+    const check = () => {
+      supabase.from('profiles').select('is_admin').eq('id', authUser.id).maybeSingle()
+        .then(({ data }) => {
+          if (data && data.is_admin !== true) window.dispatchEvent(new CustomEvent('orbit:admin-revoked'));
+        }).catch(() => { /* ignore transient errors */ });
+    };
+    const id = setInterval(check, 20000);
+    return () => clearInterval(id);
+  }, [authUser?.id, route]);
+
   // Forward OAuth / email-confirmation landings into the app once signed in.
   useEffectApp(() => {
     if (authUser && hadAuthCallbackRef.current) {

@@ -6,11 +6,16 @@ import { supabase } from '../lib/supabase.js';
 export async function adminCall(body) {
   const { data, error } = await supabase.functions.invoke('admin', { body });
   if (error) {
+    const status = error.context?.status;
     let msg = error.message || 'Request failed';
     try {
       const ctx = await error.context?.json?.();
       if (ctx?.error) msg = ctx.error;
     } catch { /* ignore */ }
+    // Admin access was revoked (or never granted): kick the session out.
+    if (status === 403 || /forbidden|not an admin/i.test(msg)) {
+      window.dispatchEvent(new CustomEvent('orbit:admin-revoked'));
+    }
     throw new Error(msg);
   }
   if (data && data.error) throw new Error(data.error);

@@ -2,8 +2,8 @@
 //
 // Security model:
 //   1. Supabase gateway verifies the caller's JWT (verify_jwt = true).
-//   2. This function re-verifies the JWT and checks the caller's email against
-//      an admin allowlist (ADMIN_EMAILS). Non-admins get 403.
+//   2. This function re-verifies the JWT and checks the caller's
+//      profiles.is_admin flag (single source of truth). Non-admins get 403.
 //   3. ONLY after that do we use the service-role key (auto-injected by Supabase
 //      as SUPABASE_SERVICE_ROLE_KEY) to read data, bypassing RLS.
 // The service key never leaves the server.
