@@ -30,6 +30,28 @@ import { AuthPage, ResetPasswordPage, InviteAcceptPage } from '../pages/auth.jsx
 import { LandingPage } from '../pages/landing.jsx';
 import { PrivacyPolicy } from '../pages/privacy.jsx';
 import { ContactPage } from '../pages/contact.jsx';
+import { AdminApp } from '../admin/AdminApp.jsx';
+
+// Client-side admin allowlist (UX gate only — the real check is server-side in
+// the `admin` Edge Function, which verifies the JWT + email before using the
+// service-role key). Comma-separated VITE_ADMIN_EMAILS overrides the default.
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || 'javiyaraj4@gmail.com')
+  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+
+function AdminForbidden({ email, onHome }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      height: '100vh', background: '#0f0f0f', color: '#e7e7ea', fontFamily: 'system-ui', gap: 14, textAlign: 'center', padding: 24 }}>
+      <div style={{ fontSize: 22, fontWeight: 800 }}>Admin access required</div>
+      <div style={{ color: '#8b8b93', maxWidth: 420 }}>
+        You’re signed in as <b>{email}</b>, which isn’t an admin account. This area is restricted.
+      </div>
+      <button onClick={onHome} style={{ marginTop: 8, padding: '10px 18px', borderRadius: 10, background: '#6366f1', color: '#fff', fontWeight: 700, border: 0, cursor: 'pointer' }}>
+        Back to app
+      </button>
+    </div>
+  );
+}
 import { useRemoteConfig } from '../lib/useRemoteConfig.js';
 import { canAccessModule } from '../lib/permissions.js';
 
@@ -139,6 +161,9 @@ export default function App() {
     setRoute(to);
   }, []);
 
+  // Admin status from the DB flag (UX gate only; the Edge Function enforces it).
+  const [isAdminFlag, setIsAdminFlag] = useStateApp(false);
+
   // ── Workstations ────────────────────────────────────────────────
   const [workstations,      setWorkstations]      = useStateApp([]);
   const [activeWorkstation, setActiveWorkstation] = useStateApp(null);
@@ -182,6 +207,16 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  // Read the signed-in user's profiles.is_admin flag for the /admin UI gate.
+  useEffectApp(() => {
+    if (!authUser?.id) { setIsAdminFlag(false); return; }
+    let alive = true;
+    supabase.from('profiles').select('is_admin').eq('id', authUser.id).maybeSingle()
+      .then(({ data }) => { if (alive) setIsAdminFlag(!!data?.is_admin); })
+      .catch(() => { if (alive) setIsAdminFlag(false); });
+    return () => { alive = false; };
+  }, [authUser?.id]);
+
   // Forward OAuth / email-confirmation landings into the app once signed in.
   useEffectApp(() => {
     if (authUser && hadAuthCallbackRef.current) {
@@ -197,7 +232,7 @@ export default function App() {
     const isPublic = route === '/' || route === '/auth' || route === '/reset-password' || route === '/privacy' || route === '/contact';
     if (route === '/auth' && authUser) { navigate('/app'); return; }
     if (!isPublic && !authUser) { navigate('/auth'); return; }
-    if (!isPublic && authUser && route !== '/app') navigate('/app');
+    if (!isPublic && authUser && route !== '/app' && !route.startsWith('/admin')) navigate('/app');
   }, [route, authUser, authLoading, navigate]);
 
   const buildUser = (u) => {
@@ -636,7 +671,8 @@ export default function App() {
   }, [t.accent, t.monoFont, t.headingFont, t.surface, t.texture, t.scanlines, t.theme]);
 
   // ── Gates ───────────────────────────────────────────────────────
-  if (authLoading || wsLoading || dataLoading) return <Loading />;
+  const isAdmin = !!authUser && (isAdminFlag || ADMIN_EMAILS.includes((authUser.email || '').toLowerCase()));
+  if (authLoading) return <Loading />;
 
   // Password recovery (Supabase recovery link) takes over regardless of path.
   if (showPasswordReset) return (
@@ -660,9 +696,21 @@ export default function App() {
   // effect; render the loader during that brief transition.
   if (route === '/auth') return authUser ? <Loading /> : <AuthPage onAuth={handleAuth} />;
 
+  // /admin → admin panel, separate from the user app. Requires a signed-in
+  // admin; rendered before workspace data loads so admins without a workspace
+  // aren't pushed into setup. Real authorization is enforced server-side.
+  if (route.startsWith('/admin')) {
+    if (!authUser) return <Loading />;          // guard effect redirects to /auth
+    if (!isAdmin) return <AdminForbidden email={authUser.email} onHome={() => navigate('/app')} />;
+    return <AdminApp user={authUser} onExit={() => navigate('/app')} />;
+  }
+
   // Any other path is the authenticated app. The guard effect sends signed-out
   // users to /auth; show the loader until that redirect lands.
   if (!authUser) return <Loading />;
+
+  // The app needs its workspace data; the admin panel above does not.
+  if (wsLoading || dataLoading) return <Loading />;
 
   // A pending invite takes precedence over first-run workspace setup — otherwise a
   // brand-new user invited to a workspace would be forced to create one of their own

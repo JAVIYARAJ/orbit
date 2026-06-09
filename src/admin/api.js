@@ -1,0 +1,31 @@
+import { supabase } from '../lib/supabase.js';
+
+// All admin data goes through the `admin` Edge Function, which holds the
+// service-role key server-side and verifies the caller is an admin. The
+// logged-in user's JWT is attached automatically by functions.invoke.
+export async function adminCall(body) {
+  const { data, error } = await supabase.functions.invoke('admin', { body });
+  if (error) {
+    let msg = error.message || 'Request failed';
+    try {
+      const ctx = await error.context?.json?.();
+      if (ctx?.error) msg = ctx.error;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+
+export const adminOverview = () => adminCall({ action: 'overview' });
+export const adminAuthUsers = () => adminCall({ action: 'authUsers' });
+export const adminUpdateContact = (id, status) => adminCall({ action: 'updateContact', id, status });
+
+// Generic allowlisted read. opts: { table, select, filters, order, ascending, limit, offset, count }
+export const adminQuery = (opts) => adminCall({ action: 'query', ...opts });
+
+// Convenience: a single count via the query action (head not needed; we read count).
+export async function adminCount(table, filters = []) {
+  const res = await adminQuery({ table, select: 'id', filters, limit: 1, count: true });
+  return res.count ?? 0;
+}

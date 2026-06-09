@@ -1,0 +1,52 @@
+/* ───────────────────────────────────────────────────────────────
+   Orbit Admin — scoped dark theme for the /admin panel.
+   Reuses the global Tailwind setup (theme/utilities from landing.css);
+   here we only define the admin colour tokens + a scoped reset, all
+   under `.orbit-admin` so nothing leaks into the app or landing.
+   ─────────────────────────────────────────────────────────────── */
+
+.orbit-admin {
+  --font-geist-sans: 'Geist', system-ui, sans-serif;
+  --font-geist-mono: 'Geist Mono', ui-monospace, monospace;
+  --font-space-grotesk: 'Space Grotesk', system-ui, sans-serif;
+
+  --background: #0f0f0f;
+  --foreground: #e7e7ea;
+  --card: #1a1a1a;
+  --card-foreground: #e7e7ea;
+  --popover: #1a1a1a;
+  --popover-foreground: #e7e7ea;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #e7e7ea;
+  --muted: #222225;
+  --muted-foreground: #8b8b93;
+  --accent: #6366f1;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --border: #2a2a2a;
+  --input: #2a2a2a;
+  --ring: #6366f1;
+  --radius: 0.625rem;
+
+  color-scheme: dark;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+@layer base {
+  .orbit-admin :where(ul, ol) { list-style: none; margin: 0; padding: 0; }
+  .orbit-admin :where(h1, h2, h3, h4, h5, h6, p, figure) { margin: 0; }
+  .orbit-admin :where(button) { background: none; border: 0; font: inherit; cursor: pointer; }
+  .orbit-admin :where(a) { color: inherit; text-decoration: none; }
+  .orbit-admin :where(table) { border-collapse: collapse; width: 100%; }
+}
+
+/* Thin scrollbars inside the admin */
+.orbit-admin ::-webkit-scrollbar { width: 10px; height: 10px; }
+.orbit-admin ::-webkit-scrollbar-thumb { background: #2f2f33; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+.orbit-admin ::-webkit-scrollbar-thumb:hover { background: #3a3a40; background-clip: content-box; }
