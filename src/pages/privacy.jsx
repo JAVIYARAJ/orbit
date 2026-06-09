@@ -1,4 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 // Update this whenever the policy text changes.
 const LAST_UPDATED = 'June 9, 2026';
@@ -103,6 +104,21 @@ const SECTIONS = [
   },
 ];
 
+const fadeUp = {
+  hidden: { opacity: 0, y: 30 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+};
+
+const staggerContainer = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1
+    }
+  }
+};
+
 export function PrivacyPolicy({ onNavigate }) {
   const go = (path) => onNavigate?.(path);
   // Match the landing's theme preference (defaults to dark).
@@ -111,58 +127,128 @@ export function PrivacyPolicy({ onNavigate }) {
     : localStorage.getItem('orbit:landingTheme') !== 'light';
 
   return (
-    <div className={`orbit-landing min-h-screen bg-background text-foreground${dark ? ' dark' : ''}`}>
+    <div className={`orbit-landing bg-background text-foreground selection:bg-primary/30${dark ? ' dark' : ''}`}>
+      {/* Abstract Background */}
+      <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-primary/10 to-primary/5 rounded-full blur-[120px] -z-10 animate-pulse pointer-events-none" />
+      <div className="absolute top-1/4 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-secondary/10 via-transparent to-transparent rounded-full blur-[100px] -z-10 animate-pulse pointer-events-none" style={{ animationDelay: '2s' }} />
+
       {/* Nav */}
-      <nav className="sticky top-0 z-50 bg-background/80 backdrop-blur-2xl border-b border-primary/10">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <motion.nav 
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        className="fixed w-full top-0 z-50 bg-background/60 backdrop-blur-3xl border-b border-primary/10 shadow-sm"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <button
             onClick={() => go('/')}
-            className="font-heading font-black text-2xl bg-gradient-to-r from-primary via-primary to-primary/70 bg-clip-text text-transparent"
+            className="font-heading font-black text-2xl bg-gradient-to-r from-primary via-primary to-primary/70 bg-clip-text text-transparent flex items-center gap-2"
           >
+            <div className="relative flex items-center justify-center w-6 h-6">
+              <div className="absolute w-2 h-2 bg-primary rounded-full shadow-[0_0_10px_rgba(139,92,246,1)]"></div>
+              <motion.div 
+                animate={{ rotate: 360 }} 
+                transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-0 rounded-full border border-primary/30 border-t-primary/80"
+              />
+              <motion.div 
+                animate={{ rotate: -360 }} 
+                transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-[3px] rounded-full border border-primary/30 border-b-primary/80"
+              />
+            </div>
             Orbit
           </button>
-          <button
-            onClick={() => go('/auth')}
-            className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-primary/80 text-white font-bold text-sm hover:shadow-lg hover:shadow-primary/40 transition-all hover:scale-105"
-          >
-            Get Started
-          </button>
+          
+          <div className="flex items-center gap-4">
+            <button onClick={() => go('/')} className="hidden sm:block text-sm text-foreground/70 hover:text-primary transition font-semibold">Home</button>
+            <motion.button 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => go('/auth')}
+              className="px-6 py-2.5 bg-gradient-to-r from-primary to-primary/80 text-white rounded-full font-bold shadow-[0_0_15px_rgba(139,92,246,0.3)] hover:shadow-[0_0_25px_rgba(139,92,246,0.5)] transition-all"
+            >
+              Get Started
+            </motion.button>
+          </div>
         </div>
-      </nav>
+      </motion.nav>
 
       {/* Header */}
-      <header className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-12 text-center">
-        <p className="text-primary font-bold text-sm uppercase tracking-widest mb-4">Legal</p>
-        <h1 className="font-heading text-4xl sm:text-5xl font-black mb-4">Privacy Policy</h1>
-        <p className="text-foreground/60">Last updated: {LAST_UPDATED}</p>
-      </header>
+      <motion.header 
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-40 pb-16 text-center"
+      >
+        <span className="inline-block px-4 py-1.5 rounded-full bg-primary/10 text-primary font-bold text-sm tracking-widest uppercase mb-6 border border-primary/20 shadow-[0_0_15px_rgba(139,92,246,0.15)]">
+          Legal
+        </span>
+        <h1 className="font-heading text-5xl sm:text-6xl font-black mb-6 tracking-tight text-foreground drop-shadow-sm">Privacy Policy</h1>
+        <p className="text-xl text-foreground/60 font-light">Last updated: {LAST_UPDATED}</p>
+      </motion.header>
 
       {/* Content */}
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pb-24 space-y-12">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pb-32 space-y-16">
         {SECTIONS.map((s, i) => (
-          <section key={i}>
-            <h2 className="font-heading text-2xl font-bold mb-4 text-foreground">{s.heading}</h2>
-            {s.paragraphs?.map((p, j) => (
-              <p key={j} className="text-foreground/70 leading-relaxed mb-4">{p}</p>
-            ))}
-            {s.bullets && (
-              <ul className="list-disc pl-6 space-y-2 text-foreground/70 leading-relaxed">
-                {s.bullets.map((b, k) => <li key={k}>{b}</li>)}
-              </ul>
-            )}
-            {s.footnote && <p className="text-foreground/70 leading-relaxed mt-4 font-medium">{s.footnote}</p>}
+          <section key={i} className="group">
+            <h2 className="font-heading text-2xl font-black mb-6 text-foreground flex items-center gap-3">
+              {s.heading}
+            </h2>
+            <div className="space-y-4">
+              {s.paragraphs?.map((p, j) => (
+                <p key={j} className="text-foreground/70 text-lg leading-relaxed">{p}</p>
+              ))}
+              {s.bullets && (
+                <ul className="list-disc pl-6 space-y-3 mt-6">
+                  {s.bullets.map((b, k) => (
+                    <li key={k} className="text-foreground/70 text-lg leading-relaxed pl-2 marker:text-primary/50">{b}</li>
+                  ))}
+                </ul>
+              )}
+              {s.footnote && (
+                <div className="mt-8 p-4 border-l-2 border-primary/30 bg-primary/5 rounded-r-lg">
+                  <p className="text-foreground/80 font-medium italic">{s.footnote}</p>
+                </div>
+              )}
+            </div>
           </section>
         ))}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-primary/10 px-4 sm:px-6 lg:px-8 py-10 bg-background">
-        <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-center">
-          <button onClick={() => go('/')} className="inline-flex items-center gap-2 text-sm font-medium text-foreground/70 hover:text-primary transition">
-            <ArrowLeft className="w-4 h-4" />
-            Back to Home
-          </button>
-          <p className="text-sm text-foreground/60">&copy; {new Date().getFullYear()} Orbit. All rights reserved.</p>
+      <footer className="border-t border-primary/10 px-4 sm:px-6 lg:px-8 py-12 bg-background relative z-10">
+        <div className="max-w-7xl mx-auto flex flex-col items-center gap-8 text-center sm:flex-row sm:justify-between sm:text-left">
+          <div className="flex flex-col items-center sm:items-start w-full sm:w-auto">
+            <button onClick={() => go('/')} className="font-heading font-black text-xl bg-gradient-to-r from-primary via-primary to-primary/70 bg-clip-text text-transparent flex items-center justify-center sm:justify-start gap-2">
+              <div className="relative flex items-center justify-center w-5 h-5">
+                <div className="absolute w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_10px_rgba(139,92,246,1)]"></div>
+                <motion.div 
+                  animate={{ rotate: 360 }} 
+                  transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+                  className="absolute inset-0 rounded-full border border-primary/30 border-t-primary/80"
+                />
+                <motion.div 
+                  animate={{ rotate: -360 }} 
+                  transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+                  className="absolute inset-[2px] rounded-full border border-primary/30 border-b-primary/80"
+                />
+              </div>
+              Orbit
+            </button>
+            <p className="text-sm text-foreground/60 mt-2">One workspace for developers.</p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 w-full sm:w-auto">
+            <button onClick={() => go('/')} className="inline-flex items-center justify-center gap-2 text-sm font-medium text-foreground/70 hover:text-primary transition group">
+              <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+              Back to Home
+            </button>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto border-t border-primary/10 mt-8 pt-8 text-center flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-foreground/60 w-full text-center sm:text-left">&copy; {new Date().getFullYear()} Orbit. All rights reserved.</p>
         </div>
       </footer>
     </div>

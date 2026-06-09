@@ -29,6 +29,7 @@ import { Settings } from '../pages/settings.jsx';
 import { AuthPage, ResetPasswordPage, InviteAcceptPage } from '../pages/auth.jsx';
 import { LandingPage } from '../pages/landing.jsx';
 import { PrivacyPolicy } from '../pages/privacy.jsx';
+import { ContactPage } from '../pages/contact.jsx';
 import { useRemoteConfig } from '../lib/useRemoteConfig.js';
 import { canAccessModule } from '../lib/permissions.js';
 
@@ -193,7 +194,7 @@ export default function App() {
   // signed-in users off /auth (and off any unknown path) by sending them to /app.
   useEffectApp(() => {
     if (authLoading) return;
-    const isPublic = route === '/' || route === '/auth' || route === '/reset-password' || route === '/privacy';
+    const isPublic = route === '/' || route === '/auth' || route === '/reset-password' || route === '/privacy' || route === '/contact';
     if (route === '/auth' && authUser) { navigate('/app'); return; }
     if (!isPublic && !authUser) { navigate('/auth'); return; }
     if (!isPublic && authUser && route !== '/app') navigate('/app');
@@ -651,6 +652,9 @@ export default function App() {
 
   // /privacy → public legal page.
   if (route === '/privacy') return <PrivacyPolicy onNavigate={navigate} />;
+
+  // /contact → public contact / feedback form.
+  if (route === '/contact') return <ContactPage onNavigate={navigate} />;
 
   // /auth → sign-in. A logged-in visitor is forwarded to /app by the guard
   // effect; render the loader during that brief transition.

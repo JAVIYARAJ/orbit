@@ -86,8 +86,9 @@
   color: var(--foreground);
 }
 
-/* Optional dark variant (not toggled today, kept for parity). */
+/* Dark variant — toggled via the `dark` class on the wrapper. */
 .orbit-landing.dark {
+  color-scheme: dark; /* native controls (select menus, scrollbars) render dark */
   --background: #0F0F0F;
   --foreground: #F5F5F5;
   --card: #1A1A1A;
