@@ -106,8 +106,6 @@ export const NAV = [
       { id: 'timer', label: 'Time Tracker', icon: 'timer', kbd: 'G I' },
       { id: 'notes', label: 'Notes', icon: 'note', kbd: 'G N' },
       { id: 'email', label: 'Email Hub', icon: 'mail', kbd: 'G E' },
-      { id: 'toolkit', label: 'Dev Toolkit', icon: 'tool', kbd: 'G D' },
-      { id: 'flutter-init', label: 'Flutter Init', icon: 'flame', kbd: 'G F' },
     ]
   },
   {

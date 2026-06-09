@@ -19,8 +19,7 @@ import {
 } from '../lib/db.js';
 import { WorkstationSetup } from '../components/workstation-setup.jsx';
 import { HomePage, ProjectsPage, TasksPage, LearningPage, VaultPage } from '../pages/workspace.jsx';
-import { ProjectMgmtPage, NotesPage, TimerPage, EmailPage, ToolkitPage } from '../pages/tools.jsx';
-import { FlutterInitPage } from '../pages/flutter-init.jsx';
+import { ProjectMgmtPage, NotesPage, TimerPage, EmailPage } from '../pages/tools.jsx';
 import { GitHubPage } from '../pages/github.jsx';
 import { VercelPage } from '../pages/vercel.jsx';
 import { Analytics } from '../pages/analytics.jsx';
@@ -61,8 +60,6 @@ function PageRouter({ current, ...props }) {
     case 'notes':     return <NotesPage {...props} />;
     case 'timer':     return <TimerPage {...props} />;
     case 'email':     return <EmailPage {...props} />;
-    case 'toolkit':      return <ToolkitPage {...props} />;
-    case 'flutter-init': return <FlutterInitPage {...props} />;
     case 'github':    return <GitHubPage {...props} />;
     case 'vercel':    return <VercelPage {...props} />;
     case 'analytics': return <Analytics {...props} />;
@@ -469,7 +466,7 @@ export default function App() {
       if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
       if (e.key.toLowerCase() === 'g') {
         const handler = (e2) => {
-          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',d:'toolkit',f:'flutter-init',g:'github',k:'vercel',s:'settings' };
+          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',g:'github',k:'vercel',s:'settings' };
           const id = map[e2.key.toLowerCase()];
           if (id && enabledModules[id] !== false && canAccessModule(myRole, id, wsPermissions)) setCurrent(id);
           window.removeEventListener('keydown', handler);

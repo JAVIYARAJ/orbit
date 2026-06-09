@@ -6,7 +6,7 @@ import { firebaseApp } from './firebase.js';
 export const ALL_MODULE_IDS = [
   'home', 'projects', 'tasks', 'pm',
   'analytics', 'collab',
-  'timer', 'notes', 'email', 'toolkit', 'flutter-init',
+  'timer', 'notes', 'email',
   'github', 'vercel',
   'learning', 'vault',
   'settings',

@@ -10,7 +10,7 @@ const PILLS = [
   'Projects', 'Kanban', 'Tasks', 'Analytics',
   'Vault', 'Timer', 'Notes', 'Email Hub',
   'Schedule', 'Learning Path', 'GitHub Hub',
-  'Vercel', 'Collaboration', 'Toolkit', 'Flutter Init', 'Settings',
+  'Vercel', 'Collaboration', 'Settings',
 ];
 
 const HEATMAP = [

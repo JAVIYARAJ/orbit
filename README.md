@@ -40,10 +40,8 @@ Orbit is a web-based productivity and project management platform built for deve
 | ⏱ **Timer** | One-click time tracker tied to project and task |
 | 📋 **Project Hub** | Scope, deliverables, payments, invoices, contracts |
 | ✉️ **Email Templates** | Proposal, invoice, follow-up — fill variables and copy |
-| 🛠 **Dev Toolkit** | JSON formatter, Base64, UUID, regex tester, timestamp converter |
 | 🔐 **Vault** | API keys and secrets — AES-256 encrypted client-side before storage |
 | 📊 **Analytics** | Work patterns, project health, time distribution |
-| 🦋 **Flutter Init** | Flutter project code generator |
 | 🔍 **Global Search** | Search across tasks, projects, notes, learning, and email templates |
 
 ---
@@ -88,14 +86,13 @@ orbit/
 │   │   └── useRemoteConfig.js      # Firebase Remote Config hook
 │   ├── pages/
 │   │   ├── workspace.jsx           # Projects, tasks, learning, vault
-│   │   ├── tools.jsx               # Notes, timer, email templates, dev toolkit
+│   │   ├── tools.jsx               # Notes, timer, email templates
 │   │   ├── github.jsx              # GitHub Hub
 │   │   ├── vercel.jsx              # Vercel deployments
 │   │   ├── calendar.jsx            # Calendar with Google sync
 │   │   ├── collaboration.jsx       # Team management
 │   │   ├── analytics.jsx           # Analytics
 │   │   ├── settings.jsx            # Settings
-│   │   ├── flutter-init.jsx        # Flutter generator
 │   │   └── auth.jsx                # Login, sign-up, invite accept
 │   └── styles/
 │       └── global.css              # Global layout, theme tokens, responsive
