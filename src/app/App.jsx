@@ -33,12 +33,6 @@ import { ContactPage } from '../pages/contact.jsx';
 import { AdminApp } from '../admin/AdminApp.jsx';
 import { RoleChooser } from '../pages/role-chooser.jsx';
 
-// Client-side admin allowlist (UX gate only — the real check is server-side in
-// the `admin` Edge Function, which verifies the JWT + email before using the
-// service-role key). Comma-separated VITE_ADMIN_EMAILS overrides the default.
-const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || 'javiyaraj4@gmail.com')
-  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
-
 function AdminForbidden({ email, onHome }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -685,7 +679,7 @@ export default function App() {
   }, [t.accent, t.monoFont, t.headingFont, t.surface, t.texture, t.scanlines, t.theme]);
 
   // ── Gates ───────────────────────────────────────────────────────
-  const isAdmin = !!authUser && (isAdminFlag || ADMIN_EMAILS.includes((authUser.email || '').toLowerCase()));
+  const isAdmin = !!authUser && isAdminFlag;
   if (authLoading) return <Loading />;
 
   // Password recovery (Supabase recovery link) takes over regardless of path.

@@ -12,8 +12,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ADMIN_EMAILS = (Deno.env.get("ADMIN_EMAILS") ?? "javiyaraj4@gmail.com")
-  .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -196,13 +194,10 @@ Deno.serve(async (req) => {
     const { data: userData, error: userErr } = await admin.auth.getUser(token);
     if (userErr || !userData?.user) return json({ error: "Invalid session" }, 401);
 
-    // Admin = profiles.is_admin flag (primary, DB-driven) OR an allowlisted
-    // email (bootstrap fallback so the first admin is never locked out).
-    const email = (userData.user.email ?? "").toLowerCase();
+    // Admin = profiles.is_admin flag (single source of truth, set in the DB).
     const { data: profile } = await admin.from("profiles")
       .select("is_admin").eq("id", userData.user.id).maybeSingle();
-    const isAdmin = profile?.is_admin === true || ADMIN_EMAILS.includes(email);
-    if (!isAdmin) return json({ error: "Forbidden — not an admin account" }, 403);
+    if (profile?.is_admin !== true) return json({ error: "Forbidden — not an admin account" }, 403);
 
     const body = await req.json();
     switch (body.action) {
