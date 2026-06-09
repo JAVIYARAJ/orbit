@@ -49,6 +49,26 @@ const FORMAT_TIME = (sec) => {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
+// Strip OAuth artifacts left in the URL after a redirect sign-in: the PKCE
+// `?code`/`?state` query params and any leftover `#` fragment (from the old
+// implicit flow). Only auth-related params are removed — unrelated params
+// (e.g. ?invite=) are preserved. Safe to call repeatedly: it's a no-op when
+// there's nothing to clean. Run only AFTER the session is established so the
+// code is never stripped before Supabase exchanges it.
+const cleanOAuthUrl = () => {
+  if (typeof window === 'undefined') return;
+  const u = new URL(window.location.href);
+  let changed = false;
+  for (const p of ['code', 'state', 'error', 'error_code', 'error_description']) {
+    if (u.searchParams.has(p)) { u.searchParams.delete(p); changed = true; }
+  }
+  if (u.hash) { u.hash = ''; changed = true; }
+  if (changed) {
+    const qs = u.searchParams.toString();
+    window.history.replaceState({}, '', u.pathname + (qs ? `?${qs}` : ''));
+  }
+};
+
 function PageRouter({ current, ...props }) {
   switch (current) {
     case 'projects':  return <ProjectsPage {...props} />;
@@ -109,6 +129,9 @@ export default function App() {
       }
 
       const hasUser = !!session?.user;
+      // Session is now established (PKCE code already exchanged) — safe to strip
+      // the leftover ?code / # from the URL without breaking the sign-in.
+      if (hasUser) cleanOAuthUrl();
       setAuthUser(hasUser ? buildUser(session.user) : null);
       // Pre-set wsLoading only when workstations aren't loaded yet (new login / page load).
       // Skips TOKEN_REFRESHED and similar events that fire on tab focus — those must NOT
