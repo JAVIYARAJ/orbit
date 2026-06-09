@@ -155,7 +155,7 @@ export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, 
         <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-3" />
         <p className="text-sm text-muted-foreground mb-4">{error}</p>
         {onRetry && (
-          <button onClick={onRetry} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-white text-sm font-bold shadow-[0_0_15px_rgba(139,92,246,0.3)] hover:shadow-[0_0_25px_rgba(139,92,246,0.5)] transition-all">
+          <button onClick={onRetry} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-white text-sm font-bold shadow-[0_0_15px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] transition-all">
             <RefreshCw className="w-4 h-4" /> Retry
           </button>
         )}

@@ -35,7 +35,7 @@ export function AdminApp({ user, onExit }) {
       <aside className={`fixed lg:static z-50 h-full w-72 shrink-0 bg-card/40 backdrop-blur-xl border-r border-white/5 flex flex-col transition-transform duration-300 ${mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="h-20 px-6 flex items-center justify-between border-b border-white/5">
           <div className="flex items-center gap-3 font-heading font-black text-xl">
-            <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 shadow-[0_0_15px_rgba(139,92,246,0.5)] text-white">
+            <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 shadow-[0_0_15px_rgba(99,102,241,0.5)] text-white">
               <span className="relative z-10 text-sm">O</span>
               <div className="absolute inset-0 rounded-lg border border-white/20"></div>
             </div>
@@ -50,7 +50,7 @@ export function AdminApp({ user, onExit }) {
             const on = n.id === active;
             return (
               <button key={n.id} onClick={() => { setActive(n.id); setMobileOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${on ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-[0_0_20px_rgba(139,92,246,0.3)] scale-[1.02]' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground hover:scale-[1.02]'}`}>
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${on ? 'bg-gradient-to-r from-primary to-primary/80 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)] scale-[1.02]' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground hover:scale-[1.02]'}`}>
                 <Icon className={`w-5 h-5 ${on ? 'text-white' : 'text-primary/70'}`} />
                 {n.label}
               </button>
@@ -80,7 +80,7 @@ export function AdminApp({ user, onExit }) {
               <span className="truncate max-w-[200px] text-foreground/80">{user?.email}</span>
             </div>
             <a href="/" onClick={(e) => { e.preventDefault(); onExit(); }} title="Open app"
-              className="p-2.5 rounded-xl bg-primary/10 text-primary hover:bg-primary hover:text-white transition-all duration-300 border border-primary/20 hover:shadow-[0_0_15px_rgba(139,92,246,0.4)] group"><ExternalLink className="w-5 h-5 group-hover:scale-110 transition-transform" /></a>
+              className="p-2.5 rounded-xl bg-primary/10 text-primary hover:bg-primary hover:text-white transition-all duration-300 border border-primary/20 hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] group"><ExternalLink className="w-5 h-5 group-hover:scale-110 transition-transform" /></a>
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar">
