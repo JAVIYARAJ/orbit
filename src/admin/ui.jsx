@@ -79,18 +79,15 @@ export const Skeleton = ({ className = '' }) => (
 // ── Stat card ───────────────────────────────────────────────────
 export function StatCard({ label, value, icon: Icon, hint, loading }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-card/40 backdrop-blur-md border border-white/5 p-6 flex flex-col gap-1 hover:border-primary/30 transition-all duration-300 group hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-primary/10 transition-colors"></div>
-      <div className="flex items-center justify-between relative z-10 mb-2">
-        <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider">{label}</span>
-        {Icon && <div className="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20 group-hover:scale-110 transition-transform"><Icon className="w-4 h-4" /></div>}
+    <div className="rounded-xl bg-card border border-border p-5 flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground font-medium">{label}</span>
+        {Icon && <Icon className="w-4 h-4 text-primary" />}
       </div>
-      <div className="relative z-10">
-        {loading
-          ? <Skeleton className="h-10 w-24 mt-1" />
-          : <span className="text-4xl font-heading font-black tracking-tight block bg-gradient-to-br from-white to-white/70 bg-clip-text text-transparent">{value}</span>}
-      </div>
-      {hint && <span className="text-xs text-muted-foreground relative z-10 mt-2 font-medium">{hint}</span>}
+      {loading
+        ? <Skeleton className="h-8 w-20 mt-1" />
+        : <span className="text-3xl font-black tracking-tight">{value}</span>}
+      {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
     </div>
   );
 }
@@ -119,7 +116,7 @@ export function SearchInput({ value, onChange, placeholder = 'Search…' }) {
       <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
       <input
         value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full sm:w-72 pl-9 pr-4 py-2.5 rounded-xl bg-card/40 backdrop-blur-sm border border-white/5 text-sm font-medium focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/20 placeholder:text-muted-foreground transition-all"
+        className="w-full sm:w-64 pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
       />
     </div>
   );
@@ -127,10 +124,10 @@ export function SearchInput({ value, onChange, placeholder = 'Search…' }) {
 export function FilterSelect({ value, onChange, options, allLabel = 'All' }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      className="px-4 py-2.5 rounded-xl bg-card/40 backdrop-blur-sm border border-white/5 text-sm font-medium focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/20 capitalize transition-all cursor-pointer">
+      className="px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:border-primary capitalize">
       <option value="">{allLabel}</option>
       {options.map((o) => (
-        <option key={typeof o === 'string' ? o : o.value} value={typeof o === 'string' ? o : o.value} className="bg-background">
+        <option key={typeof o === 'string' ? o : o.value} value={typeof o === 'string' ? o : o.value}>
           {typeof o === 'string' ? o.replace(/_/g, ' ') : o.label}
         </option>
       ))}
@@ -151,33 +148,33 @@ export const Toggle = ({ checked, onChange, label }) => (
 export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, dense, emptyText = 'No records found.' }) {
   if (error) {
     return (
-      <div className="rounded-2xl border border-white/5 bg-card/20 backdrop-blur-md p-10 text-center">
+      <div className="rounded-xl border border-border bg-card p-10 text-center">
         <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-3" />
         <p className="text-sm text-muted-foreground mb-4">{error}</p>
         {onRetry && (
-          <button onClick={onRetry} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-white text-sm font-bold shadow-[0_0_15px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] transition-all">
+          <button onClick={onRetry} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:opacity-90">
             <RefreshCw className="w-4 h-4" /> Retry
           </button>
         )}
       </div>
     );
   }
-  const pad = dense ? 'px-4 py-3' : 'px-6 py-4';
+  const pad = dense ? 'px-3 py-2' : 'px-4 py-3';
   return (
-    <div className="rounded-2xl border border-white/5 bg-card/20 backdrop-blur-md overflow-hidden shadow-xl">
-      <div className="overflow-x-auto custom-scrollbar">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="overflow-x-auto">
         <table className="text-sm w-full">
-          <thead className="sticky top-0 z-10 bg-card/80 backdrop-blur-xl">
-            <tr className="border-b border-white/5 text-left">
+          <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+            <tr className="border-b border-border text-left">
               {columns.map((c) => (
-                <th key={c.key} className={`${pad} font-bold text-muted-foreground uppercase tracking-wider text-xs whitespace-nowrap ${c.thClassName || ''}`}>{c.label}</th>
+                <th key={c.key} className={`${pad} font-semibold text-muted-foreground whitespace-nowrap ${c.thClassName || ''}`}>{c.label}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading
               ? Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i} className="border-b border-white/5">
+                  <tr key={i} className="border-b border-border/60">
                     {columns.map((c) => <td key={c.key} className={pad}><Skeleton className="h-4 w-full max-w-[160px]" /></td>)}
                   </tr>
                 ))
@@ -185,7 +182,7 @@ export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, 
                 ? rows.map((row, i) => (
                     <tr key={row.id || i}
                       onClick={onRowClick ? () => onRowClick(row) : undefined}
-                      className={`border-b border-white/5 last:border-0 ${onRowClick ? 'cursor-pointer hover:bg-white/5' : ''} transition-colors font-medium`}>
+                      className={`border-b border-border/60 last:border-0 ${onRowClick ? 'cursor-pointer hover:bg-muted/40' : ''} transition-colors`}>
                       {columns.map((c) => (
                         <td key={c.key} className={`${pad} ${c.tdClassName || ''}`}>
                           {c.render ? c.render(row) : (row[c.key] ?? '—')}
@@ -193,7 +190,7 @@ export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, 
                       ))}
                     </tr>
                   ))
-                : <tr><td colSpan={columns.length} className="px-6 py-16 text-center text-muted-foreground font-medium">{emptyText}</td></tr>}
+                : <tr><td colSpan={columns.length} className="px-4 py-12 text-center text-muted-foreground">{emptyText}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -229,16 +226,16 @@ export function Drawer({ open, onClose, title, subtitle, children }) {
   }, [open, onClose]);
   return (
     <div className={`fixed inset-0 z-[60] ${open ? '' : 'pointer-events-none'}`}>
-      <div onClick={onClose} className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`} />
-      <div className={`absolute right-0 top-0 h-full w-full max-w-2xl bg-background/95 backdrop-blur-3xl border-l border-white/5 shadow-2xl transition-transform duration-300 flex flex-col ${open ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="flex items-start justify-between gap-4 p-6 sm:p-8 border-b border-white/5 shrink-0 bg-background/50">
+      <div onClick={onClose} className={`absolute inset-0 bg-black/60 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`} />
+      <div className={`absolute right-0 top-0 h-full w-full max-w-xl bg-background border-l border-border shadow-2xl transition-transform duration-300 flex flex-col ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="flex items-start justify-between gap-4 p-5 border-b border-border shrink-0">
           <div className="min-w-0">
-            <h3 className="text-2xl font-heading font-black truncate bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent">{title}</h3>
-            {subtitle && <p className="text-sm text-muted-foreground truncate mt-1 font-medium">{subtitle}</p>}
+            <h3 className="text-lg font-bold truncate">{title}</h3>
+            {subtitle && <p className="text-sm text-muted-foreground truncate">{subtitle}</p>}
           </div>
-          <button onClick={onClose} className="p-2.5 rounded-xl hover:bg-white/5 shrink-0 transition-colors border border-transparent hover:border-white/10"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted/50 shrink-0"><X className="w-5 h-5" /></button>
         </div>
-        <div className="overflow-y-auto p-6 sm:p-8 space-y-8 custom-scrollbar">{open && children}</div>
+        <div className="overflow-y-auto p-5 space-y-6">{open && children}</div>
       </div>
     </div>
   );
