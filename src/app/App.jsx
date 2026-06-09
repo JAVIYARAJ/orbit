@@ -1,4 +1,4 @@
-import { useState as useStateApp, useEffect as useEffectApp, useRef } from 'react';
+import { useState as useStateApp, useEffect as useEffectApp, useRef, useCallback as useCallbackApp } from 'react';
 import { Sidebar, Topbar, CmdPalette } from '../components/shell.jsx';
 import {
   TweaksPanel, TweakSection, TweakColor, TweakRadio,
@@ -27,6 +27,8 @@ import { Collaboration } from '../pages/collaboration.jsx';
 import { CalendarPage } from '../pages/calendar.jsx';
 import { Settings } from '../pages/settings.jsx';
 import { AuthPage, ResetPasswordPage, InviteAcceptPage } from '../pages/auth.jsx';
+import { LandingPage } from '../pages/landing.jsx';
+import { PrivacyPolicy } from '../pages/privacy.jsx';
 import { useRemoteConfig } from '../lib/useRemoteConfig.js';
 import { canAccessModule } from '../lib/permissions.js';
 
@@ -108,6 +110,34 @@ export default function App() {
   const [dataLoading,      setDataLoading]      = useStateApp(false);
   const [showPasswordReset, setShowPasswordReset] = useStateApp(false);
 
+  // ── URL routing (top-level flow) ────────────────────────────────
+  // Real browser-history routes so the address bar matches the view and a
+  // refresh / typed-in URL lands on the right page:
+  //   /  → landing      /auth → sign-in      /app → dashboard
+  const [route, setRoute] = useStateApp(() =>
+    typeof window === 'undefined' ? '/' : window.location.pathname || '/'
+  );
+
+  // True when the page loaded from an OAuth / email-confirmation redirect
+  // (Supabase returns to the origin with ?code or a token hash). Once the
+  // session resolves we forward these visits straight to /app.
+  const hadAuthCallbackRef = useRef(
+    typeof window !== 'undefined' && (() => {
+      const u = new URL(window.location.href);
+      const hasParam = ['code', 'state', 'error', 'error_code', 'error_description']
+        .some((p) => u.searchParams.has(p));
+      const hasHashToken = u.hash.includes('access_token') && !u.hash.includes('type=recovery');
+      return hasParam || hasHashToken;
+    })()
+  );
+
+  const navigate = useCallbackApp((to) => {
+    if (typeof window !== 'undefined' && window.location.pathname !== to) {
+      window.history.pushState({}, '', to);
+    }
+    setRoute(to);
+  }, []);
+
   // ── Workstations ────────────────────────────────────────────────
   const [workstations,      setWorkstations]      = useStateApp([]);
   const [activeWorkstation, setActiveWorkstation] = useStateApp(null);
@@ -144,12 +174,37 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Keep route state in sync with browser back/forward.
+  useEffectApp(() => {
+    const onPop = () => setRoute(window.location.pathname || '/');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // Forward OAuth / email-confirmation landings into the app once signed in.
+  useEffectApp(() => {
+    if (authUser && hadAuthCallbackRef.current) {
+      hadAuthCallbackRef.current = false;
+      navigate('/app');
+    }
+  }, [authUser, navigate]);
+
+  // Route guards: keep signed-out users out of protected paths, and keep
+  // signed-in users off /auth (and off any unknown path) by sending them to /app.
+  useEffectApp(() => {
+    if (authLoading) return;
+    const isPublic = route === '/' || route === '/auth' || route === '/reset-password' || route === '/privacy';
+    if (route === '/auth' && authUser) { navigate('/app'); return; }
+    if (!isPublic && !authUser) { navigate('/auth'); return; }
+    if (!isPublic && authUser && route !== '/app') navigate('/app');
+  }, [route, authUser, authLoading, navigate]);
+
   const buildUser = (u) => {
     const name = u.user_metadata?.name || u.email.split('@')[0];
     return { id: u.id, name, email: u.email, avatar: name[0].toUpperCase() };
   };
 
-  const handleAuth       = (user) => setAuthUser(user);
+  const handleAuth       = (user) => { setAuthUser(user); navigate('/app'); };
   const handleUserUpdate = (updates) => setAuthUser(prev => ({ ...prev, ...updates }));
   const handleLogout = async () => {
     wsReadyRef.current = false;
@@ -162,6 +217,7 @@ export default function App() {
     setProjectTypes([]);
     setPriorities([]);
     setTags([]);
+    navigate('/');
   };
 
   // ── Check GitHub + Vercel connection at workspace level ──────────
@@ -581,14 +637,28 @@ export default function App() {
   // ── Gates ───────────────────────────────────────────────────────
   if (authLoading || wsLoading || dataLoading) return <Loading />;
 
+  // Password recovery (Supabase recovery link) takes over regardless of path.
   if (showPasswordReset) return (
     <ResetPasswordPage onDone={() => {
       setShowPasswordReset(false);
       setAuthUser(null);
+      navigate('/auth');
     }} />
   );
 
-  if (!authUser)                return <AuthPage onAuth={handleAuth} />;
+  // /  → marketing landing, shown for everyone (logged in or not).
+  if (route === '/') return <LandingPage onEnter={() => navigate('/auth')} onNavigate={navigate} />;
+
+  // /privacy → public legal page.
+  if (route === '/privacy') return <PrivacyPolicy onNavigate={navigate} />;
+
+  // /auth → sign-in. A logged-in visitor is forwarded to /app by the guard
+  // effect; render the loader during that brief transition.
+  if (route === '/auth') return authUser ? <Loading /> : <AuthPage onAuth={handleAuth} />;
+
+  // Any other path is the authenticated app. The guard effect sends signed-out
+  // users to /auth; show the loader until that redirect lands.
+  if (!authUser) return <Loading />;
 
   // A pending invite takes precedence over first-run workspace setup — otherwise a
   // brand-new user invited to a workspace would be forced to create one of their own
