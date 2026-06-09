@@ -31,6 +31,7 @@ import { LandingPage } from '../pages/landing.jsx';
 import { PrivacyPolicy } from '../pages/privacy.jsx';
 import { ContactPage } from '../pages/contact.jsx';
 import { AdminApp } from '../admin/AdminApp.jsx';
+import { RoleChooser } from '../pages/role-chooser.jsx';
 
 // Client-side admin allowlist (UX gate only — the real check is server-side in
 // the `admin` Edge Function, which verifies the JWT + email before using the
@@ -164,6 +165,17 @@ export default function App() {
   // Admin status from the DB flag (UX gate only; the Edge Function enforces it).
   const [isAdminFlag, setIsAdminFlag] = useStateApp(false);
 
+  // For accounts that are BOTH user and admin, a post-login chooser decides
+  // which surface to enter. Persisted per browser session; cleared on logout.
+  const [roleChoice, setRoleChoice] = useStateApp(() =>
+    (typeof window !== 'undefined' && sessionStorage.getItem('orbit:roleChoice')) || null
+  );
+  const chooseRole = (r) => {
+    sessionStorage.setItem('orbit:roleChoice', r);
+    setRoleChoice(r);
+    navigate(r === 'admin' ? '/admin' : '/app');
+  };
+
   // ── Workstations ────────────────────────────────────────────────
   const [workstations,      setWorkstations]      = useStateApp([]);
   const [activeWorkstation, setActiveWorkstation] = useStateApp(null);
@@ -253,6 +265,8 @@ export default function App() {
     setProjectTypes([]);
     setPriorities([]);
     setTags([]);
+    sessionStorage.removeItem('orbit:roleChoice');
+    setRoleChoice(null);
     navigate('/');
   };
 
@@ -708,6 +722,12 @@ export default function App() {
   // Any other path is the authenticated app. The guard effect sends signed-out
   // users to /auth; show the loader until that redirect lands.
   if (!authUser) return <Loading />;
+
+  // Accounts that are both user AND admin pick a surface once per session.
+  // Non-admins skip this entirely and go straight to the app.
+  if (isAdmin && !roleChoice) {
+    return <RoleChooser user={authUser} onUser={() => chooseRole('user')} onAdmin={() => chooseRole('admin')} />;
+  }
 
   // The app needs its workspace data; the admin panel above does not.
   if (wsLoading || dataLoading) return <Loading />;

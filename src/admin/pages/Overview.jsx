@@ -9,9 +9,9 @@ import { adminOverview } from '../api.js';
 const PIE_COLORS = ['#6366f1', '#22c55e', '#eab308', '#06b6d4', '#ec4899', '#f97316', '#8b5cf6', '#64748b'];
 
 const ChartCard = ({ title, children, loading }) => (
-  <div className="rounded-xl bg-card border border-border p-5">
-    <h3 className="text-sm font-bold mb-4">{title}</h3>
-    {loading ? <Skeleton className="h-56 w-full" /> : <div className="h-56">{children}</div>}
+  <div className="rounded-2xl bg-card/40 backdrop-blur-md border border-white/5 p-6 shadow-lg hover:shadow-xl hover:border-white/10 transition-all duration-300">
+    <h3 className="text-sm font-bold mb-6 uppercase tracking-wider text-muted-foreground">{title}</h3>
+    {loading ? <Skeleton className="h-56 w-full rounded-xl" /> : <div className="h-64">{children}</div>}
   </div>
 );
 
