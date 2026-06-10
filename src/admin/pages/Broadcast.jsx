@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { useAdmin, Toggle } from '../ui.jsx';
 import { adminQuery, adminSendBroadcast } from '../api.js';
+import { uploadBroadcastImage } from '../../lib/cloudinary.js';
 
 export function BroadcastPage() {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [imageSource, setImageSource] = useState('url'); // 'url' | 'upload'
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState('');
   const [chEmail, setChEmail] = useState(true);
   const [chNotify, setChNotify] = useState(false);
   const [sending, setSending] = useState(false);
@@ -42,8 +46,24 @@ export function BroadcastPage() {
     return next;
   });
 
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    setUploading(true);
+    setUploadErr('');
+    try {
+      const url = await uploadBroadcastImage(file);
+      setImageUrl(url);
+    } catch (err) {
+      setUploadErr(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const enoughRecipients = mode === 'all' || selectedIds.length > 0;
-  const canSend = subject.trim() && message.trim() && (chEmail || chNotify) && enoughRecipients && !sending;
+  const canSend = subject.trim() && message.trim() && (chEmail || chNotify) && enoughRecipients && !sending && !uploading;
 
   const send = async () => {
     setSending(true);
@@ -64,7 +84,6 @@ export function BroadcastPage() {
     }
   };
 
-  const previewBody = message.replace(/\{name\}/gi, 'Amin');
   const audienceLabel = mode === 'specific' ? `${selectedIds.length} selected ${selectedIds.length === 1 ? 'user' : 'users'}` : 'all users';
 
   return (
@@ -73,7 +92,7 @@ export function BroadcastPage() {
         Send a one-off message via email and/or an in-app notification — to <span className="text-foreground font-semibold">all users</span> or
         a <span className="text-foreground font-semibold">specific selection</span>. For email, the greeting <span className="text-foreground">“Hi {'{name}'},”</span> and
         Orbit branding are added automatically; use <code className="text-foreground font-mono">{'{name}'}</code> to insert each
-        person's name. Image is email-only — paste a public <code className="text-foreground font-mono">https://</code> URL.
+        person's name. An image (upload or direct URL) is <span className="text-foreground">email-only</span> — it isn't shown in notifications.
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -98,14 +117,40 @@ export function BroadcastPage() {
           />
         </div>
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Image URL (optional, email only)</label>
-          <input
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="https://res.cloudinary.com/…/banner.png"
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
-          />
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-muted-foreground">Image (optional, email only)</label>
+          <div className="inline-flex rounded-lg border border-border p-0.5 bg-background">
+            {[['url', 'Image URL'], ['upload', 'Upload']].map(([m, label]) => (
+              <button key={m} type="button" onClick={() => setImageSource(m)}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${imageSource === m ? 'bg-primary text-white' : 'text-muted-foreground hover:text-foreground'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {imageSource === 'url' ? (
+            <input
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://res.cloudinary.com/…/banner.png"
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+            />
+          ) : (
+            <div className="space-y-2">
+              <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-medium cursor-pointer hover:border-primary w-fit">
+                <input type="file" accept="image/*" onChange={onPickFile} className="hidden" disabled={uploading} />
+                {uploading ? 'Uploading…' : 'Choose image…'}
+              </label>
+              {uploadErr && <p className="text-xs text-red-500">{uploadErr}</p>}
+            </div>
+          )}
+
+          {imageUrl.trim() && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="truncate max-w-[360px]">{imageUrl.trim()}</span>
+              <button type="button" onClick={() => setImageUrl('')} className="underline hover:text-foreground">Remove</button>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -168,16 +213,36 @@ export function BroadcastPage() {
           )}
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">Preview</label>
-          <div className="rounded-lg border border-border bg-background p-4 text-sm leading-relaxed">
-            <p className="font-semibold mb-3">Hi Amin,</p>
-            {imageUrl.trim() && (
-              <img src={imageUrl.trim()} alt="" className="w-full max-w-md rounded-lg mb-3"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-            )}
-            <p className="whitespace-pre-wrap text-muted-foreground">{previewBody || '—'}</p>
-          </div>
+
+          {chEmail && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Email</p>
+              <div className="rounded-lg border border-border bg-background p-4 text-sm leading-relaxed">
+                <p className="font-semibold mb-3">Hi {'{name}'},</p>
+                {imageUrl.trim() && (
+                  <img src={imageUrl.trim()} alt="" className="w-full max-w-md rounded-lg mb-3"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                )}
+                <p className="whitespace-pre-wrap text-muted-foreground">{message || '—'}</p>
+              </div>
+            </div>
+          )}
+
+          {chNotify && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">In-app notification</p>
+              <div className="rounded-lg border border-border bg-background p-3 flex gap-3 items-start">
+                <span className="w-8 h-8 shrink-0 rounded-full bg-primary/15 text-primary flex items-center justify-center text-sm">🔔</span>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm">{subject || 'Title'}</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{message || '—'}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">Notifications don't show images.</p>
+            </div>
+          )}
         </div>
 
         {!confirming ? (

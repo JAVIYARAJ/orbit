@@ -52,6 +52,16 @@ Deno.serve(async (req) => {
       return json({ data: { signature, timestamp, api_key: API_KEY, cloud_name: CLOUD_NAME, public_id } })
     }
 
+    // Admin-only signed upload (no workstation) — used by the broadcast composer.
+    if (action === 'signAdmin') {
+      if (!public_id) return json({ error: 'missing params' }, 400)
+      const { data: prof } = await admin.from('profiles').select('is_admin').eq('id', user.id).maybeSingle()
+      if (prof?.is_admin !== true) return json({ error: 'Forbidden' }, 403)
+      const timestamp = Math.floor(Date.now() / 1000)
+      const signature = await sign({ public_id, timestamp })
+      return json({ data: { signature, timestamp, api_key: API_KEY, cloud_name: CLOUD_NAME, public_id } })
+    }
+
     if (action === 'destroy') {
       if (!attachment_id) return json({ error: 'missing attachment_id' }, 400)
       const { data: att } = await admin.from('task_attachments')

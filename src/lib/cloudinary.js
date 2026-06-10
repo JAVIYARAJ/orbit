@@ -52,6 +52,29 @@ export async function uploadAttachment(file, { workstationId, taskDbId }) {
 export const destroyAttachment = (attachmentId) =>
   callEdge({ action: 'destroy', attachment_id: attachmentId })
 
+// Admin-only image upload (no workstation), e.g. for the broadcast composer.
+// Returns the Cloudinary secure_url.
+export async function uploadBroadcastImage(file) {
+  if (!file?.type?.startsWith('image/')) throw new Error('Please choose an image file')
+  if (file.size > 10 * 1024 * 1024) throw new Error('Image must be under 10 MB')
+  const publicId = `orbit/broadcast/${crypto.randomUUID()}`
+  const { signature, timestamp, api_key, cloud_name, public_id } = await callEdge({
+    action: 'signAdmin', public_id: publicId,
+  })
+  const form = new FormData()
+  form.set('file', file)
+  form.set('api_key', api_key)
+  form.set('timestamp', String(timestamp))
+  form.set('signature', signature)
+  form.set('public_id', public_id)
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloud_name}/image/upload`, {
+    method: 'POST', body: form,
+  })
+  const r = await res.json()
+  if (!res.ok || r.error) throw new Error(r.error?.message || 'Upload failed')
+  return r.secure_url
+}
+
 export const isImageAttachment = (att) =>
   att?.resourceType === 'image' && (att?.format || '').toLowerCase() !== 'pdf'
 
