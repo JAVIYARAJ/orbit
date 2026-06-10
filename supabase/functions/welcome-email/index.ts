@@ -4,14 +4,13 @@
 //
 // Security: this function is deployed with verify_jwt = false because the DB
 // trigger calls it without a user JWT. It instead validates a shared secret
-// (x-welcome-secret header) against the WELCOME_HOOK_SECRET env var. The same
-// secret lives in Supabase Vault on the database side.
+// (x-welcome-secret header) against the Vault value via the
+// verify_welcome_secret() RPC — no duplicate env var needed.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const WELCOME_HOOK_SECRET = Deno.env.get("WELCOME_HOOK_SECRET") ?? "";
 
 const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
 const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") ?? "";
@@ -83,11 +82,12 @@ function renderWelcomeEmail(name: string, body: string): string {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  // Validate the shared secret. Fail closed if it isn't configured.
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+
+  // Validate the shared secret against the Vault value (set by the DB trigger).
   const provided = req.headers.get("x-welcome-secret") ?? "";
-  if (!WELCOME_HOOK_SECRET || provided !== WELCOME_HOOK_SECRET) {
-    return json({ error: "Unauthorized" }, 401);
-  }
+  const { data: secretOk } = await admin.rpc("verify_welcome_secret", { p_secret: provided });
+  if (secretOk !== true) return json({ error: "Unauthorized" }, 401);
 
   try {
     const { user_id, email, name } = await req.json();
@@ -96,8 +96,6 @@ Deno.serve(async (req) => {
     if (!BREVO_API_KEY || !BREVO_SENDER_EMAIL) {
       return json({ error: "Email not configured" }, 500);
     }
-
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     // Best-effort audit log via the log_email RPC; never break the flow on failure.
     const logEmail = async (status: string, reason: string, subject?: string, messageId?: string) => {
