@@ -71,7 +71,7 @@ function PermissionsTab() {
     return { groups, roles, wsMap };
   }, []);
 
-  if (error) return <div className="rounded-xl border border-border bg-card p-10 text-center"><p className="text-sm text-muted-foreground mb-4">{error}</p><button onClick={reload} className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold">Retry</button></div>;
+  if (error) return <div className="rounded-xl border border-border bg-card p-10 text-center"><p className="text-sm text-muted-foreground mb-4">{error}</p><button onClick={reload} className="px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-600/90 text-[#ffffff] border border-primary/20 shadow-md shadow-primary/20 text-sm font-semibold" style={{ color: "#ffffff" }}>Retry</button></div>;
   if (loading) return <Skeleton className="h-64 w-full" />;
 
   const entries = Object.entries(data?.groups || {});

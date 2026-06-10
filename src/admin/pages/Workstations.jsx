@@ -25,10 +25,12 @@ export function WorkstationsPage() {
   const filtered = (data?.rows || []).filter((w) => !search || w.name.toLowerCase().includes(search.toLowerCase()));
 
   const columns = [
-    { key: 'name', label: 'Name', render: (r) => (
-      <span className="flex items-center gap-2 font-medium">
-        <span className="w-3 h-3 rounded-full border border-border" style={{ background: r.color || '#6366f1' }} />{r.name}
-      </span>) },
+    {
+      key: 'name', label: 'Name', render: (r) => (
+        <span className="flex items-center gap-2 font-medium">
+          <span className="w-3 h-3 rounded-full border border-border" style={{ background: r.color || '#6366f1' }} />{r.name}
+        </span>)
+    },
     { key: 'owner', label: 'Owner', render: (r) => data?.pmap?.[r.owner_id]?.name || '—' },
     { key: 'members', label: 'Members', render: (r) => data?.members?.[r.id] || 0 },
     { key: 'projects', label: 'Projects', render: (r) => data?.projects?.[r.id] || 0 },

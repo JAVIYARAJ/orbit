@@ -52,36 +52,39 @@ export function ActivityLogPage() {
     { key: 'meta', label: '', render: (r) => r.meta ? <span className="text-xs text-primary">view</span> : null },
   ];
 
-  const dateCls = 'px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:border-primary text-muted-foreground';
+  const dateCls = 'px-4 py-2.5 rounded-xl bg-card/50 backdrop-blur-md border border-border text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all shadow-sm text-foreground/80 cursor-pointer appearance-none';
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-card/60 backdrop-blur-xl border border-border shadow-lg shadow-foreground/5">
         <FilterSelect value={entityType} onChange={setEntityType} options={meta?.entityTypes || []} allLabel="All entities" />
         <FilterSelect value={action} onChange={setAction} options={meta?.actions || []} allLabel="All actions" />
         <FilterSelect value={ws} onChange={setWs} options={(meta?.wsList || []).map((w) => ({ value: w.id, label: w.name }))} allLabel="All workstations" />
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={dateCls} title="From" />
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={dateCls} title="To" />
       </div>
+      
       <DataTable columns={columns} rows={data?.rows} loading={loading} error={error} onRetry={reload} onRowClick={setSelected} dense />
       <Pagination offset={offset} limit={PER} count={data?.count} onPage={setOffset} />
 
       <Drawer open={!!selected} onClose={() => setSelected(null)} title="Activity detail" subtitle={selected ? new Date(selected.created_at).toLocaleString() : ''}>
         {selected && (
-          <>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-5 p-5 rounded-2xl bg-muted/50 border border-border shadow-inner">
               <Field label="Actor">{meta?.profileMap?.[selected.actor_id] || 'system'}</Field>
               <Field label="Action"><Badge tone={actionTone(selected.action)}>{selected.action}</Badge></Field>
               <Field label="Entity type">{selected.entity_type}</Field>
               <Field label="Entity label">{selected.entity_label || '—'}</Field>
               <Field label="Workstation">{meta?.wsMap?.[selected.workstation_id] || '—'}</Field>
-              <Field label="Entity ID"><span className="font-mono text-xs break-all">{selected.entity_id || '—'}</span></Field>
+              <Field label="Entity ID"><span className="font-mono text-xs break-all text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded-md">{selected.entity_id || '—'}</span></Field>
             </div>
             <div>
-              <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-1">Meta</div>
-              <pre className="text-xs bg-card border border-border rounded-lg p-4 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(selected.meta ?? {}, null, 2)}</pre>
+              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1 mb-2">Meta Payload</div>
+              <pre className="text-xs bg-background/50 backdrop-blur-md border border-border rounded-xl p-5 overflow-auto whitespace-pre-wrap break-all shadow-inner text-foreground/80">
+                {JSON.stringify(selected.meta ?? {}, null, 2)}
+              </pre>
             </div>
-          </>
+          </div>
         )}
       </Drawer>
     </div>

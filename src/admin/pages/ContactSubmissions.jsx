@@ -112,7 +112,7 @@ export function ContactSubmissionsPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <Badge tone={statusTone(selected.status)} dot>{selected.status}</Badge>
               <button disabled={saving} onClick={() => cycleStatus(selected)}
-                className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 disabled:opacity-50">
+                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-600/90 text-[#ffffff] border border-primary/20 shadow-md shadow-primary/20 text-xs font-semibold hover:opacity-90 disabled:opacity-50" style={{ color: "#ffffff" }}>
                 Mark as “{NEXT[selected.status] || 'seen'}”
               </button>
             </div>
@@ -132,7 +132,7 @@ export function ContactSubmissionsPage() {
                     <button
                       key={m}
                       onClick={() => switchMode(m)}
-                      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === m ? 'bg-primary text-white' : 'text-muted-foreground hover:text-foreground'}`}
+                      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === m ? 'bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-600/90 text-[#ffffff] border border-primary/20 shadow-md shadow-primary/20' : 'text-muted-foreground hover:text-foreground'}`}
                     >
                       {label}
                     </button>
@@ -156,7 +156,7 @@ export function ContactSubmissionsPage() {
                   <button
                     onClick={sendReply}
                     disabled={sending || !subject.trim() || !message.trim()}
-                    className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-600/90 text-[#ffffff] border border-primary/20 shadow-md shadow-primary/20 text-sm font-semibold hover:opacity-90 disabled:opacity-50" style={{ color: "#ffffff" }}
                   >
                     {sending ? 'Sending…' : 'Send reply'}
                   </button>

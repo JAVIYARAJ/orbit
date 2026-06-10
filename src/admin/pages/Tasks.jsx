@@ -50,8 +50,8 @@ export function TasksPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-card/60 backdrop-blur-xl border border-border shadow-lg shadow-foreground/5">
         <SearchInput value={search} onChange={setSearch} placeholder="Search title…" />
         <FilterSelect value={priorityId} onChange={(v) => { setPriorityId(v); setOffset(0); }} options={(data?.priorities || []).map((p) => ({ value: p.id, label: p.label }))} allLabel="All priorities" />
         <FilterSelect value={statusId} onChange={(v) => { setStatusId(v); setOffset(0); }} options={(data?.statuses || []).map((s) => ({ value: s.id, label: s.label }))} allLabel="All statuses" />
@@ -83,10 +83,10 @@ function TaskDrawer({ task, statusMap, profileMap, onClose }) {
     <Drawer open={!!task} onClose={onClose} title={task?.title} subtitle={task?.task_id}>
       {task && (
         <>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-5 p-5 rounded-2xl bg-muted/50 border border-border shadow-inner">
             <Field label="Status">{label(task.status_id)}</Field>
             <Field label="Assignee">{profileMap?.[task.assignee_id]?.name || '—'}</Field>
-            <Field label="Project">{task.project_short_id || '—'}</Field>
+            <Field label="Project"><span className="font-mono bg-primary/10 text-primary/80 px-1.5 py-0.5 rounded-md text-xs">{task.project_short_id || '—'}</span></Field>
             <Field label="Due">{task.due_date || '—'}</Field>
             <Field label="Estimate">{fmtMin(task.est_minutes)}</Field>
             <Field label="Logged">{fmtMin(task.logged_minutes)}</Field>
@@ -97,11 +97,13 @@ function TaskDrawer({ task, statusMap, profileMap, onClose }) {
           </div>
           {task.description && <DrawerSection title="Description"><p className="text-sm text-muted-foreground whitespace-pre-wrap">{task.description}</p></DrawerSection>}
           <DrawerSection title="Status history" count={data?.logs?.length}>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {(data?.logs || []).map((l, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <Badge tone="grey">{label(l.from_status_id)}</Badge><span className="text-muted-foreground">→</span><Badge tone="blue">{label(l.to_status_id)}</Badge>
-                  <span className="ml-auto"><RelTime date={l.changed_at} /></span>
+                <div key={i} className="flex items-center gap-2 text-sm bg-background/50 backdrop-blur-md border border-border rounded-xl px-4 py-3 shadow-sm transition-colors hover:bg-muted">
+                  <Badge tone="grey">{label(l.from_status_id)}</Badge>
+                  <span className="text-muted-foreground font-bold">→</span>
+                  <Badge tone="blue">{label(l.to_status_id)}</Badge>
+                  <span className="ml-auto text-xs opacity-70"><RelTime date={l.changed_at} /></span>
                 </div>
               ))}
               {!loading && !data?.logs?.length && <p className="text-sm text-muted-foreground">No status changes</p>}

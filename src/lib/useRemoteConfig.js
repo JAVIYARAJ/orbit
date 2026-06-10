@@ -54,7 +54,14 @@ export function useRemoteConfig() {
   return modules;
 }
 
+// Build type. Local builds always allow email/password login regardless of the
+// Firebase Remote Config google_auth_only flag. Set VITE_BUILD_TYPE=local in the
+// local .env. Unset (or any other value) = release behaviour (respect the flag).
+const IS_LOCAL_BUILD = import.meta.env.VITE_BUILD_TYPE === 'local';
+
 function parseAuthConfig() {
+  // Local builds ignore the remote flag so email/password login is always on.
+  if (IS_LOCAL_BUILD) return { googleAuthOnly: false };
   try {
     const parsed = JSON.parse(getString(getRC(), 'enabled_modules'));
     return { googleAuthOnly: parsed.google_auth_only === true };

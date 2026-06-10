@@ -9,7 +9,7 @@ import { adminOverview } from '../api.js';
 const PIE_COLORS = ['#6366f1', '#22c55e', '#eab308', '#06b6d4', '#ec4899', '#f97316', '#8b5cf6', '#64748b'];
 
 const ChartCard = ({ title, children, loading }) => (
-  <div className="rounded-xl bg-card border border-border p-5">
+  <div className="rounded-2xl bg-card/60 backdrop-blur-xl border border-border p-5 shadow-lg shadow-foreground/5">
     <h3 className="text-sm font-bold mb-4">{title}</h3>
     {loading ? <Skeleton className="h-56 w-full" /> : <div className="h-56">{children}</div>}
   </div>
@@ -27,7 +27,7 @@ export function OverviewPage() {
     return (
       <div className="rounded-xl border border-border bg-card p-10 text-center">
         <p className="text-sm text-muted-foreground mb-4">{error}</p>
-        <button onClick={reload} className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold">Retry</button>
+        <button onClick={reload} className="px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-600/90 text-[#ffffff] border border-primary/20 shadow-md shadow-primary/20 text-sm font-semibold" style={{ color: "#ffffff" }}>Retry</button>
       </div>
     );
   }

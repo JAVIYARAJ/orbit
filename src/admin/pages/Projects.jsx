@@ -38,8 +38,8 @@ export function ProjectsPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl bg-card/60 backdrop-blur-xl border border-border shadow-lg shadow-foreground/5">
         <SearchInput value={search} onChange={setSearch} placeholder="Search name or client…" />
         <FilterSelect value={status} onChange={(v) => { setStatus(v); setOffset(0); }} options={STATUSES} allLabel="All statuses" />
         <Toggle checked={showDeleted} onChange={(v) => { setShowDeleted(v); setOffset(0); }} label="Show deleted" />
@@ -70,8 +70,8 @@ function ProjectDrawer({ project, onClose }) {
             <Badge tone={statusTone(project.status)} dot>{(project.status || '').replace(/_/g, ' ')}</Badge>
             {project.deleted_at && <Badge tone="red">deleted</Badge>}
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Client">{project.client}</Field>
+          <div className="grid grid-cols-2 gap-5 p-5 rounded-2xl bg-muted/50 border border-border shadow-inner">
+            <Field label="Client">{project.client || '—'}</Field>
             <Field label="Progress"><ProgressBar value={project.progress || 0} /></Field>
             <Field label="Hours (logged / est)">{project.hours_logged || 0} / {project.hours_est || 0}h</Field>
             <Field label="Time tracked">{loading ? '…' : `${data?.hours ?? 0}h`}</Field>
@@ -87,9 +87,9 @@ function ProjectDrawer({ project, onClose }) {
           <DrawerSection title="Gantt tasks" count={data?.gantt?.length}>
             <div className="space-y-2">
               {(data?.gantt || []).map((g, i) => (
-                <div key={i} className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2 text-sm">
-                  <span className="truncate">{g.name}</span>
-                  <span className="text-xs text-muted-foreground">W{g.start_week}–{g.end_week} · {g.status}</span>
+                <div key={i} className="flex items-center justify-between bg-background/50 backdrop-blur-md border border-border rounded-xl px-4 py-3 text-sm shadow-sm transition-colors hover:bg-muted">
+                  <span className="truncate font-semibold">{g.name}</span>
+                  <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border">W{g.start_week}–{g.end_week} · {g.status}</span>
                 </div>
               ))}
               {!loading && !data?.gantt?.length && <p className="text-sm text-muted-foreground">No gantt tasks</p>}

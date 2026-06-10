@@ -79,15 +79,16 @@ export const Skeleton = ({ className = '' }) => (
 // ── Stat card ───────────────────────────────────────────────────
 export function StatCard({ label, value, icon: Icon, hint, loading }) {
   return (
-    <div className="rounded-xl bg-card border border-border p-5 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground font-medium">{label}</span>
-        {Icon && <Icon className="w-4 h-4 text-primary" />}
+    <div className="group rounded-2xl bg-card/60 backdrop-blur-xl border border-border p-5 flex flex-col gap-2 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-primary/5 hover:bg-card/80 hover:border-border relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      <div className="flex items-center justify-between relative z-10">
+        <span className="text-sm text-muted-foreground font-medium group-hover:text-foreground/80 transition-colors">{label}</span>
+        {Icon && <div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-[#ffffff] transition-colors"><Icon className="w-4 h-4" /></div>}
       </div>
       {loading
-        ? <Skeleton className="h-8 w-20 mt-1" />
-        : <span className="text-3xl font-black tracking-tight">{value}</span>}
-      {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+        ? <Skeleton className="h-8 w-20 mt-1 relative z-10" />
+        : <span className="text-3xl font-black tracking-tight relative z-10">{value}</span>}
+      {hint && <span className="text-xs text-muted-foreground relative z-10">{hint}</span>}
     </div>
   );
 }
@@ -112,11 +113,11 @@ export function Avatar({ name, url, size = 32 }) {
 // ── Inputs ──────────────────────────────────────────────────────
 export function SearchInput({ value, onChange, placeholder = 'Search…' }) {
   return (
-    <div className="relative">
-      <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+    <div className="relative group">
+      <Search className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2 group-focus-within:text-primary transition-colors" />
       <input
         value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full sm:w-64 pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
+        className="w-full sm:w-64 pl-10 pr-4 py-2.5 rounded-xl bg-card/50 backdrop-blur-md border border-border text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 placeholder:text-muted-foreground transition-all shadow-sm"
       />
     </div>
   );
@@ -124,7 +125,7 @@ export function SearchInput({ value, onChange, placeholder = 'Search…' }) {
 export function FilterSelect({ value, onChange, options, allLabel = 'All' }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:border-primary capitalize">
+      className="px-4 py-2.5 rounded-xl bg-card/50 backdrop-blur-md border border-border text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 capitalize transition-all shadow-sm cursor-pointer appearance-none pr-8 relative">
       <option value="">{allLabel}</option>
       {options.map((o) => (
         <option key={typeof o === 'string' ? o : o.value} value={typeof o === 'string' ? o : o.value}>
@@ -152,22 +153,22 @@ export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, 
         <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-3" />
         <p className="text-sm text-muted-foreground mb-4">{error}</p>
         {onRetry && (
-          <button onClick={onRetry} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:opacity-90">
+          <button onClick={onRetry} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-indigo-600 hover:from-primary/90 hover:to-indigo-600/90 text-[#ffffff] border border-primary/20 shadow-md shadow-primary/20 text-sm font-semibold hover:opacity-90" style={{ color: "#ffffff" }}>
             <RefreshCw className="w-4 h-4" /> Retry
           </button>
         )}
       </div>
     );
   }
-  const pad = dense ? 'px-3 py-2' : 'px-4 py-3';
+  const pad = dense ? 'px-4 py-2.5' : 'px-5 py-4';
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
+    <div className="rounded-2xl border border-border bg-card/40 backdrop-blur-2xl overflow-hidden shadow-lg shadow-foreground/5">
       <div className="overflow-x-auto">
         <table className="text-sm w-full">
-          <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur">
+          <thead className="sticky top-0 z-10 bg-muted/50 backdrop-blur-xl">
             <tr className="border-b border-border text-left">
               {columns.map((c) => (
-                <th key={c.key} className={`${pad} font-semibold text-muted-foreground whitespace-nowrap ${c.thClassName || ''}`}>{c.label}</th>
+                <th key={c.key} className={`${pad} font-semibold text-foreground/70 uppercase tracking-wider text-xs whitespace-nowrap ${c.thClassName || ''}`}>{c.label}</th>
               ))}
             </tr>
           </thead>
@@ -182,7 +183,7 @@ export function DataTable({ columns, rows, loading, error, onRetry, onRowClick, 
                 ? rows.map((row, i) => (
                     <tr key={row.id || i}
                       onClick={onRowClick ? () => onRowClick(row) : undefined}
-                      className={`border-b border-border/60 last:border-0 ${onRowClick ? 'cursor-pointer hover:bg-muted/40' : ''} transition-colors`}>
+                      className={`border-b border-border last:border-0 ${onRowClick ? 'cursor-pointer hover:bg-muted/50' : ''} transition-colors`}>
                       {columns.map((c) => (
                         <td key={c.key} className={`${pad} ${c.tdClassName || ''}`}>
                           {c.render ? c.render(row) : (row[c.key] ?? '—')}
@@ -226,7 +227,7 @@ export function Drawer({ open, onClose, title, subtitle, children }) {
   }, [open, onClose]);
   return (
     <div className={`fixed inset-0 z-[60] ${open ? '' : 'pointer-events-none'}`}>
-      <div onClick={onClose} className={`absolute inset-0 bg-black/60 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`} />
+      <div onClick={onClose} className={`absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`} />
       <div className={`absolute right-0 top-0 h-full w-full max-w-xl bg-background border-l border-border shadow-2xl transition-transform duration-300 flex flex-col ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex items-start justify-between gap-4 p-5 border-b border-border shrink-0">
           <div className="min-w-0">
