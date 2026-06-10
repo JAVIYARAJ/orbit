@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   LayoutDashboard, Users, MonitorSmartphone, FolderKanban, CheckSquare,
-  Activity, Mail, Inbox, FileText, Sparkles, LogOut, Menu, X, ExternalLink,
+  Activity, Mail, Inbox, FileText, Sparkles, MailCheck, LogOut, Menu, X, ExternalLink,
 } from 'lucide-react';
 import { OverviewPage } from './pages/Overview.jsx';
 import { UsersPage } from './pages/Users.jsx';
@@ -13,6 +13,7 @@ import { InvitesAccessPage } from './pages/InvitesAccess.jsx';
 import { ContactSubmissionsPage } from './pages/ContactSubmissions.jsx';
 import { ReplyTemplatesPage } from './pages/ReplyTemplates.jsx';
 import { WelcomeEmailPage } from './pages/WelcomeEmail.jsx';
+import { EmailLogPage } from './pages/EmailLog.jsx';
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, Page: OverviewPage },
@@ -25,6 +26,7 @@ const NAV = [
   { id: 'contact', label: 'Contact Submissions', icon: Inbox, Page: ContactSubmissionsPage },
   { id: 'templates', label: 'Reply Templates', icon: FileText, Page: ReplyTemplatesPage },
   { id: 'welcome', label: 'Welcome Email', icon: Sparkles, Page: WelcomeEmailPage },
+  { id: 'emaillog', label: 'Email Log', icon: MailCheck, Page: EmailLogPage },
 ];
 
 export function AdminApp({ user, onExit }) {

@@ -37,6 +37,7 @@ const READ_TABLES = new Set([
   "task_status_logs", "workspace_invites", "workspace_role_permissions",
   "workspace_integrations", "task_comments", "task_attachments", "activity_log",
   "contact_submissions", "gantt_tasks", "learning", "notifications",
+  "email_log",
 ]);
 
 type Filter = { col: string; op: string; val: unknown };
@@ -232,8 +233,15 @@ async function sendContactReply(admin: any, body: any, adminUserId: string) {
       const err = await res.json();
       if (err?.message) detail = `Brevo: ${err.message}`;
     } catch { /* keep generic detail */ }
+    await admin.rpc("log_email", {
+      p_kind: "contact_reply", p_to_email: sub.email, p_subject: subject,
+      p_status: "failed", p_reason: detail, p_related_id: sub.id, p_provider_message_id: null,
+    });
     throw new Error(detail);
   }
+
+  let messageId: string | undefined;
+  try { messageId = (await res.json())?.messageId; } catch { /* noop */ }
 
   // Log the reply and mark the submission resolved. Don't fail the request if
   // these bookkeeping writes error — the email already went out.
@@ -243,6 +251,11 @@ async function sendContactReply(admin: any, body: any, adminUserId: string) {
     subject,
     body: message,
     sent_by: adminUserId,
+  });
+  await admin.rpc("log_email", {
+    p_kind: "contact_reply", p_to_email: sub.email, p_subject: subject,
+    p_status: "sent", p_reason: "admin_reply", p_related_id: sub.id,
+    p_provider_message_id: messageId ?? null,
   });
   await admin.from("contact_submissions").update({ status: "resolved" }).eq("id", sub.id);
 

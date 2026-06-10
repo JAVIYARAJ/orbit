@@ -99,15 +99,36 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
+    // Best-effort audit log via the log_email RPC; never break the flow on failure.
+    const logEmail = async (status: string, reason: string, subject?: string, messageId?: string) => {
+      try {
+        await admin.rpc("log_email", {
+          p_kind: "welcome",
+          p_to_email: email,
+          p_subject: subject ?? null,
+          p_status: status,
+          p_reason: reason,
+          p_related_id: user_id,
+          p_provider_message_id: messageId ?? null,
+        });
+      } catch { /* noop */ }
+    };
+
     // Idempotency: skip if a welcome has already been sent to this profile.
     const { data: prof } = await admin
       .from("profiles").select("welcome_sent_at").eq("id", user_id).maybeSingle();
-    if (prof?.welcome_sent_at) return json({ ok: true, skipped: "already_sent" });
+    if (prof?.welcome_sent_at) {
+      await logEmail("skipped", "already_sent");
+      return json({ ok: true, skipped: "already_sent" });
+    }
 
     // Load the admin-editable template.
     const { data: tpl } = await admin
       .from("app_email_templates").select("subject,body,enabled").eq("key", "welcome").maybeSingle();
-    if (!tpl || tpl.enabled === false) return json({ ok: true, skipped: "disabled" });
+    if (!tpl || tpl.enabled === false) {
+      await logEmail("skipped", "disabled");
+      return json({ ok: true, skipped: "disabled" });
+    }
 
     const subject = applyVars(tpl.subject || "Welcome to Orbit!", name);
     const htmlContent = renderWelcomeEmail(name, applyVars(tpl.body || "", name));
@@ -132,10 +153,15 @@ Deno.serve(async (req) => {
     if (!res.ok) {
       let detail = `Brevo returned ${res.status}`;
       try { const e = await res.json(); if (e?.message) detail = `Brevo: ${e.message}`; } catch { /* noop */ }
+      await logEmail("failed", detail, subject);
       return json({ error: detail }, 502);
     }
 
+    let messageId: string | undefined;
+    try { messageId = (await res.json())?.messageId; } catch { /* noop */ }
+
     await admin.from("profiles").update({ welcome_sent_at: new Date().toISOString() }).eq("id", user_id);
+    await logEmail("sent", "signup", subject, messageId);
     return json({ ok: true });
   } catch (e) {
     return json({ error: String((e as Error)?.message ?? e) }, 500);
