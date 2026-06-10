@@ -9,7 +9,7 @@ import {
   createVaultItem, updateVaultItem, deleteVaultItem, getVaultConfig, saveVaultConfig, resetVault,
   createLearningItem, updateLearningItem, deleteLearningItem,
   createLearningSession, listLearningSessions, deleteLearningSession, getWeeklyLearningHours,
-  createTag,
+  createTag, createTaskPriority, createProjectType,
   linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
   getTaskComments, addTaskComment, updateTaskComment, deleteTaskComment,
   loadCalendarWindow,
@@ -805,7 +805,7 @@ const RepoSelector = ({ repos, loading, value, onChange, takenRepos = {} }) => {
   );
 };
 
-const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], isGithubConnected = false, canGithubWrite = false, projects = [] }) => {
+const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [], onCreateType, isGithubConnected = false, canGithubWrite = false, projects = [] }) => {
   const isEdit = !!initial;
 
   const toForm = (p) => p ? {
@@ -932,9 +932,12 @@ const ProjectFormPanel = ({ open, onClose, initial, onSubmit, projectTypes = [],
           </div>
           <div className="fld">
             <label>Type</label>
-            <select value={form.typeId} onChange={e => set('typeId', e.target.value)}>
-              {projectTypes.map(pt => <option key={pt.id} value={pt.id}>{pt.label}</option>)}
-            </select>
+            <TypePicker
+              value={form.typeId}
+              onChange={id => set('typeId', id || '')}
+              projectTypes={projectTypes}
+              onCreateType={onCreateType}
+            />
           </div>
         </div>
         <div className="fld">
@@ -1457,7 +1460,7 @@ const ProjectViewPanel = ({ open, onClose, project, onEdit, onDelete, projectTyp
   );
 };
 
-export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null, jumpToItem, myRole = 'viewer', wsPermissions = {} }) => {
+export const ProjectsPage = ({ projects, setProjects, workstationId, projectTypes = [], setProjectTypes, tasks = [], setTasks, statuses = [], isGithubConnected = false, timer = null, jumpToItem, myRole = 'viewer', wsPermissions = {} }) => {
   const canCreate = canDo(myRole, 'create_project', wsPermissions);
   const canEdit = canDo(myRole, 'edit_project', wsPermissions);
   const canDelete = canDo(myRole, 'delete_project', wsPermissions);
@@ -1501,6 +1504,12 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
   const handleAdd = async (project) => {
     const saved = await createProject(project, workstationId);
     setProjects(prev => [saved, ...prev]);
+  };
+
+  const handleCreateType = async (label) => {
+    const pt = await createProjectType(workstationId, label);
+    setProjectTypes?.(prev => [...prev, pt]);
+    return pt;
   };
 
   const handleEdit = async (project) => {
@@ -1671,8 +1680,8 @@ export const ProjectsPage = ({ projects, setProjects, workstationId, projectType
         canDelete={canDelete}
         canGithubWrite={canGithubWrite}
       />
-      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} projects={projects} />
-      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} initial={editing} projects={projects} />
+      <ProjectFormPanel open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} projectTypes={projectTypes} onCreateType={handleCreateType} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} projects={projects} />
+      <ProjectFormPanel open={!!editing} onClose={() => setEditing(null)} onSubmit={handleEdit} projectTypes={projectTypes} onCreateType={handleCreateType} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite} initial={editing} projects={projects} />
     </div>
   );
 };
@@ -1766,6 +1775,174 @@ const TagPicker = ({ selectedIds = [], onChange, allTags = [], onCreateTag }) =>
             <button key={t.id} className="tag-picker-opt" onMouseDown={e => { e.preventDefault(); toggle(t.id); }}>
               <span className="tag-opt-dot" style={{ background: t.color }} />
               {t.name}
+            </button>
+          ))}
+          {canCreate && (
+            <button className="tag-picker-opt create" onMouseDown={e => { e.preventDefault(); handleCreate(); }} disabled={creating}>
+              <Icon name="plus" size={11} /> Create &ldquo;{trimmed}&rdquo;
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Single-select priority picker with inline create — type a name and, if no
+// priority matches, a "Create" option appears (mirrors TagPicker UX).
+const PriorityPicker = ({ value = null, onChange, priorities = [], onCreatePriority }) => {
+  const [input, setInput] = useStateA('');
+  const [open, setOpen] = useStateA(false);
+  const [creating, setCreating] = useStateA(false);
+  const ref = useRefA(null);
+
+  useEffectA(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setInput(''); } };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const selected = priorities.find(p => p.id === value) || null;
+  const trimmed = input.trim();
+  const filtered = priorities.filter(p => p.label.toLowerCase().includes(trimmed.toLowerCase()));
+  const canCreate = trimmed && !priorities.some(p => p.label.toLowerCase() === trimmed.toLowerCase());
+
+  const pick = (id) => { onChange(id); setInput(''); setOpen(false); };
+
+  const handleCreate = async () => {
+    if (!trimmed || creating || !onCreatePriority) return;
+    const color = TAG_COLORS[priorities.length % TAG_COLORS.length];
+    setCreating(true);
+    try {
+      const pr = await onCreatePriority(trimmed, color);
+      onChange(pr.id);
+      setInput('');
+      setOpen(false);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered.length > 0 && !canCreate) pick(filtered[0].id);
+      else if (canCreate) handleCreate();
+    }
+    if (e.key === 'Escape') { setOpen(false); setInput(''); }
+  };
+
+  return (
+    <div className="tag-picker" ref={ref}>
+      <div className="tag-picker-field" onClick={() => { setOpen(true); ref.current?.querySelector('.tag-picker-input')?.focus(); }}>
+        {selected && !open && (
+          <span className="tag-chip" style={{ '--chip-color': selected.color }}>
+            <span className="tag-chip-dot" style={{ background: selected.color }} />
+            {selected.label}
+            <button className="tag-chip-x" onMouseDown={e => { e.preventDefault(); onChange(null); }}>×</button>
+          </span>
+        )}
+        <input
+          className="tag-picker-input"
+          value={input}
+          onChange={e => { setInput(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+          placeholder={selected && !open ? '' : (selected ? selected.label : 'None — type to set or create…')}
+        />
+      </div>
+      {open && (filtered.length > 0 || canCreate) && (
+        <div className="tag-picker-dropdown">
+          {value && (
+            <button className="tag-picker-opt" onMouseDown={e => { e.preventDefault(); pick(null); }}>
+              <span className="tag-opt-dot" style={{ background: 'transparent', border: '1px solid var(--border)' }} />
+              None
+            </button>
+          )}
+          {filtered.map(p => (
+            <button key={p.id} className="tag-picker-opt" onMouseDown={e => { e.preventDefault(); pick(p.id); }}>
+              <span className="tag-opt-dot" style={{ background: p.color }} />
+              {p.label}
+            </button>
+          ))}
+          {canCreate && (
+            <button className="tag-picker-opt create" onMouseDown={e => { e.preventDefault(); handleCreate(); }} disabled={creating}>
+              <Icon name="plus" size={11} /> Create &ldquo;{trimmed}&rdquo;
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Single-select project-type picker with inline create — type a name and, if no
+// type matches, a "Create" option appears (mirrors PriorityPicker UX). Project
+// types carry only a label (no color), so options render without a color dot.
+const TypePicker = ({ value = null, onChange, projectTypes = [], onCreateType }) => {
+  const [input, setInput] = useStateA('');
+  const [open, setOpen] = useStateA(false);
+  const [creating, setCreating] = useStateA(false);
+  const ref = useRefA(null);
+
+  useEffectA(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setInput(''); } };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const selected = projectTypes.find(t => t.id === value) || null;
+  const trimmed = input.trim();
+  const filtered = projectTypes.filter(t => t.label.toLowerCase().includes(trimmed.toLowerCase()));
+  const canCreate = trimmed && !projectTypes.some(t => t.label.toLowerCase() === trimmed.toLowerCase());
+
+  const pick = (id) => { onChange(id); setInput(''); setOpen(false); };
+
+  const handleCreate = async () => {
+    if (!trimmed || creating || !onCreateType) return;
+    setCreating(true);
+    try {
+      const pt = await onCreateType(trimmed);
+      onChange(pt.id);
+      setInput('');
+      setOpen(false);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered.length > 0 && !canCreate) pick(filtered[0].id);
+      else if (canCreate) handleCreate();
+    }
+    if (e.key === 'Escape') { setOpen(false); setInput(''); }
+  };
+
+  return (
+    <div className="tag-picker" ref={ref}>
+      <div className="tag-picker-field" onClick={() => { setOpen(true); ref.current?.querySelector('.tag-picker-input')?.focus(); }}>
+        {selected && !open && (
+          <span className="tag-chip">
+            {selected.label}
+            <button className="tag-chip-x" onMouseDown={e => { e.preventDefault(); onChange(null); }}>×</button>
+          </span>
+        )}
+        <input
+          className="tag-picker-input"
+          value={input}
+          onChange={e => { setInput(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+          placeholder={selected && !open ? '' : (selected ? selected.label : 'Type to set or create…')}
+        />
+      </div>
+      {open && (filtered.length > 0 || canCreate) && (
+        <div className="tag-picker-dropdown">
+          {filtered.map(t => (
+            <button key={t.id} className="tag-picker-opt" onMouseDown={e => { e.preventDefault(); pick(t.id); }}>
+              {t.label}
             </button>
           ))}
           {canCreate && (
@@ -4684,7 +4861,7 @@ const TaskDetailModal = ({
 const toBranchName = (title) =>
   'feat/' + title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
 
-const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, isGithubConnected = false, canGithubWrite = false, onBranchCreated }) => {
+const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', defaultParentId = null, statuses = [], priorities = [], allTags = [], onCreateTag, onCreatePriority, isGithubConnected = false, canGithubWrite = false, onBranchCreated }) => {
   const empty = { title: '', proj: projects[0]?.id || '', p: priorities[0]?.id || null, col: defaultCol || statuses[0]?.id || '', tagIds: [], due: '', description: '', estH: '', estM: '' };
   const [form, setForm] = useStateA(empty);
 
@@ -4807,10 +4984,12 @@ const AddTaskPanel = ({ open, onClose, onAdd, projects, defaultCol = '', default
           </div>
           <div className="fld">
             <label>Priority</label>
-            <select value={form.p || ''} onChange={e => set('p', e.target.value || null)}>
-              <option value="">— None —</option>
-              {priorities.map(pr => <option key={pr.id} value={pr.id}>{pr.label}</option>)}
-            </select>
+            <PriorityPicker
+              value={form.p}
+              onChange={id => set('p', id)}
+              priorities={priorities}
+              onCreatePriority={onCreatePriority}
+            />
           </div>
         </div>
         <div className="fld-row">
@@ -4996,8 +5175,9 @@ const BranchToast = ({ info, onDismiss }) => {
   );
 };
 
-export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem, members = [], myRole = 'viewer', wsPermissions = {}, user = null }) => {
+export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses = [], priorities = [], setPriorities, tags = [], setTags, notes = [], taskNoteLinks = {}, setTaskNoteLinks, onLogTime, isGithubConnected = false, jumpToItem, members = [], myRole = 'viewer', wsPermissions = {}, user = null, onNav }) => {
   const canCreateTask = canDo(myRole, 'create_task', wsPermissions);
+  const canCreateProject = canDo(myRole, 'create_project', wsPermissions);
   const canEditTask = canDo(myRole, 'edit_task', wsPermissions);
   const canGithubWrite = canDo(myRole, 'github_write', wsPermissions);
   const canDeleteTask = canDo(myRole, 'delete_task', wsPermissions);
@@ -5136,6 +5316,12 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     const tag = await createTag(workstationId, name, color);
     setTags(prev => [...prev, tag]);
     return tag;
+  };
+
+  const handleCreatePriority = async (label, color) => {
+    const pr = await createTaskPriority(workstationId, label, color);
+    setPriorities?.(prev => [...prev, pr]);
+    return pr;
   };
 
   const handleLinkNote = async (taskDbId, noteId) => {
@@ -5413,14 +5599,25 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       )}
 
       {tasks.length === 0 && !localLoading ? (
-        <div className="empty-state">
-          <Icon name="list" size={32} />
-          <div className="empty-title">No tasks yet</div>
-          <div className="empty-sub">Add your first task to start tracking work across your projects.</div>
-          <button className={'btn primary' + (canCreateTask ? '' : ' perm-denied')} onClick={() => openAdd()} disabled={!canCreateTask} title={canCreateTask ? 'New task' : NO_PERM}>
-            <Icon name="plus" size={12} /> New task
-          </button>
-        </div>
+        projects.length === 0 ? (
+          <div className="empty-state">
+            <Icon name="folder" size={32} />
+            <div className="empty-title">No projects yet</div>
+            <div className="empty-sub">Tasks live inside projects. Create a project first to start adding tasks.</div>
+            <button className={'btn primary' + (canCreateProject ? '' : ' perm-denied')} onClick={() => onNav && onNav('projects')} disabled={!canCreateProject} title={canCreateProject ? 'Add project' : NO_PERM}>
+              <Icon name="plus" size={12} /> Add project
+            </button>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <Icon name="list" size={32} />
+            <div className="empty-title">No tasks yet</div>
+            <div className="empty-sub">Add your first task to start tracking work across your projects.</div>
+            <button className={'btn primary' + (canCreateTask ? '' : ' perm-denied')} onClick={() => openAdd()} disabled={!canCreateTask} title={canCreateTask ? 'New task' : NO_PERM}>
+              <Icon name="plus" size={12} /> New task
+            </button>
+          </div>
+        )
       ) : localLoading ? (
         view === 'board' ? (
           <div className="kanban">
@@ -5703,7 +5900,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
       <AddTaskPanel
         open={showAdd} onClose={() => { setShowAdd(false); setAddParentId(null); }} onAdd={handleAdd}
         projects={projects} defaultCol={addCol} defaultParentId={addParentId} statuses={cols} priorities={priorities}
-        allTags={tags} onCreateTag={handleCreateTag} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite}
+        allTags={tags} onCreateTag={handleCreateTag} onCreatePriority={handleCreatePriority} isGithubConnected={isGithubConnected} canGithubWrite={canGithubWrite}
         onBranchCreated={({ branchName, url, task }) => {
           // Update local task state with the saved branch
           setTasks(prev => prev.map(t => t.id === task.id ? task : t));

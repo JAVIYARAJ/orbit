@@ -1375,6 +1375,17 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
             );
           })}
 
+          {noteFolders.length === 0 && (
+            <div className="nf-empty">
+              <Icon name="folder" size={22}/>
+              <div className="nf-empty-title">No folders yet</div>
+              <div className="nf-empty-sub">Create a folder to organize your notes into groups.</div>
+              <button className="btn primary sm" onClick={() => { setNewFolderName(''); setShowNewFolder(true); }}>
+                <Icon name="plus" size={11}/> New folder
+              </button>
+            </div>
+          )}
+
           {/* Absolute insertion line — positioned from captured rects */}
           {folderDrag && (() => {
             const { toIndex, rects, containerRect } = folderDrag;
