@@ -327,6 +327,150 @@ async function upsertAppTemplate(admin: any, body: any, adminUserId: string) {
   return { ok: true };
 }
 
+// --- Broadcast email (custom subject + message to all users) ----------------
+
+function renderBroadcastEmail(name: string, message: string, imageUrl?: string): string {
+  const greeting = name?.trim() ? `Hi ${esc(name.trim())},` : "Hi there,";
+  const image = imageUrl
+    ? `<img src="${esc(imageUrl)}" alt="" style="display:block;width:100%;max-width:544px;border-radius:10px;margin:0 0 20px;" />`
+    : "";
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f1f5f9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+          <tr>
+            <td style="background:#4f46e5;padding:22px 28px;">
+              <span style="font-size:20px;font-weight:700;letter-spacing:-.01em;color:#ffffff;">Orbit</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1e293b;font-weight:600;">${greeting}</p>
+              ${image}
+              ${toParagraphs(message)}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 28px;border-top:1px solid #e2e8f0;background:#fafafa;">
+              <p style="margin:0;font-size:12px;line-height:1.5;color:#94a3b8;">
+                Sent by the Orbit team${BREVO_SENDER_EMAIL ? ` &middot; ${esc(BREVO_SENDER_EMAIL)}` : ""}.<br>
+                You're receiving this because you have an Orbit account.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+}
+
+// Brevo allows up to 1000 personalised recipients (messageVersions) per call.
+const BROADCAST_CHUNK = 1000;
+
+async function sendBroadcast(admin: any, body: any) {
+  const subject = String(body.subject ?? "").trim();
+  const message = String(body.message ?? "").trim();
+  const imageUrl = String(body.image_url ?? "").trim();
+  const doEmail = body.email !== false;   // default true
+  const doNotify = body.notify === true;  // default false
+  // Optional recipient targeting. Empty/absent => all users.
+  const userIds = Array.isArray(body.user_ids)
+    ? body.user_ids.map((x: any) => String(x)).filter(Boolean)
+    : [];
+  const targeted = userIds.length > 0;
+  if (!subject) throw new Error("Subject is required");
+  if (!message) throw new Error("Message is required");
+  if (subject.length > 300) throw new Error("Subject is too long");
+  if (message.length > 50000) throw new Error("Message is too long");
+  if (!doEmail && !doNotify) throw new Error("Select at least one channel (email or in-app notification).");
+  if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error("Image URL must start with https://");
+
+  // In-app notification (all users, or only the targeted ids).
+  let notified = 0;
+  if (doNotify) {
+    const { data, error } = await admin.rpc("broadcast_notification", {
+      p_title: subject, p_preview: message, p_user_ids: targeted ? userIds : null,
+    });
+    if (error) throw error;
+    notified = Number(data ?? 0);
+  }
+
+  let total = 0, started = false;
+  if (doEmail) {
+    if (!BREVO_API_KEY || !BREVO_SENDER_EMAIL) {
+      throw new Error("Email is not configured: set BREVO_API_KEY and BREVO_SENDER_EMAIL secrets.");
+    }
+    let q = admin.from("profiles").select("id,name,email").not("email", "is", null);
+    if (targeted) q = q.in("id", userIds);
+    const { data: users, error } = await q;
+    if (error) throw error;
+    const recipients = (users ?? []).filter((u: any) => u.email);
+    total = recipients.length;
+
+    // Render the template once with a Brevo param token; each recipient's name is
+    // substituted by Brevo per messageVersion (so one HTML body serves the batch).
+    const htmlTemplate = renderBroadcastEmail("{{params.NAME}}", message, imageUrl);
+
+    // Send in batches of up to 1000 via messageVersions, logging each chunk in
+    // one bulk insert. Runs in the background so huge lists don't time out.
+    const run = async () => {
+      for (let i = 0; i < recipients.length; i += BROADCAST_CHUNK) {
+        const chunk = recipients.slice(i, i + BROADCAST_CHUNK);
+        const logs: any[] = [];
+        try {
+          const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: { "api-key": BREVO_API_KEY, "content-type": "application/json", "accept": "application/json" },
+            body: JSON.stringify({
+              sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+              replyTo: { email: BREVO_SENDER_EMAIL, name: BREVO_SENDER_NAME },
+              subject,
+              htmlContent: htmlTemplate,
+              textContent: message,
+              messageVersions: chunk.map((u: any) => ({
+                to: [{ email: u.email, name: u.name || undefined }],
+                params: { NAME: esc(u.name?.trim() || "there") },
+              })),
+            }),
+          });
+          if (res.ok) {
+            let messageIds: string[] = [];
+            try { messageIds = (await res.json())?.messageIds ?? []; } catch { /* noop */ }
+            chunk.forEach((u: any, idx: number) => logs.push({
+              kind: "broadcast", to_email: u.email, subject, status: "sent", reason: "broadcast",
+              related_id: u.id, provider_message_id: messageIds[idx] ?? null,
+            }));
+          } else {
+            let detail = `Brevo returned ${res.status}`;
+            try { const e = await res.json(); if (e?.message) detail = `Brevo: ${e.message}`; } catch { /* noop */ }
+            chunk.forEach((u: any) => logs.push({
+              kind: "broadcast", to_email: u.email, subject, status: "failed", reason: detail,
+              related_id: u.id, provider_message_id: null,
+            }));
+          }
+        } catch (e) {
+          const detail = String((e as Error)?.message ?? e);
+          chunk.forEach((u: any) => logs.push({
+            kind: "broadcast", to_email: u.email, subject, status: "failed", reason: detail,
+            related_id: u.id, provider_message_id: null,
+          }));
+        }
+        try { await admin.rpc("log_emails_bulk", { p_rows: logs }); } catch { /* noop */ }
+      }
+    };
+
+    // Background task so the HTTP response returns immediately (no timeout on big lists).
+    const er = (globalThis as any).EdgeRuntime;
+    if (recipients.length && er?.waitUntil) { er.waitUntil(run()); started = true; }
+    else await run(); // local/dev fallback
+  }
+
+  return { ok: true, started, total, notified };
+}
+
 function groupCount<T>(rows: T[], key: (r: T) => string | null) {
   const out: Record<string, number> = {};
   for (const r of rows) {
@@ -428,6 +572,7 @@ Deno.serve(async (req) => {
       case "upsertReplyTemplate": return json(await upsertReplyTemplate(admin, body, userData.user.id));
       case "getAppTemplate": return json(await getAppTemplate(admin, body));
       case "upsertAppTemplate": return json(await upsertAppTemplate(admin, body, userData.user.id));
+      case "sendBroadcast": return json(await sendBroadcast(admin, body));
       default: return json({ error: "Unknown action" }, 400);
     }
   } catch (e) {

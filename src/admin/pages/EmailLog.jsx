@@ -17,7 +17,7 @@ function emailTone(status) {
   return 'grey';
 }
 
-const KIND_LABEL = { welcome: 'Welcome', contact_reply: 'Contact reply', invite: 'Workspace invite' };
+const KIND_LABEL = { welcome: 'Welcome', contact_reply: 'Contact reply', invite: 'Workspace invite', broadcast: 'Broadcast' };
 
 export function EmailLogPage() {
   const [status, setStatus] = useState('');
@@ -46,7 +46,7 @@ export function EmailLogPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <FilterSelect value={kind} onChange={(v) => { setKind(v); setOffset(0); }}
-          options={['welcome', 'contact_reply', 'invite']} allLabel="All types" />
+          options={['welcome', 'contact_reply', 'invite', 'broadcast']} allLabel="All types" />
         <FilterSelect value={status} onChange={(v) => { setStatus(v); setOffset(0); }}
           options={['sent', 'delivered', 'opened', 'clicked', 'bounced', 'blocked', 'spam', 'invalid', 'deferred', 'failed', 'skipped']} allLabel="All statuses" />
         <span className="text-sm text-muted-foreground">Delivery status updates from Brevo webhooks.</span>

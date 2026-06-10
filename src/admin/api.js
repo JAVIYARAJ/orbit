@@ -38,6 +38,11 @@ export const adminGetAppTemplate = (key) => adminCall({ action: 'getAppTemplate'
 export const adminUpsertAppTemplate = ({ key, subject, body, enabled }) =>
   adminCall({ action: 'upsertAppTemplate', key, subject, body, enabled });
 
+// Broadcast a custom message via email and/or in-app notification.
+// user_ids: omit/empty = all users; otherwise only those recipients.
+export const adminSendBroadcast = ({ subject, message, image_url, email, notify, user_ids }) =>
+  adminCall({ action: 'sendBroadcast', subject, message, image_url, email, notify, user_ids });
+
 // Substitute {name} / {type} placeholders with a submission's details.
 export function applyTemplateVars(text, sub) {
   return String(text ?? '')
