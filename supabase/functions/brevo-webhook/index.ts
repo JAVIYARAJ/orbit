@@ -26,8 +26,9 @@ function mapStatus(event: string): string | null {
     case "deferred": return "deferred";
     case "error": return "failed";
     case "unique_opened":
-    case "opened":
-    case "click": return "delivered"; // engagement implies delivery
+    case "opened": return "opened";
+    case "click":
+    case "clicks": return "clicked";
     default: return null;             // request, unsubscribed, etc.
   }
 }

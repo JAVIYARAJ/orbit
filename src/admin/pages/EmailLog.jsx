@@ -8,7 +8,9 @@ const PER = 50;
 function emailTone(status) {
   const s = (status || '').toLowerCase();
   if (s === 'delivered') return 'green';
-  if (s === 'sent') return 'blue';
+  if (s === 'opened') return 'blue';
+  if (s === 'clicked') return 'purple';
+  if (s === 'sent') return 'indigo';
   if (s === 'skipped') return 'grey';
   if (s === 'deferred') return 'yellow';
   if (['bounced', 'blocked', 'spam', 'invalid', 'failed'].includes(s)) return 'red';
@@ -46,7 +48,7 @@ export function EmailLogPage() {
         <FilterSelect value={kind} onChange={(v) => { setKind(v); setOffset(0); }}
           options={['welcome', 'contact_reply', 'invite']} allLabel="All types" />
         <FilterSelect value={status} onChange={(v) => { setStatus(v); setOffset(0); }}
-          options={['sent', 'delivered', 'bounced', 'blocked', 'spam', 'invalid', 'deferred', 'failed', 'skipped']} allLabel="All statuses" />
+          options={['sent', 'delivered', 'opened', 'clicked', 'bounced', 'blocked', 'spam', 'invalid', 'deferred', 'failed', 'skipped']} allLabel="All statuses" />
         <span className="text-sm text-muted-foreground">Delivery status updates from Brevo webhooks.</span>
       </div>
 
