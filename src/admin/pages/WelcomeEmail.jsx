@@ -80,7 +80,7 @@ export function WelcomeEmailPage() {
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Preview</label>
             <div className="rounded-lg border border-border bg-background p-4 text-sm leading-relaxed">
-              <p className="font-semibold mb-3">Hi Amin,</p>
+              <p className="font-semibold mb-3">Hi orbit user,</p>
               <p className="whitespace-pre-wrap text-muted-foreground">{previewBody || '—'}</p>
             </div>
           </div>
