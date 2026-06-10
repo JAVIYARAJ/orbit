@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAdmin, DataTable, Drawer, Badge, RelTime, Pagination, FilterSelect, Field, DrawerSection, statusTone } from '../ui.jsx';
-import { adminQuery, adminUpdateContact } from '../api.js';
+import { adminQuery, adminUpdateContact, adminSendContactReply } from '../api.js';
 
 const PER = 50;
 const NEXT = { new: 'seen', seen: 'resolved', resolved: 'new' };
@@ -10,6 +10,36 @@ export function ContactSubmissionsPage() {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // Reply compose state — reset whenever a different submission is opened.
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [replyMsg, setReplyMsg] = useState(null); // { ok: bool, text: string }
+
+  useEffect(() => {
+    if (!selected) return;
+    setSubject(`Re: your ${selected.type || 'message'} on Orbit`);
+    setMessage('');
+    setReplyMsg(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
+
+  const sendReply = async () => {
+    setSending(true);
+    setReplyMsg(null);
+    try {
+      await adminSendContactReply({ id: selected.id, subject, message });
+      setMessage('');
+      setReplyMsg({ ok: true, text: '✓ Reply sent' });
+      setSelected((s) => (s ? { ...s, status: 'resolved' } : s));
+      reload();
+    } catch (e) {
+      setReplyMsg({ ok: false, text: e.message || 'Failed to send reply' });
+    } finally {
+      setSending(false);
+    }
+  };
 
   const filters = status ? [{ col: 'status', op: 'eq', val: status }] : [];
   const { data, loading, error, reload } = useAdmin(
@@ -67,9 +97,42 @@ export function ContactSubmissionsPage() {
             <DrawerSection title="Message">
               <p className="text-sm leading-relaxed whitespace-pre-wrap bg-card border border-border rounded-lg p-4">{selected.description}</p>
             </DrawerSection>
-            <a href={`mailto:${selected.email}`} className="inline-block px-4 py-2 rounded-lg bg-card border border-border text-sm font-semibold hover:border-primary">
-              Reply via email →
-            </a>
+            <DrawerSection title="Reply">
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="Subject"
+                  className="w-full px-3 py-2 rounded-lg bg-card border border-border text-sm outline-none focus:border-primary"
+                />
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  rows={6}
+                  placeholder="Write your reply…"
+                  className="w-full px-3 py-2 rounded-lg bg-card border border-border text-sm outline-none focus:border-primary resize-y"
+                />
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={sendReply}
+                    disabled={sending || !subject.trim() || !message.trim()}
+                    className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+                  >
+                    {sending ? 'Sending…' : 'Send reply'}
+                  </button>
+                  <a href={`mailto:${selected.email}`} className="text-sm text-muted-foreground hover:text-foreground">
+                    Open in mail client →
+                  </a>
+                  {replyMsg && (
+                    <span className={`text-sm font-medium ${replyMsg.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                      {replyMsg.text}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">Sends from your verified Brevo sender. The submission is marked resolved on success.</p>
+              </div>
+            </DrawerSection>
           </>
         )}
       </Drawer>

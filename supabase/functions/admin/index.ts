@@ -13,6 +13,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Brevo (transactional email) — used to reply to contact submissions.
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
+const BREVO_SENDER_EMAIL = Deno.env.get("BREVO_SENDER_EMAIL") ?? "";
+const BREVO_SENDER_NAME = Deno.env.get("BREVO_SENDER_NAME") ?? "Orbit";
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -106,6 +111,141 @@ async function updateContact(admin: any, body: any) {
   if (!["new", "seen", "resolved"].includes(status)) throw new Error("Invalid status");
   const { error } = await admin.from("contact_submissions").update({ status }).eq("id", id);
   if (error) throw error;
+  return { ok: true };
+}
+
+// --- Contact reply (Brevo transactional email) -----------------------------
+
+const esc = (s: string) =>
+  String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+// Escaped text → paragraphs, preserving the author's line breaks.
+function toParagraphs(message: string): string {
+  return String(message ?? "")
+    .split(/\n{2,}/)                          // blank line → new paragraph
+    .map((para) =>
+      `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1e293b;">${
+        esc(para).replace(/\n/g, "<br>")        // single newline → <br>
+      }</p>`)
+    .join("");
+}
+
+function renderReplyEmail(opts: {
+  name?: string; message: string; originalType?: string; originalMessage?: string;
+}): string {
+  const greeting = opts.name?.trim() ? `Hi ${esc(opts.name.trim())},` : "Hi there,";
+  const quoted = opts.originalMessage?.trim()
+    ? `<div style="margin:24px 0 0;padding:14px 16px;background:#f8fafc;border-left:3px solid #6366f1;border-radius:6px;">
+         <div style="font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#64748b;margin-bottom:6px;">
+           Your original message${opts.originalType ? ` &middot; ${esc(opts.originalType)}` : ""}
+         </div>
+         <div style="font-size:14px;line-height:1.55;color:#475569;white-space:pre-wrap;">${esc(opts.originalMessage.trim())}</div>
+       </div>`
+    : "";
+
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f1f5f9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+          <tr>
+            <td style="background:#4f46e5;padding:22px 28px;">
+              <span style="font-size:20px;font-weight:700;letter-spacing:-.01em;color:#ffffff;">Orbit</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1e293b;font-weight:600;">${greeting}</p>
+              ${toParagraphs(opts.message)}
+              ${quoted}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 28px;border-top:1px solid #e2e8f0;background:#fafafa;">
+              <p style="margin:0;font-size:12px;line-height:1.5;color:#94a3b8;">
+                Sent by the Orbit team${BREVO_SENDER_EMAIL ? ` &middot; ${esc(BREVO_SENDER_EMAIL)}` : ""}.<br>
+                You're receiving this because you contacted us through Orbit.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+}
+
+async function sendContactReply(admin: any, body: any, adminUserId: string) {
+  const id = body.id;
+  const subject = String(body.subject ?? "").trim();
+  const message = String(body.message ?? "").trim();
+  if (!id) throw new Error("Missing submission id");
+  if (!subject) throw new Error("Subject is required");
+  if (!message) throw new Error("Message is required");
+  if (subject.length > 300) throw new Error("Subject is too long");
+  if (message.length > 20000) throw new Error("Message is too long");
+
+  if (!BREVO_API_KEY || !BREVO_SENDER_EMAIL) {
+    throw new Error("Email is not configured: set BREVO_API_KEY and BREVO_SENDER_EMAIL secrets.");
+  }
+
+  const { data: sub, error: subErr } = await admin
+    .from("contact_submissions")
+    .select("id,name,email,type,description")
+    .eq("id", id)
+    .maybeSingle();
+  if (subErr) throw subErr;
+  if (!sub) throw new Error("Submission not found");
+  if (!sub.email) throw new Error("This submission has no email address to reply to.");
+
+  const htmlContent = renderReplyEmail({
+    name: sub.name,
+    message,
+    originalType: sub.type,
+    originalMessage: sub.description,
+  });
+
+  // Send via Brevo transactional email API.
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": BREVO_API_KEY,
+      "content-type": "application/json",
+      "accept": "application/json",
+    },
+    body: JSON.stringify({
+      sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+      to: [{ email: sub.email, name: sub.name || undefined }],
+      replyTo: { email: BREVO_SENDER_EMAIL, name: BREVO_SENDER_NAME },
+      subject,
+      htmlContent,
+      textContent: message,
+    }),
+  });
+
+  if (!res.ok) {
+    let detail = `Brevo returned ${res.status}`;
+    try {
+      const err = await res.json();
+      if (err?.message) detail = `Brevo: ${err.message}`;
+    } catch { /* keep generic detail */ }
+    throw new Error(detail);
+  }
+
+  // Log the reply and mark the submission resolved. Don't fail the request if
+  // these bookkeeping writes error — the email already went out.
+  await admin.from("contact_replies").insert({
+    submission_id: sub.id,
+    to_email: sub.email,
+    subject,
+    body: message,
+    sent_by: adminUserId,
+  });
+  await admin.from("contact_submissions").update({ status: "resolved" }).eq("id", sub.id);
+
   return { ok: true };
 }
 
@@ -205,6 +345,7 @@ Deno.serve(async (req) => {
       case "query": return json(await runQuery(admin, body));
       case "authUsers": return json(await authUsers(admin));
       case "updateContact": return json(await updateContact(admin, body));
+      case "sendContactReply": return json(await sendContactReply(admin, body, userData.user.id));
       default: return json({ error: "Unknown action" }, 400);
     }
   } catch (e) {

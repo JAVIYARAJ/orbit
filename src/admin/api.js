@@ -25,6 +25,8 @@ export async function adminCall(body) {
 export const adminOverview = () => adminCall({ action: 'overview' });
 export const adminAuthUsers = () => adminCall({ action: 'authUsers' });
 export const adminUpdateContact = (id, status) => adminCall({ action: 'updateContact', id, status });
+export const adminSendContactReply = ({ id, subject, message }) =>
+  adminCall({ action: 'sendContactReply', id, subject, message });
 
 // Generic allowlisted read. opts: { table, select, filters, order, ascending, limit, offset, count }
 export const adminQuery = (opts) => adminCall({ action: 'query', ...opts });
