@@ -5,6 +5,45 @@ import { motion } from 'framer-motion';
 
 const TYPES = ['General query', 'Bug / Issue', 'Feature request', 'Feedback', 'Partnership', 'Other'];
 
+// Common consumer email providers, used to catch typos like "gamil.com".
+const COMMON_EMAIL_DOMAINS = [
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.in', 'hotmail.com',
+  'outlook.com', 'icloud.com', 'proton.me', 'protonmail.com', 'aol.com',
+  'live.com', 'msn.com', 'ymail.com', 'rediffmail.com',
+];
+
+// Optimal string alignment distance (Levenshtein + adjacent transpositions),
+// so "gamil" → "gmail" counts as a single edit.
+function osaDistance(a, b) {
+  const m = a.length, n = b.length;
+  const d = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) d[i][0] = i;
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[m][n];
+}
+
+// Returns a suggested domain when the typed one looks like a typo of a
+// common provider (a single edit away), otherwise null.
+function suggestEmailDomain(email) {
+  const at = email.lastIndexOf('@');
+  if (at < 0) return null;
+  const domain = email.slice(at + 1).toLowerCase();
+  if (!domain || COMMON_EMAIL_DOMAINS.includes(domain)) return null;
+  for (const known of COMMON_EMAIL_DOMAINS) {
+    if (osaDistance(domain, known) === 1) return known;
+  }
+  return null;
+}
+
 const inputClass =
   'w-full px-4 rounded-xl bg-background/80 backdrop-blur-sm border-2 border-primary/10 focus:outline-none focus:ring-4 focus:ring-primary/20 focus:border-primary text-foreground placeholder:text-foreground/50 transition-all font-medium';
 
@@ -51,6 +90,9 @@ export function ContactPage({ onNavigate }) {
       newErrors.email = 'Please enter your email.';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = 'Please enter a valid email address.';
+    } else {
+      const suggestion = suggestEmailDomain(form.email.trim());
+      if (suggestion) newErrors.email = `Did you mean @${suggestion}? Please double-check your email.`;
     }
     if (!form.role.trim()) newErrors.role = 'Please let us know your role.';
     if (!form.type) newErrors.type = 'Please select a message type.';

@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAdmin, DataTable, Drawer, Badge, RelTime, Pagination, FilterSelect, Field, DrawerSection, statusTone } from '../ui.jsx';
-import { adminQuery, adminUpdateContact, adminSendContactReply } from '../api.js';
+import { adminQuery, adminUpdateContact, adminSendContactReply, adminListReplyTemplates, applyTemplateVars } from '../api.js';
 
 const PER = 50;
 const NEXT = { new: 'seen', seen: 'resolved', resolved: 'new' };
+const DEFAULT_SUBJECT = 'Re: your {type} on Orbit';
 
 export function ContactSubmissionsPage() {
   const [status, setStatus] = useState('');
@@ -14,16 +15,43 @@ export function ContactSubmissionsPage() {
   // Reply compose state — reset whenever a different submission is opened.
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [mode, setMode] = useState('template'); // 'template' | 'custom'
   const [sending, setSending] = useState(false);
   const [replyMsg, setReplyMsg] = useState(null); // { ok: bool, text: string }
 
+  // Load the editable templates once; index them by contact type.
+  const { data: tplData } = useAdmin(() => adminListReplyTemplates(), []);
+  const byType = useMemo(() => {
+    const m = {};
+    for (const t of tplData?.rows ?? []) m[t.type] = t;
+    return m;
+  }, [tplData]);
+
+  // Fill the subject/message fields for a given mode + submission.
+  const applyMode = (nextMode, sub) => {
+    if (!sub) return;
+    if (nextMode === 'template') {
+      const tpl = byType[sub.type];
+      setSubject(applyTemplateVars(tpl?.subject || DEFAULT_SUBJECT, sub));
+      setMessage(applyTemplateVars(tpl?.body || '', sub));
+    } else {
+      setSubject(applyTemplateVars(DEFAULT_SUBJECT, sub));
+      setMessage('');
+    }
+  };
+
+  const switchMode = (nextMode) => {
+    setMode(nextMode);
+    applyMode(nextMode, selected);
+  };
+
   useEffect(() => {
     if (!selected) return;
-    setSubject(`Re: your ${selected.type || 'message'} on Orbit`);
-    setMessage('');
+    setMode('template');
+    applyMode('template', selected);
     setReplyMsg(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.id]);
+  }, [selected?.id, byType]);
 
   const sendReply = async () => {
     setSending(true);
@@ -99,6 +127,17 @@ export function ContactSubmissionsPage() {
             </DrawerSection>
             <DrawerSection title="Reply">
               <div className="space-y-3">
+                <div className="inline-flex rounded-lg border border-border p-0.5 bg-card">
+                  {[['template', 'Use default template'], ['custom', 'Custom message']].map(([m, label]) => (
+                    <button
+                      key={m}
+                      onClick={() => switchMode(m)}
+                      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === m ? 'bg-primary text-white' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <input
                   type="text"
                   value={subject}

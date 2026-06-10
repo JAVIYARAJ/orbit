@@ -249,6 +249,39 @@ async function sendContactReply(admin: any, body: any, adminUserId: string) {
   return { ok: true };
 }
 
+// --- Contact reply templates (admin-editable, one per contact type) ---------
+
+const CONTACT_TYPES = new Set([
+  "General query", "Bug / Issue", "Feature request", "Feedback", "Partnership", "Other",
+]);
+
+async function listReplyTemplates(admin: any) {
+  const { data, error } = await admin
+    .from("contact_reply_templates")
+    .select("*")
+    .order("type");
+  if (error) throw error;
+  return { rows: data ?? [] };
+}
+
+async function upsertReplyTemplate(admin: any, body: any, adminUserId: string) {
+  const type = String(body.type ?? "").trim();
+  const subject = String(body.subject ?? "").trim();
+  const tpl = String(body.body ?? "");
+  if (!CONTACT_TYPES.has(type)) throw new Error("Unknown contact type: " + type);
+  if (subject.length > 300) throw new Error("Subject is too long");
+  if (tpl.length > 20000) throw new Error("Template body is too long");
+
+  const { error } = await admin
+    .from("contact_reply_templates")
+    .upsert(
+      { type, subject, body: tpl, updated_at: new Date().toISOString(), updated_by: adminUserId },
+      { onConflict: "type" },
+    );
+  if (error) throw error;
+  return { ok: true };
+}
+
 function groupCount<T>(rows: T[], key: (r: T) => string | null) {
   const out: Record<string, number> = {};
   for (const r of rows) {
@@ -346,6 +379,8 @@ Deno.serve(async (req) => {
       case "authUsers": return json(await authUsers(admin));
       case "updateContact": return json(await updateContact(admin, body));
       case "sendContactReply": return json(await sendContactReply(admin, body, userData.user.id));
+      case "listReplyTemplates": return json(await listReplyTemplates(admin));
+      case "upsertReplyTemplate": return json(await upsertReplyTemplate(admin, body, userData.user.id));
       default: return json({ error: "Unknown action" }, 400);
     }
   } catch (e) {

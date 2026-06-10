@@ -28,6 +28,18 @@ export const adminUpdateContact = (id, status) => adminCall({ action: 'updateCon
 export const adminSendContactReply = ({ id, subject, message }) =>
   adminCall({ action: 'sendContactReply', id, subject, message });
 
+// Reply templates (one editable default per contact type).
+export const adminListReplyTemplates = () => adminCall({ action: 'listReplyTemplates' });
+export const adminUpsertReplyTemplate = ({ type, subject, body }) =>
+  adminCall({ action: 'upsertReplyTemplate', type, subject, body });
+
+// Substitute {name} / {type} placeholders with a submission's details.
+export function applyTemplateVars(text, sub) {
+  return String(text ?? '')
+    .replace(/\{name\}/gi, sub?.name || 'there')
+    .replace(/\{type\}/gi, sub?.type || 'message');
+}
+
 // Generic allowlisted read. opts: { table, select, filters, order, ascending, limit, offset, count }
 export const adminQuery = (opts) => adminCall({ action: 'query', ...opts });
 
