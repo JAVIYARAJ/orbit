@@ -10,7 +10,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const WEBHOOK_SECRET = Deno.env.get("BREVO_WEBHOOK_SECRET") ?? "";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -36,16 +35,17 @@ function mapStatus(event: string): string | null {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  // Gate on the shared token (if configured).
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+
+  // Gate on the ?token= query param, verified against the Vault value.
   const token = new URL(req.url).searchParams.get("token") ?? "";
-  if (WEBHOOK_SECRET && token !== WEBHOOK_SECRET) return json({ error: "Unauthorized" }, 401);
+  const { data: tokenOk } = await admin.rpc("verify_brevo_webhook_secret", { p_secret: token });
+  if (tokenOk !== true) return json({ error: "Unauthorized" }, 401);
 
   try {
     const payload = await req.json();
     // Brevo may send a single event object or an array of them.
     const events = Array.isArray(payload) ? payload : [payload];
-
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     let updated = 0;
     for (const ev of events) {
