@@ -282,6 +282,38 @@ async function upsertReplyTemplate(admin: any, body: any, adminUserId: string) {
   return { ok: true };
 }
 
+// --- App email templates (keyed singletons, e.g. the welcome email) ---------
+
+const APP_TEMPLATE_KEYS = new Set(["welcome"]);
+
+async function getAppTemplate(admin: any, body: any) {
+  const key = String(body.key ?? "").trim();
+  if (!APP_TEMPLATE_KEYS.has(key)) throw new Error("Unknown template key: " + key);
+  const { data, error } = await admin
+    .from("app_email_templates").select("*").eq("key", key).maybeSingle();
+  if (error) throw error;
+  return { template: data ?? null };
+}
+
+async function upsertAppTemplate(admin: any, body: any, adminUserId: string) {
+  const key = String(body.key ?? "").trim();
+  const subject = String(body.subject ?? "").trim();
+  const tpl = String(body.body ?? "");
+  const enabled = body.enabled !== false;
+  if (!APP_TEMPLATE_KEYS.has(key)) throw new Error("Unknown template key: " + key);
+  if (subject.length > 300) throw new Error("Subject is too long");
+  if (tpl.length > 20000) throw new Error("Template body is too long");
+
+  const { error } = await admin
+    .from("app_email_templates")
+    .upsert(
+      { key, subject, body: tpl, enabled, updated_at: new Date().toISOString(), updated_by: adminUserId },
+      { onConflict: "key" },
+    );
+  if (error) throw error;
+  return { ok: true };
+}
+
 function groupCount<T>(rows: T[], key: (r: T) => string | null) {
   const out: Record<string, number> = {};
   for (const r of rows) {
@@ -381,6 +413,8 @@ Deno.serve(async (req) => {
       case "sendContactReply": return json(await sendContactReply(admin, body, userData.user.id));
       case "listReplyTemplates": return json(await listReplyTemplates(admin));
       case "upsertReplyTemplate": return json(await upsertReplyTemplate(admin, body, userData.user.id));
+      case "getAppTemplate": return json(await getAppTemplate(admin, body));
+      case "upsertAppTemplate": return json(await upsertAppTemplate(admin, body, userData.user.id));
       default: return json({ error: "Unknown action" }, 400);
     }
   } catch (e) {

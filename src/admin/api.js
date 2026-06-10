@@ -33,6 +33,11 @@ export const adminListReplyTemplates = () => adminCall({ action: 'listReplyTempl
 export const adminUpsertReplyTemplate = ({ type, subject, body }) =>
   adminCall({ action: 'upsertReplyTemplate', type, subject, body });
 
+// App email templates (keyed singletons, e.g. the welcome email).
+export const adminGetAppTemplate = (key) => adminCall({ action: 'getAppTemplate', key });
+export const adminUpsertAppTemplate = ({ key, subject, body, enabled }) =>
+  adminCall({ action: 'upsertAppTemplate', key, subject, body, enabled });
+
 // Substitute {name} / {type} placeholders with a submission's details.
 export function applyTemplateVars(text, sub) {
   return String(text ?? '')
