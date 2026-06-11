@@ -6,23 +6,34 @@ import { supabase } from '../lib/supabase.js';
 import { acceptInvite, getInviteByToken } from '../lib/db.js';
 import { useAuthConfig } from '../lib/useRemoteConfig.js';
 
-const PILLS = [
-  'Projects', 'Kanban', 'Tasks', 'Analytics',
-  'Vault', 'Timer', 'Notes', 'Email Hub',
-  'Schedule', 'Learning Path', 'GitHub Hub',
-  'Vercel', 'Collaboration', 'Settings',
+// Pills sit on the actual ring edges.
+// SVG viewBox=400×400, center=(200,200).
+// Ring radii: r1=70, r2=120, r3=165.
+// left = 50 + (r/400)*100 * cos(deg)  |  top = 50 + (r/400)*100 * sin(deg)
+// Single accent color throughout — rings, dots, and pills all use #0ea5e9.
+// Rings are differentiated only by opacity and dash pattern, not color.
+const ACCENT = '#0ea5e9';
+
+const MODULE_ORBITALS = [
+  // inner ring
+  { name: 'Projects', color: ACCENT, left: '67.5%', top: '50%'   },
+  { name: 'Timer',    color: ACCENT, left: '32.5%', top: '50%'   },
+  // middle ring
+  { name: 'Kanban',    color: ACCENT, left: '71.2%', top: '25%'  },
+  { name: 'Analytics', color: ACCENT, left: '71.2%', top: '75%'  },
+  { name: 'Notes',     color: ACCENT, left: '28.8%', top: '75%'  },
+  { name: 'Vault',     color: ACCENT, left: '28.8%', top: '25%'  },
+  // outer ring
+  { name: 'GitHub',    color: ACCENT, left: '79.6%', top: '20.7%'},
+  { name: 'Email Hub', color: ACCENT, left: '79.6%', top: '79.3%'},
+  { name: 'Learning',  color: ACCENT, left: '20.4%', top: '79.3%'},
+  { name: 'Schedule',  color: ACCENT, left: '20.4%', top: '20.7%'},
 ];
 
-const HEATMAP = [
-  0, 1, 0, 2, 1, 3, 2, 1, 0, 1, 2, 3, 2, 1, 2, 3, 4, 3, 2, 1,
-  1, 2, 1, 3, 2, 4, 3, 2, 1, 2, 3, 4, 3, 2, 3, 4, 3, 2, 1, 2,
-  0, 1, 2, 1, 3, 2, 1, 2, 3, 2, 1, 2, 3, 4, 2, 3, 2, 1, 2, 3,
-];
-
-const PROJECTS_PREVIEW = [
-  { id: 'KMBL', name: 'Kombi — Loyalty App', pct: 64, color: '#0099ff' },
-  { id: 'PULS', name: 'Pulse — Habit Tracker', pct: 78, color: '#0099ff' },
-  { id: 'NORTH', name: 'Northwind Field Service', pct: 91, color: '#ff9500' },
+const STATS_ROW = [
+  { value: '14+', label: 'Integrated modules' },
+  { value: '100%', label: 'Privacy-first' },
+  { value: '∞', label: 'Projects & tasks' },
 ];
 
 // Friendly messages for common Supabase auth error codes
@@ -156,9 +167,11 @@ export const AuthPage = ({ onAuth }) => {
       <aside className="auth-panel">
         <div className="auth-glow auth-glow-1" />
         <div className="auth-glow auth-glow-2" />
+        <div className="auth-glow auth-glow-3" />
 
+        {/* Logo */}
         <div className="auth-logo">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
             <circle cx="9" cy="9" r="3" fill="currentColor" />
             <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
             <circle cx="9" cy="3" r="1.5" fill="currentColor" />
@@ -167,71 +180,85 @@ export const AuthPage = ({ onAuth }) => {
           <span className="auth-logo-ver">v1.0</span>
         </div>
 
+        {/* Hero copy */}
         <div className="auth-hero">
-          <div className="auth-hero-eyebrow">Developer Dashboard</div>
+          <div className="auth-hero-eyebrow">Developer OS</div>
           <h1 className="auth-hero-title">
-            Track projects.<br />
-            Ship on time.<br />
-            <span className="auth-hero-accent">Stay in flow.</span>
+            Your entire workflow,<br />
+            <span className="auth-hero-accent">one orbit.</span>
           </h1>
           <p className="auth-hero-sub">
-            One workspace for everything an indie builder needs — projects, tasks, analytics, vault, and deep-work sessions.
+            The all-in-one workspace for indie developers — projects, deep-work sessions, vault, analytics, and more.
           </p>
         </div>
 
-        <div className="auth-preview">
-          <div className="auth-preview-hd">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff3d3d' }} />
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ff9500' }} />
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#25d366' }} />
-            </div>
-            <span className="auth-preview-title">orbit — projects</span>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-              <div className="auth-preview-dot" />
-              <div className="auth-preview-dot" />
-              <div className="auth-preview-dot" />
-            </div>
-          </div>
+        {/* Orbital — fills remaining space, module pills orbit around it */}
+        <div className="auth-orbital-wrap">
+          <div className="auth-orbital">
+            {/* SVG rings + animated dots */}
+            <svg className="auth-orbital-svg" viewBox="0 0 400 400" fill="none">
+              {/* Glow halos — single accent, fading outward */}
+              <circle cx="200" cy="200" r="72"  stroke="rgba(14,165,233,0.14)" strokeWidth="18" fill="none" />
+              <circle cx="200" cy="200" r="122" stroke="rgba(14,165,233,0.09)" strokeWidth="16" fill="none" />
+              <circle cx="200" cy="200" r="167" stroke="rgba(14,165,233,0.05)" strokeWidth="14" fill="none" />
+              {/* Rings — same color, differentiated by opacity + dash */}
+              <circle cx="200" cy="200" r="70"  stroke="rgba(14,165,233,0.55)" strokeWidth="1" />
+              <circle cx="200" cy="200" r="120" stroke="rgba(14,165,233,0.35)" strokeWidth="1" strokeDasharray="7 9" />
+              <circle cx="200" cy="200" r="165" stroke="rgba(14,165,233,0.20)" strokeWidth="1" strokeDasharray="3 11" />
+              {/* Core */}
+              <circle cx="200" cy="200" r="32" fill="rgba(14,165,233,0.07)" stroke="rgba(14,165,233,0.40)" strokeWidth="1" />
+              <circle cx="200" cy="200" r="18" fill="rgba(14,165,233,0.18)" />
+              <circle cx="200" cy="200" r="8"  fill="#0ea5e9" />
+              <circle cx="200" cy="200" r="8" fill="#0ea5e9" opacity="0.35">
+                <animate attributeName="r" values="8;20;8" dur="2.8s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.35;0;0.35" dur="2.8s" repeatCount="indefinite" />
+              </circle>
+              {/* Orbiting dots — same accent */}
+              <g className="auth-orb-g1">
+                <circle cx="270" cy="200" r="5" fill="#0ea5e9" />
+                <circle cx="270" cy="200" r="5" fill="#0ea5e9" opacity="0.3">
+                  <animate attributeName="r" values="5;11;5" dur="2s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
+                </circle>
+              </g>
+              <g className="auth-orb-g2">
+                <circle cx="320" cy="200" r="4.5" fill="#0ea5e9" />
+                <circle cx="320" cy="200" r="4.5" fill="#0ea5e9" opacity="0.25">
+                  <animate attributeName="r" values="4.5;10;4.5" dur="2.5s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.25;0;0.25" dur="2.5s" repeatCount="indefinite" />
+                </circle>
+              </g>
+              <g className="auth-orb-g3">
+                <circle cx="365" cy="200" r="4" fill="#0ea5e9" />
+                <circle cx="365" cy="200" r="4" fill="#0ea5e9" opacity="0.2">
+                  <animate attributeName="r" values="4;9;4" dur="3s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.2;0;0.2" dur="3s" repeatCount="indefinite" />
+                </circle>
+              </g>
+            </svg>
 
-          <div className="auth-preview-stats">
-            {[
-              { v: '78', l: 'SCORE', c: 'var(--accent-hi)' },
-              { v: '347h', l: 'TRACKED', c: '#ff9500' },
-              { v: '€46K', l: 'PIPELINE', c: '#25d366' },
-              { v: '4/16', l: 'TASKS', c: 'var(--text)' },
-            ].map(s => (
-              <div key={s.l} className="auth-preview-stat">
-                <div className="auth-preview-stat-v" style={{ color: s.c }}>{s.v}</div>
-                <div className="auth-preview-stat-l">{s.l}</div>
+            {/* Module pills — positioned around the 3 rings */}
+            {MODULE_ORBITALS.map(m => (
+              <div
+                key={m.name}
+                className="auth-module-pill"
+                style={{ left: m.left, top: m.top, '--pill-color': m.color }}
+              >
+                <span className="auth-module-dot" style={{ background: m.color }} />
+                {m.name}
               </div>
-            ))}
-          </div>
-
-          <div className="auth-preview-projects">
-            {PROJECTS_PREVIEW.map(p => (
-              <div key={p.id} className="auth-preview-proj">
-                <div className="auth-preview-proj-row">
-                  <span className="auth-preview-proj-id">{p.id}</span>
-                  <span className="auth-preview-proj-name">{p.name}</span>
-                  <span className="auth-preview-proj-pct" style={{ color: p.color }}>{p.pct}%</span>
-                </div>
-                <div className="auth-preview-bar">
-                  <div style={{ width: `${p.pct}%`, background: p.color }} />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="auth-preview-heatmap">
-            {HEATMAP.map((l, i) => (
-              <div key={i} className={`auth-preview-cell ${l > 0 ? `l${l}` : ''}`} />
             ))}
           </div>
         </div>
 
-        <div className="auth-pills">
-          {PILLS.map(p => <span key={p} className="auth-pill">{p}</span>)}
+        {/* Stats footer */}
+        <div className="auth-stats-row">
+          {STATS_ROW.map(s => (
+            <div key={s.label} className="auth-stat-item">
+              <span className="auth-stat-val">{s.value}</span>
+              <span className="auth-stat-lbl">{s.label}</span>
+            </div>
+          ))}
         </div>
       </aside>
 
@@ -262,15 +289,15 @@ export const AuthPage = ({ onAuth }) => {
                 <div className="auth-form-head">
                   <h2>
                     {googleAuthOnly ? 'Welcome to Orbit' :
-                      mode === 'login' ? 'Welcome back' :
-                      mode === 'signup' ? 'Create account' :
-                        'Reset password'}
+                      mode === 'login' ? 'Welcomee to Orbit' :
+                        mode === 'signup' ? 'Create account' :
+                          'Reset password'}
                   </h2>
                   <p>
                     {googleAuthOnly ? 'Sign in with your Google account to continue' :
                       mode === 'login' ? 'Sign in to your workspace' :
-                      mode === 'signup' ? 'Set up your Orbit workspace' :
-                        "We'll send a reset link to your email"}
+                        mode === 'signup' ? 'Set up your Orbit workspace' :
+                          "We'll send a reset link to your email"}
                   </p>
                 </div>
 
@@ -520,8 +547,9 @@ export const ResetPasswordPage = ({ onDone }) => {
       <aside className="auth-panel">
         <div className="auth-glow auth-glow-1" />
         <div className="auth-glow auth-glow-2" />
+        <div className="auth-glow auth-glow-3" />
         <div className="auth-logo">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
             <circle cx="9" cy="9" r="3" fill="currentColor" />
             <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
             <circle cx="9" cy="3" r="1.5" fill="currentColor" />
@@ -530,12 +558,36 @@ export const ResetPasswordPage = ({ onDone }) => {
           <span className="auth-logo-ver">v1.0</span>
         </div>
         <div className="auth-hero">
-          <div className="auth-hero-eyebrow">Developer Dashboard</div>
+          <div className="auth-hero-eyebrow">Developer OS</div>
           <h1 className="auth-hero-title">
-            Track projects.<br />
-            Ship on time.<br />
-            <span className="auth-hero-accent">Stay in flow.</span>
+            Your entire workflow,<br />
+            <span className="auth-hero-accent">one orbit.</span>
           </h1>
+          <p className="auth-hero-sub">
+            The all-in-one workspace for indie developers — projects, deep-work sessions, vault, analytics, and more.
+          </p>
+        </div>
+        <div className="auth-orbital-wrap" style={{ flex: 1, minHeight: 0 }}>
+          <div className="auth-orbital">
+            <svg className="auth-orbital-svg" viewBox="0 0 260 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="130" cy="130" r="50" stroke="rgba(0,153,255,0.15)" strokeWidth="1" />
+              <circle cx="130" cy="130" r="80" stroke="rgba(0,153,255,0.10)" strokeWidth="1" strokeDasharray="4 6" />
+              <circle cx="130" cy="130" r="112" stroke="rgba(168,85,247,0.10)" strokeWidth="1" strokeDasharray="2 10" />
+              <circle cx="130" cy="130" r="26" fill="rgba(0,153,255,0.08)" stroke="rgba(0,153,255,0.35)" strokeWidth="1.5" />
+              <circle cx="130" cy="130" r="14" fill="rgba(0,153,255,0.15)" />
+              <circle cx="130" cy="130" r="7" fill="#0099ff" />
+              <circle className="auth-orb-dot-1" cx="180" cy="130" r="5" fill="#0099ff" />
+              <circle className="auth-orb-dot-2" cx="130" cy="50" r="4" fill="#a855f7" />
+            </svg>
+          </div>
+        </div>
+        <div className="auth-stats-row">
+          {STATS_ROW.map(s => (
+            <div key={s.label} className="auth-stat-item">
+              <span className="auth-stat-val">{s.value}</span>
+              <span className="auth-stat-lbl">{s.label}</span>
+            </div>
+          ))}
         </div>
       </aside>
 
@@ -630,10 +682,10 @@ export const ResetPasswordPage = ({ onDone }) => {
 const ROLE_LABEL = { owner: 'Owner', admin: 'Admin', member: 'Member', viewer: 'Viewer' };
 
 export const InviteAcceptPage = ({ token, user, onAccepted, onDeclined }) => {
-  const [invite,  setInvite]  = useState(null);
+  const [invite, setInvite] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [busy,    setBusy]    = useState(false);
-  const [error,   setError]   = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     getInviteByToken(token)

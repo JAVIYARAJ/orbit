@@ -508,15 +508,9 @@
   border-bottom-color: var(--border) !important;
 }
 
-/* ── Auth page ── */
+/* ── Auth page — left panel stays intentionally dark on both themes ── */
 [data-theme="light"] .auth-panel {
-  background: var(--bg-1) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10) !important;
-}
-
-[data-theme="light"] .auth-preview {
-  background: var(--bg-2) !important;
-  border-color: var(--border) !important;
+  background: #06060f !important;
 }
 
 /* ── cc-timer-panel ── */
@@ -12128,14 +12122,14 @@ body.scanlines::after {
 
 /* ── Left brand panel ─────────────────────────────────────────────── */
 .auth-panel {
-  background: #080810;
+  background: #06060f;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 36px 40px 32px;
+  padding: 28px 36px 24px;
   position: relative;
   overflow: hidden;
-  gap: 24px;
+  gap: 14px;
 }
 
 /* Ambient glow blobs */
@@ -12147,19 +12141,27 @@ body.scanlines::after {
 }
 
 .auth-glow-1 {
-  width: 420px;
-  height: 420px;
-  top: -120px;
-  left: -80px;
-  background: radial-gradient(circle, rgba(0, 153, 255, 0.18) 0%, transparent 70%);
+  width: 500px;
+  height: 500px;
+  top: -160px;
+  left: -100px;
+  background: radial-gradient(circle, rgba(0, 153, 255, 0.16) 0%, transparent 65%);
 }
 
 .auth-glow-2 {
-  width: 280px;
-  height: 280px;
-  bottom: 60px;
-  right: -60px;
-  background: radial-gradient(circle, rgba(124, 58, 237, 0.14) 0%, transparent 70%);
+  width: 320px;
+  height: 320px;
+  bottom: -40px;
+  right: -80px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.13) 0%, transparent 65%);
+}
+
+.auth-glow-3 {
+  width: 200px;
+  height: 200px;
+  bottom: 30%;
+  left: -40px;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.08) 0%, transparent 70%);
 }
 
 /* Logo */
@@ -12173,6 +12175,7 @@ body.scanlines::after {
   letter-spacing: -0.02em;
   position: relative;
   z-index: 1;
+  color: #fff;
 }
 
 .auth-logo-dot {
@@ -12187,10 +12190,10 @@ body.scanlines::after {
 .auth-logo-ver {
   font-family: var(--f-mono);
   font-size: 9px;
-  color: var(--text-4);
+  color: rgba(255,255,255,0.3);
   letter-spacing: 0.08em;
   margin-left: auto;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,255,255,0.1);
   padding: 2px 7px;
   border-radius: 4px;
 }
@@ -12205,10 +12208,10 @@ body.scanlines::after {
   font-family: var(--f-mono);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--accent-hi);
-  margin-bottom: 14px;
+  color: #0099ff;
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -12218,216 +12221,156 @@ body.scanlines::after {
   content: '';
   width: 20px;
   height: 1px;
-  background: var(--accent-hi);
+  background: #0099ff;
   display: inline-block;
 }
 
 .auth-hero-title {
   font-family: var(--f-display);
-  font-size: 36px;
+  font-size: 30px;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.18;
   letter-spacing: -0.03em;
-  margin: 0 0 16px;
-  color: var(--text);
+  margin: 0 0 8px;
+  color: #fff;
 }
 
 .auth-hero-accent {
-  color: var(--accent-hi);
+  background: linear-gradient(135deg, #0099ff 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .auth-hero-sub {
   font-size: 13px;
-  color: var(--text-3);
+  color: rgba(255,255,255,0.45);
   line-height: 1.7;
   margin: 0;
-  max-width: 340px;
+  max-width: 320px;
 }
 
-/* Mini dashboard preview card */
-.auth-preview {
-  background: rgba(15, 15, 22, 0.85);
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
-  overflow: hidden;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+/* ── Orbital graphic ───────────────────────────────────────────────── */
+.auth-orbital-wrap {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  padding: 10px 8px;
+  /* no max-height — fills remaining panel space */
 }
 
-/* Window chrome */
-.auth-preview-hd {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.auth-preview-title {
-  font-family: var(--f-mono);
-  font-size: 10px;
-  color: var(--text-4);
-  letter-spacing: 0.04em;
-}
-
-.auth-preview-dot {
-  width: 14px;
-  height: 6px;
-  background: var(--border-2);
-  border-radius: 3px;
-}
-
-/* Stats inside preview */
-.auth-preview-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.auth-preview-stat {
-  background: var(--bg-1);
-  padding: 10px 12px;
-}
-
-.auth-preview-stat-v {
-  font-family: var(--f-mono);
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
-
-.auth-preview-stat-l {
-  font-family: var(--f-mono);
-  font-size: 8px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-4);
-  margin-top: 4px;
-}
-
-/* Project bars inside preview */
-.auth-preview-projects {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  gap: 10px;
-}
-
-.auth-preview-proj-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 5px;
-}
-
-.auth-preview-proj-id {
-  font-family: var(--f-mono);
-  font-size: 9px;
-  color: var(--text-4);
-  letter-spacing: 0.06em;
-  flex: none;
-}
-
-.auth-preview-proj-name {
-  font-size: 11px;
-  font-weight: 500;
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.auth-preview-proj-pct {
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 700;
-  flex: none;
-}
-
-.auth-preview-bar {
-  height: 3px;
-  background: var(--bg-3);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.auth-preview-bar>div {
-  height: 100%;
-  border-radius: 2px;
-}
-
-/* Heatmap inside preview */
-.auth-preview-heatmap {
-  display: grid;
-  grid-template-columns: repeat(20, 1fr);
-  gap: 2px;
-  padding: 10px 14px 12px;
-}
-
-.auth-preview-cell {
-  aspect-ratio: 1;
-  background: var(--bg-3);
-  border-radius: 1px;
-}
-
-.auth-preview-cell.l1 {
-  background: rgba(0, 153, 255, 0.18);
-}
-
-.auth-preview-cell.l2 {
-  background: rgba(0, 153, 255, 0.38);
-}
-
-.auth-preview-cell.l3 {
-  background: rgba(0, 153, 255, 0.62);
-}
-
-.auth-preview-cell.l4 {
-  background: var(--accent);
-}
-
-/* Feature pills */
-.auth-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.auth-orbital {
   position: relative;
-  z-index: 1;
-  /* Prevent preview section from collapsing to give pills enough room */
+  width: 78%;
+  aspect-ratio: 1;
+  overflow: visible;
+}
+
+.auth-orbital-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* Orbit dot rotation via g-wrapper spin around SVG center (130,130) */
+@keyframes auth-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.auth-orb-g1 {
+  transform-origin: 200px 200px;
+  animation: auth-spin 5s linear infinite;
+}
+
+.auth-orb-g2 {
+  transform-origin: 200px 200px;
+  animation: auth-spin 9s linear infinite reverse;
+}
+
+.auth-orb-g3 {
+  transform-origin: 200px 200px;
+  animation: auth-spin 14s linear infinite;
+}
+
+/* ── Module pills (positioned absolutely around the orbital rings) ──── */
+.auth-module-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px 4px 7px;
+  border-radius: 20px;
+  background: rgba(8, 8, 18, 0.82);
+  border: 1px solid color-mix(in srgb, var(--pill-color, #0099ff) 35%, rgba(255,255,255,0.08));
+  backdrop-filter: blur(10px);
+  white-space: nowrap;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(255,255,255,0.78);
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--pill-color, #0099ff) 14%, transparent);
+}
+
+.auth-module-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.auth-pill {
-  font-family: var(--f-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  padding: 4px 10px;
-  border: 1px solid var(--border-2);
-  border-radius: 20px;
-  color: var(--text-3);
-  background: rgba(255, 255, 255, 0.03);
-  transition: all 0.2s;
-  white-space: nowrap;
+/* ── Stats footer row ─────────────────────────────────────────────── */
+.auth-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  padding-top: 16px;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
 }
 
-.auth-pill:hover {
-  border-color: var(--accent-tint-2);
-  color: var(--accent-hi);
-  background: var(--accent-tint);
+.auth-stat-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
 }
+
+.auth-stat-item + .auth-stat-item {
+  border-left: 1px solid rgba(255,255,255,0.07);
+}
+
+.auth-stat-val {
+  font-family: var(--f-display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #fff;
+  line-height: 1;
+}
+
+.auth-stat-lbl {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+}
+
+/* (old preview/pills/heatmap removed — replaced by orbital + feature cards + stats) */
 
 .auth-panel-foot {
   font-family: var(--f-mono);
