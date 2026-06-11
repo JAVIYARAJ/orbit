@@ -6,6 +6,8 @@
 //   • the repeat pattern  (FREQ / INTERVAL / BYDAY) — from the preset or Custom form
 //   • the end condition   (UNTIL / COUNT)           — shared "Repeat ends" control
 
+import { fmtDate } from './dateUtils.js';
+
 const DOW = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']; // JS getDay() order
 const DOW_LABEL = { SU: 'Sun', MO: 'Mon', TU: 'Tue', WE: 'Wed', TH: 'Thu', FR: 'Fri', SA: 'Sat' };
 const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR'];
@@ -114,7 +116,7 @@ export function summarizeRule(rule) {
 
   if (until) {
     const d = new Date(`${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}T00:00:00`);
-    base += ` until ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    base += ` until ${fmtDate(d)}`;
   } else if (count) {
     base += `, ${count}×`;
   }

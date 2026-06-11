@@ -3,6 +3,7 @@ import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
 import { renderMd } from './tools.jsx';
 import { ghGetUser, ghGetRepos, ghGetPRs, ghGetIssues, ghGetActivity, ghGetActivityAll, ghGetBranches, ghGetRepoCommits, ghGetRepoLanguages, ghGetRepoContributors } from '../lib/github.js';
+import { fmtDate, fmtRelative, fmtDateCompact, fmtDateShort } from '../lib/dateUtils.js';
 
 const LANG_COLORS = {
   JavaScript:'#f1e05a', TypeScript:'#3178c6', Python:'#3572A5', Dart:'#00B4AB',
@@ -11,14 +12,7 @@ const LANG_COLORS = {
   HTML:'#e34c26', Shell:'#89e051', Vue:'#41b883', Svelte:'#ff3e00',
 };
 
-function timeAgo(d) {
-  const s = Math.floor((Date.now() - new Date(d)) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+const timeAgo = (d) => fmtRelative(d);
 
 // ── Not connected ─────────────────────────────────────────────────────
 function NotConnected({ onGoSettings }) {
@@ -132,7 +126,7 @@ function RepoDetailPanel({ repo, onClose }) {
               </div>
               <div className="rd-meta-item">
                 <span className="rd-meta-label">Created</span>
-                <span className="rd-meta-val">{new Date(repo.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                <span className="rd-meta-val">{fmtDate(repo.created_at)}</span>
               </div>
               <div className="rd-meta-item">
                 <span className="rd-meta-label">Last push</span>
@@ -806,7 +800,7 @@ function buildMonths(events, repoLangMap) {
   events.forEach(ev => {
     const d = new Date(ev.created_at);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const label = fmtDateCompact(d);
     if (!months[key]) months[key] = { label, pushes: {}, created: [], prs: {} };
     const m = months[key];
     if (ev.type === 'PushEvent') {
@@ -942,7 +936,7 @@ function ActivityTab({ username }) {
                           </span>
                         )}
                         <span className="act-repo-date">
-                          {new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {fmtDateShort(new Date(r.date))}
                         </span>
                       </a>
                     ))}

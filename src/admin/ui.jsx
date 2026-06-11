@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, RefreshCw, X, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { fmtRelativeNotif, fmtDateTime } from '../lib/dateUtils.js';
 
 // ── Data hook ───────────────────────────────────────────────────
 export function useAdmin(fetcher, deps = []) {
@@ -26,18 +27,11 @@ export function useAdmin(fetcher, deps = []) {
 // ── Time formatting ─────────────────────────────────────────────
 export function relativeTime(date) {
   if (!date) return '—';
-  const d = new Date(date);
-  const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
-  const days = Math.floor(h / 24); if (days < 30) return `${days}d ago`;
-  const mo = Math.floor(days / 30); if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
+  return fmtRelativeNotif(date);
 }
 export function absTime(date) {
   if (!date) return '';
-  return new Date(date).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return fmtDateTime(date);
 }
 export const RelTime = ({ date }) => (
   <span title={absTime(date)} className="text-muted-foreground whitespace-nowrap">{relativeTime(date)}</span>

@@ -1027,6 +1027,13 @@ select {
   appearance: none;
 }
 
+/* Date picker calendar icon visibility in dark mode */
+[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+
 input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -1283,7 +1290,8 @@ body.texture-grid::before {
   display: flex;
   /* flex lets sidebar width transition smoothly */
   height: 100vh;
-  height: 100dvh; /* dvh adapts to Safari's dynamic toolbar on iOS */
+  height: 100dvh;
+  /* dvh adapts to Safari's dynamic toolbar on iOS */
   position: relative;
   z-index: 2;
 }
@@ -1877,6 +1885,10 @@ body.texture-grid::before {
   min-height: 0;
   animation: fadeIn 0.4s ease-out;
   padding-bottom: var(--safe-bottom);
+}
+
+.content.no-scroll {
+  overflow: hidden !important;
 }
 
 .page {
@@ -4976,6 +4988,46 @@ button.collab-role-pill:hover:not(:disabled) {
   color: var(--accent-hi);
 }
 
+/* ───── TASKS PAGE LAYOUT (BOARD STICKY & SCROLLABLE) ───── */
+.content:has(.tasks-page.board-view) {
+  overflow: hidden;
+}
+
+.tasks-page.board-view {
+  height: 100%;
+  max-height: calc(100vh - var(--topbar-h));
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 24px;
+  box-sizing: border-box;
+}
+
+.tasks-page.board-view .kanban,
+.tasks-page.board-view .sg-board {
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.tasks-page.board-view .kanban {
+  display: block;
+}
+
+.tasks-page.board-view .kanban-inner {
+  display: flex;
+  align-items: stretch;
+  gap: 20px;
+  min-height: 100%;
+  width: max-content;
+}
+
+.tasks-page.board-view .kcol-body {
+  overflow-y: visible;
+  height: auto;
+  flex: none;
+}
+
 /* ───── TASKS / KANBAN ───── */
 .kanban {
   display: flex;
@@ -5514,7 +5566,7 @@ button.collab-role-pill:hover:not(:disabled) {
   padding: 20px 18px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   background: var(--bg-0);
 }
 
@@ -6354,6 +6406,60 @@ button.collab-role-pill:hover:not(:disabled) {
   font-style: italic;
 }
 
+.worklog-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.worklog-empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-tint-2);
+  color: var(--accent-hi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  box-shadow: 0 0 16px var(--accent-tint);
+}
+
+.worklog-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 6px;
+}
+
+.worklog-empty-desc {
+  font-size: 11px;
+  color: var(--text-3);
+  max-width: 280px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.worklog-empty-btn {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-hi);
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px 12px;
+  transition: opacity 0.1s ease;
+}
+
+.worklog-empty-btn:hover {
+  opacity: 0.8;
+}
+
 .subtask-form {
   background: var(--bg-2);
   border: 1px solid var(--border-2);
@@ -6446,6 +6552,16 @@ button.collab-role-pill:hover:not(:disabled) {
   margin-bottom: 24px;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.filter-row-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
 }
 
 .filter-meta-refined {
@@ -9084,12 +9200,19 @@ button.collab-role-pill:hover:not(:disabled) {
   padding: 24px 16px;
   color: var(--text-4);
 }
-.nf-empty > svg { color: var(--text-4); opacity: 0.7; margin-bottom: 2px; }
+
+.nf-empty>svg {
+  color: var(--text-4);
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
 .nf-empty-title {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-2);
 }
+
 .nf-empty-sub {
   font-size: 11px;
   line-height: 1.5;
@@ -11538,14 +11661,40 @@ body.scanlines::after {
   }
 
   .filter-row-premium {
-    flex-direction: column;
-    align-items: stretch;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    gap: 8px;
+    margin-bottom: 8px;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    width: 100%;
+  }
+
+  .filter-row-premium::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-row-premium > div {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    gap: 8px;
+    flex: none !important;
+    min-width: max-content;
+  }
+
+  .filter-row-right {
+    justify-content: flex-start !important;
   }
 
   .filter-bar {
-    overflow-x: auto;
-    width: 100%;
-    scrollbar-width: none;
+    overflow-x: visible !important;
+    width: auto !important;
+    flex: none !important;
   }
 
   .filter-bar::-webkit-scrollbar {
@@ -11553,7 +11702,58 @@ body.scanlines::after {
   }
 
   .task-search-wrap {
-    width: 100%;
+    width: 180px !important;
+    flex: none !important;
+  }
+
+  .tasks-page.board-view {
+    padding: 6px 6px 12px !important;
+  }
+
+  .tasks-page.board-view .page-title {
+    font-size: 20px !important;
+    margin: 0 !important;
+  }
+
+  .tasks-page.board-view .page-head {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    margin-bottom: 8px !important;
+    padding-bottom: 8px !important;
+    gap: 8px !important;
+  }
+
+  .tasks-page.board-view .page-head .actions {
+    width: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    justify-content: flex-end !important;
+  }
+
+  .tasks-page.board-view .page-head .actions .btn.primary {
+    font-size: 0 !important;
+    padding: 0 !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .tasks-page.board-view .page-head .actions .btn.primary svg {
+    margin: 0 !important;
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .tasks-page.board-view .page-head .crumb {
+    display: none;
   }
 
   .page-head {
@@ -11882,6 +12082,7 @@ body.scanlines::after {
    `@media all` always matches, so this replaces the desktop 3-pane layout
    everywhere. Overrides the base grid + the ≤900px stack rules (later in source). */
 @media all {
+
   /* Lock the height to the viewport so panes can scroll internally and fill the screen entirely! */
   .notes-page {
     height: 100%;
@@ -11909,23 +12110,23 @@ body.scanlines::after {
   }
 
   /* Hide all three panes, then reveal only the active one */
-  .notes-layout > .notes-folders,
-  .notes-layout > .notes-list,
-  .notes-layout > .note-editor,
-  .notes-layout > .note-empty-state {
+  .notes-layout>.notes-folders,
+  .notes-layout>.notes-list,
+  .notes-layout>.note-editor,
+  .notes-layout>.note-empty-state {
     display: none;
   }
 
-  .notes-mob-folders > .notes-folders {
+  .notes-mob-folders>.notes-folders {
     display: flex;
   }
 
-  .notes-mob-list > .notes-list {
+  .notes-mob-list>.notes-list {
     display: flex;
   }
 
-  .notes-mob-editor > .note-editor,
-  .notes-mob-editor > .note-empty-state {
+  .notes-mob-editor>.note-editor,
+  .notes-mob-editor>.note-empty-state {
     display: flex;
   }
 
@@ -11960,7 +12161,8 @@ body.scanlines::after {
   .notes-list {
     width: 100%;
     height: 100%;
-    max-height: none; /* override the 300px cap set at ≤900px */
+    max-height: none;
+    /* override the 300px cap set at ≤900px */
     flex: 1;
     overflow: hidden;
   }
@@ -12190,10 +12392,10 @@ body.scanlines::after {
 .auth-logo-ver {
   font-family: var(--f-mono);
   font-size: 9px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255, 255, 255, 0.3);
   letter-spacing: 0.08em;
   margin-left: auto;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 2px 7px;
   border-radius: 4px;
 }
@@ -12244,7 +12446,7 @@ body.scanlines::after {
 
 .auth-hero-sub {
   font-size: 13px;
-  color: rgba(255,255,255,0.45);
+  color: rgba(255, 255, 255, 0.45);
   line-height: 1.7;
   margin: 0;
   max-width: 320px;
@@ -12279,8 +12481,13 @@ body.scanlines::after {
 
 /* Orbit dot rotation via g-wrapper spin around SVG center (130,130) */
 @keyframes auth-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .auth-orb-g1 {
@@ -12308,14 +12515,14 @@ body.scanlines::after {
   padding: 4px 9px 4px 7px;
   border-radius: 20px;
   background: rgba(8, 8, 18, 0.82);
-  border: 1px solid color-mix(in srgb, var(--pill-color, #0099ff) 35%, rgba(255,255,255,0.08));
+  border: 1px solid color-mix(in srgb, var(--pill-color, #0099ff) 35%, rgba(255, 255, 255, 0.08));
   backdrop-filter: blur(10px);
   white-space: nowrap;
   font-family: var(--f-mono);
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: rgba(255,255,255,0.78);
+  color: rgba(255, 255, 255, 0.78);
   pointer-events: none;
   z-index: 2;
   box-shadow: 0 0 12px color-mix(in srgb, var(--pill-color, #0099ff) 14%, transparent);
@@ -12333,7 +12540,7 @@ body.scanlines::after {
   display: flex;
   align-items: center;
   gap: 0;
-  border-top: 1px solid rgba(255,255,255,0.07);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
   padding-top: 16px;
   position: relative;
   z-index: 1;
@@ -12349,8 +12556,8 @@ body.scanlines::after {
   padding: 0 8px;
 }
 
-.auth-stat-item + .auth-stat-item {
-  border-left: 1px solid rgba(255,255,255,0.07);
+.auth-stat-item+.auth-stat-item {
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .auth-stat-val {
@@ -12367,7 +12574,7 @@ body.scanlines::after {
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255, 255, 255, 0.35);
 }
 
 /* (old preview/pills/heatmap removed — replaced by orbital + feature cards + stats) */
@@ -12730,8 +12937,8 @@ body.scanlines::after {
     overflow-y: auto;
     box-sizing: border-box;
     background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 153, 255, 0.18) 0%, transparent 60%),
-                radial-gradient(ellipse 60% 40% at 50% 110%, rgba(124, 58, 237, 0.15) 0%, transparent 55%),
-                #080810;
+      radial-gradient(ellipse 60% 40% at 50% 110%, rgba(124, 58, 237, 0.15) 0%, transparent 55%),
+      #080810;
     position: relative;
     -webkit-overflow-scrolling: touch;
   }
@@ -12791,8 +12998,8 @@ body.scanlines::after {
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 16px;
     padding: 32px 24px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 
-                0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(255, 255, 255, 0.02) inset;
     box-sizing: border-box;
   }
 
@@ -19372,46 +19579,98 @@ button.role-badge:hover {
 .task-comments-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 0 4px;
+  gap: 8px;
+  padding: 8px 0;
 }
 
 .task-comments-more {
   align-self: center;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
+/* Premium Card-based Comment Rows */
 .task-comment-row {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  position: relative;
   display: flex;
-  gap: 14px;
+  gap: 10px;
   align-items: flex-start;
-  padding: 8px 0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  margin-bottom: 8px;
+}
+
+[data-theme="light"] .task-comment-row {
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.01);
+}
+
+.task-comment-row:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px var(--accent-tint);
+}
+
+/* Replies (Nested inside thread) */
+.task-comment-replies {
+  margin-left: 18px;
+  padding-left: 14px;
+  border-left: 1.5px solid var(--border);
+  margin-top: 2px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   position: relative;
 }
 
-.task-comment-row:last-child {
-  /* noop */
-}
-
-.task-comment-replies {
-  margin-left: 42px;
-  padding-left: 0;
-  margin-top: 4px;
+.task-comment-replies::before {
+  content: "";
+  position: absolute;
+  left: -1.5px;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: linear-gradient(to bottom, var(--accent) 0%, transparent 100%);
+  opacity: 0.4;
 }
 
 .task-comment-reply {
-  padding: 6px 0;
-  border-bottom: none;
+  background: var(--bg-2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  border-color: var(--border-2);
+}
+
+[data-theme="light"] .task-comment-reply {
+  background: var(--bg-2);
 }
 
 .task-comment-reply-composer {
-  margin-left: 60px;
-  margin-top: 8px;
+  margin-left: 32px;
+  margin-top: 6px;
 }
 
 .task-comment-avatar {
   flex-shrink: 0;
-  padding-top: 2px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  padding: 1px;
+  background: var(--bg-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-comment-avatar .assignee-ava {
+  border: none !important;
+  border-radius: 50%;
+}
+
+.task-comment-avatar .assignee-ava-init {
+  border-radius: 50%;
 }
 
 .task-comment-content {
@@ -19421,85 +19680,93 @@ button.role-badge:hover {
 
 .task-comment-header {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 6px;
   flex-wrap: wrap;
 }
 
 .task-comment-author {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-1);
+  letter-spacing: -0.01em;
 }
 
 .task-comment-time {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--text-3);
-  font-family: inherit;
+  font-family: var(--f-mono);
 }
 
 .task-comment-edited {
-  font-size: 10px;
-  color: var(--text-3);
-  font-style: italic;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--bg-2);
+  font-size: 8px;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px solid rgba(0, 153, 255, 0.2);
+  padding: 0px 4px;
+  border-radius: 3px;
+  font-family: var(--f-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .task-comment-body {
-  font-size: 14px;
+  font-size: 12.5px;
   color: var(--text-2);
-  line-height: 1.6;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+/* Floating Actions Strip */
 .task-comment-actions {
   position: absolute;
-  top: 12px;
-  right: 0;
+  top: 8px;
+  right: 8px;
   display: flex;
-  gap: 2px;
-  padding: 4px;
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  gap: 4px;
   opacity: 0;
   transition: opacity 0.15s, transform 0.15s;
-  transform: translateY(4px);
+  transform: translateY(2px);
   z-index: 10;
 }
 
-.task-comment-row:hover>.task-comment-content>.task-comment-actions,
+.task-comment-row:hover > .task-comment-content > .task-comment-actions,
 .task-comment-row:hover .task-comment-actions {
   opacity: 1;
   transform: translateY(0);
 }
 
 .task-comment-action-btn {
-  background: none;
-  border: none;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--f-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+[data-theme="light"] .task-comment-action-btn {
+  background: var(--bg-1);
 }
 
 .task-comment-action-btn:hover {
-  background: var(--bg-2);
-  color: var(--text);
+  background: var(--accent-tint);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .task-comment-action-btn.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.08);
   color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .task-comment-textarea {
@@ -19624,7 +19891,11 @@ button.role-badge:hover {
 }
 
 .mention-highlight {
-  color: var(--accent-hi);
+  color: var(--accent, #0099ff);
+  background: var(--accent-tint, rgba(0, 153, 255, 0.08));
+  border: 1px solid rgba(0, 153, 255, 0.15);
+  padding: 1px 5px;
+  border-radius: 4px;
   font-weight: 600;
 }
 
@@ -19761,34 +20032,6 @@ button.role-badge:hover {
   box-shadow: 0 0 6px rgba(0, 153, 255, 0.5);
 }
 
-/* ── Comment Threads (replies) ──────────────────────────────────── */
-.task-comment-thread {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.task-comment-replies {
-  margin-left: 38px;
-  margin-top: 6px;
-  padding-left: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.task-comment-reply {
-  opacity: 0.95;
-}
-
-.task-comment-reply-composer {
-  margin-left: 38px;
-  margin-top: 8px;
-  padding-left: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 
 /* ═══════════════════════════════════════════════════════════════════
    Calendar page + FullCalendar dark theming
@@ -23729,7 +23972,7 @@ button.role-badge:hover {
 }
 
 .tpanel-prop {
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
 .tpanel-prop-label {
@@ -23980,7 +24223,8 @@ button.role-badge:hover {
   }
 
   .status-row:hover {
-    transform: none; /* Prevent horizontal shift overflow on mobile */
+    transform: none;
+    /* Prevent horizontal shift overflow on mobile */
   }
 
   .status-label-input {
@@ -24025,11 +24269,11 @@ button.role-badge:hover {
     flex-direction: column;
     align-items: flex-start;
   }
-  
+
   .intg-real-sub {
     flex-wrap: wrap;
   }
-  
+
   .intg-real-right {
     width: 100%;
     display: flex;
@@ -24040,17 +24284,20 @@ button.role-badge:hover {
   .perm-grid {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 8px; /* space for scrollbar */
+    padding-bottom: 8px;
+    /* space for scrollbar */
     max-width: 100%;
     width: 100%;
   }
 
   .perm-row {
-    min-width: min-content; /* ensure grid columns don't collapse and backgrounds stretch to end */
+    min-width: min-content;
+    /* ensure grid columns don't collapse and backgrounds stretch to end */
   }
 
   /* Global fixes for mobile cards */
-  .card, .card-pad {
+  .card,
+  .card-pad {
     max-width: 100%;
     box-sizing: border-box;
   }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { canAccessModule } from '../lib/permissions.js';
+import { fmtRelativeNotif } from '../lib/dateUtils.js';
 
 // ─── Icons (inline SVG, 16px viewbox) ─────────────────────────────
 export const Icon = ({ name, size = 16 }) => {
@@ -325,18 +326,6 @@ export const Sidebar = ({
 };
 
 // ─── Topbar ────────────────────────────────────────────────────────
-const timeAgo = (dateStr) => {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 2)   return 'just now';
-  if (m < 60)  return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24)  return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 30)  return `${d}d ago`;
-  return new Date(dateStr).toLocaleDateString();
-};
 
 export const Topbar = ({
   onOpenCmdK, onOpenMobileNav, timer, onTimerJump, theme = 'dark', onThemeToggle,
@@ -454,7 +443,7 @@ export const Topbar = ({
                   <div className="notif-content">
                     <div className="notif-text">{cfg.render(n)}</div>
                     {cfg.preview && n.preview && <div className="notif-preview">"{n.preview}"</div>}
-                    <div className="notif-time">{timeAgo(n.createdAt)}</div>
+                    <div className="notif-time">{fmtRelativeNotif(n.createdAt)}</div>
                   </div>
                   {!n.readAt && <div className="notif-dot" />}
                 </div>

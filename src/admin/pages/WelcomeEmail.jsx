@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Mail, Sparkles, Eye, Info } from 'lucide-react';
 import { useAdmin, Toggle } from '../ui.jsx';
 import { adminGetAppTemplate, adminUpsertAppTemplate } from '../api.js';
+import { fmtDate } from '../../lib/dateUtils.js';
 
 export function WelcomeEmailPage() {
   const { data, loading, error, reload } = useAdmin(() => adminGetAppTemplate('welcome'), []);
@@ -67,7 +68,7 @@ export function WelcomeEmailPage() {
             <div className="flex items-center gap-4">
               {tpl?.updated_at && (
                 <span className="text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full border border-border hidden sm:inline-block">
-                  Updated {new Date(tpl.updated_at).toLocaleDateString()}
+                  Updated {fmtDate(tpl.updated_at)}
                 </span>
               )}
               <Toggle checked={enabled} onChange={setEnabled} label={enabled ? 'Active' : 'Disabled'} />

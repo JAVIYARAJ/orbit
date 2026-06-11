@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Sparkles, MessageSquare, Info } from 'lucide-react';
 import { useAdmin } from '../ui.jsx';
 import { adminListReplyTemplates, adminUpsertReplyTemplate } from '../api.js';
+import { fmtDate } from '../../lib/dateUtils.js';
 
 // Order matches the contact form's type dropdown.
 const TYPES = ['General query', 'Bug / Issue', 'Feature request', 'Feedback', 'Partnership', 'Other'];
@@ -41,7 +42,7 @@ function TemplateCard({ type, tpl }) {
         </h3>
         {tpl?.updated_at && (
           <span className="text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full border border-border">
-            Updated {new Date(tpl.updated_at).toLocaleDateString()}
+            Updated {fmtDate(tpl.updated_at)}
           </span>
         )}
       </div>

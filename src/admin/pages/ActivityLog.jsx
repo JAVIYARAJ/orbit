@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAdmin, DataTable, Drawer, RelTime, Pagination, FilterSelect, Badge, Field } from '../ui.jsx';
 import { adminQuery } from '../api.js';
+import { fmtDateTime } from '../../lib/dateUtils.js';
 
 const PER = 50;
 const actionTone = (a) => ({ created: 'green', updated: 'blue', deleted: 'red', restored: 'indigo' }[a] || 'grey');
@@ -67,7 +68,7 @@ export function ActivityLogPage() {
       <DataTable columns={columns} rows={data?.rows} loading={loading} error={error} onRetry={reload} onRowClick={setSelected} dense />
       <Pagination offset={offset} limit={PER} count={data?.count} onPage={setOffset} />
 
-      <Drawer open={!!selected} onClose={() => setSelected(null)} title="Activity detail" subtitle={selected ? new Date(selected.created_at).toLocaleString() : ''}>
+      <Drawer open={!!selected} onClose={() => setSelected(null)} title="Activity detail" subtitle={selected ? fmtDateTime(selected.created_at) : ''}>
         {selected && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-5 p-5 rounded-2xl bg-muted/50 border border-border shadow-inner">

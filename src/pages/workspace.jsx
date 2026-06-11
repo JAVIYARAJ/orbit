@@ -10,7 +10,7 @@ import {
   createLearningItem, updateLearningItem, deleteLearningItem,
   createLearningSession, listLearningSessions, deleteLearningSession, getWeeklyLearningHours,
   createTag, createTaskPriority, createProjectType,
-  linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getHomeStats, getProjectTasks,
+  linkNoteToTask, unlinkNoteFromTask, getTaskStatusLogs, getTaskTimeEntries, getHomeStats, getProjectTasks,
   getTaskComments, addTaskComment, updateTaskComment, deleteTaskComment,
   loadCalendarWindow,
   getTaskAttachments, addTaskAttachment,
@@ -2050,7 +2050,7 @@ const extractUrls = (text) => {
 
 // Inline media markdown: !video[name](url)  OR  ![alt](url)
 const IMG_MD_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
-const MEDIA_RE  = /!video\[([^\]]*)\]\(([^)\s]+)\)|!\[([^\]]*)\]\(([^)\s]+)\)|!file\[([^\]]*)\]\(([^)\s]+)\)/g;
+const MEDIA_RE = /!video\[([^\]]*)\]\(([^)\s]+)\)|!\[([^\]]*)\]\(([^)\s]+)\)|!file\[([^\]]*)\]\(([^)\s]+)\)/g;
 
 // Linkify a plain-text segment (no media markdown inside).
 const linkifyText = (text, kp) => {
@@ -2102,10 +2102,10 @@ const renderRich = (text, kp, withLinks, imgClass = '') => {
       const fileMeta = getFileTypeMeta(fileName, '', 14);
       out.push(
         <span key={`${kp}f${k}`} className="desc-inline-file-wrap" onClick={e => e.stopPropagation()}>
-          <a 
-            href={fileUrl} 
-            target="_blank" 
-            rel="noopener noreferrer" 
+          <a
+            href={fileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="desc-inline-file-card"
             style={{ borderLeftColor: fileMeta.color }}
           >
@@ -2242,33 +2242,33 @@ const DescriptionField = ({ value, onChange, onUploadImage }) => {
   const markdownToHtmlForEdit = (markdown) => {
     if (!markdown) return '';
     let html = markdown;
-    
+
     // Replace images
     html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, url) => {
       return `<img src="${url}" alt="${alt}" data-markdown-img="${alt}" class="desc-img" style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px; cursor: default;" />`;
     });
-    
+
     // Replace videos
     html = html.replace(/!video\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, url) => {
       return `<video src="${url}" data-markdown-video="${alt}" class="desc-video" controls style="max-height: 200px; display: block; margin: 8px 0; border-radius: 8px;" />`;
     });
-    
+
     // Replace files
     html = html.replace(/!file\[([^\]]*)\]\(([^)\s]+)\)/g, (match, name, url) => {
       const fileMeta = getFileTypeMeta(name, '', 12);
       return `<span class="desc-inline-file-wrap" contenteditable="false" data-markdown-file-name="${name}" data-markdown-file-url="${url}"><a href="${url}" target="_blank" rel="noopener noreferrer" class="desc-inline-file-card" style="border-left-color: ${fileMeta.color}; pointer-events: none;"><span class="file-icon" style="color: ${fileMeta.color}; display: inline-flex; vertical-align: middle;">${fileMeta.icon}</span><span class="file-name">${name}</span></a></span>`;
     });
-    
+
     // Replace newlines with <br>
     html = html.replace(/\n/g, '<br>');
-    
+
     return html;
   };
 
   const serializeHtmlToMarkdown = (html) => {
     const temp = document.createElement('div');
     temp.innerHTML = html;
-    
+
     const walk = (node) => {
       let md = '';
       for (let child of node.childNodes) {
@@ -2303,7 +2303,7 @@ const DescriptionField = ({ value, onChange, onUploadImage }) => {
       }
       return md;
     };
-    
+
     let result = walk(temp);
     result = result.replace(/\n{3,}/g, '\n\n').trim();
     return result;
@@ -2471,14 +2471,14 @@ const fmtMin = (min) => {
 // ── Helper to detect file extensions & map color/icon themes ─────────
 const getFileTypeMeta = (fileName = '', mimeType = '', size = 28) => {
   const ext = fileName.split('.').pop().toLowerCase();
-  
+
   // Extensions lists
   const archiveExts = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2'];
   const codeExts = ['js', 'jsx', 'ts', 'tsx', 'py', 'html', 'css', 'c', 'cpp', 'cs', 'go', 'rs', 'sql', 'json', 'sh', 'xml', 'yaml', 'yml'];
   const sheetExts = ['xlsx', 'xls', 'csv', 'ods'];
   const docExts = ['docx', 'doc', 'txt', 'rtf'];
   const mediaExts = ['mp3', 'wav', 'ogg', 'mp4', 'mkv', 'avi', 'mov', 'webm'];
-  
+
   if (ext === 'pdf') {
     return {
       ext,
@@ -2617,8 +2617,8 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout 
                   </span>
                 )}
               </div>
-              <div 
-                className="jira-list-name" 
+              <div
+                className="jira-list-name"
                 onClick={() => {
                   if (isImg) {
                     onOpenImage(images.findIndex(i => i.id === att.id));
@@ -2644,11 +2644,11 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout 
                 </div>
               </div>
               <div className="jira-list-actions">
-                <a 
-                  className="jira-list-action-btn" 
-                  href={att.secureUrl} 
-                  download 
-                  target="_blank" 
+                <a
+                  className="jira-list-action-btn"
+                  href={att.secureUrl}
+                  download
+                  target="_blank"
                   rel="noreferrer"
                   title="Download"
                   onClick={e => e.stopPropagation()}
@@ -2656,8 +2656,8 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout 
                   <Icon name="download" size={11} />
                 </a>
                 {isImg && (
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="jira-list-action-btn"
                     onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}
                     title="Preview"
@@ -2666,10 +2666,10 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout 
                   </button>
                 )}
                 {canRemove(att) && (
-                  <button 
-                    type="button" 
-                    className="jira-list-action-btn delete" 
-                    title="Delete" 
+                  <button
+                    type="button"
+                    className="jira-list-action-btn delete"
+                    title="Delete"
                     onClick={(e) => { e.stopPropagation(); onRemove(att); }}
                   >
                     <Icon name="trash" size={11} />
@@ -2734,11 +2734,11 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout 
                 </div>
               )}
               <div className="jira-card-actions">
-                <a 
-                  className="jira-action-btn" 
-                  href={att.secureUrl} 
-                  download 
-                  target="_blank" 
+                <a
+                  className="jira-action-btn"
+                  href={att.secureUrl}
+                  download
+                  target="_blank"
                   rel="noreferrer"
                   title="Download"
                   onClick={e => e.stopPropagation()}
@@ -2746,8 +2746,8 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout 
                   <Icon name="download" size={11} />
                 </a>
                 {isImg && (
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="jira-action-btn"
                     onClick={() => onOpenImage(images.findIndex(i => i.id === att.id))}
                     title="Preview"
@@ -2756,10 +2756,10 @@ function AttachmentGrid({ attachments, onOpenImage, onRemove, canRemove, layout 
                   </button>
                 )}
                 {canRemove(att) && (
-                  <button 
-                    type="button" 
-                    className="jira-action-btn delete" 
-                    title="Delete" 
+                  <button
+                    type="button"
+                    className="jira-action-btn delete"
+                    title="Delete"
                     onClick={(e) => { e.stopPropagation(); onRemove(att); }}
                   >
                     <Icon name="trash" size={11} />
@@ -2801,7 +2801,7 @@ function AttachmentLightbox({ images, index, setIndex, onClose }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [images.length, setIndex, onClose]);
-  
+
   const att = images[index];
   if (!att) return null;
 
@@ -2837,15 +2837,15 @@ function AttachmentLightbox({ images, index, setIndex, onClose }) {
               <span style={{ display: 'flex', transform: 'rotate(180deg)' }}><Icon name="chev" size={22} /></span>
             </button>
           )}
-          
-          <img 
-            className="att-lb-img" 
-            src={att.secureUrl} 
-            alt={att.fileName} 
-            onClick={e => e.stopPropagation()} 
+
+          <img
+            className="att-lb-img"
+            src={att.secureUrl}
+            alt={att.fileName}
+            onClick={e => e.stopPropagation()}
             style={{ maxHeight: '68vh', maxWidth: '85vw', objectFit: 'contain' }}
           />
-          
+
           {images.length > 1 && (
             <button className="att-lb-nav next" onClick={(e) => { e.stopPropagation(); setIndex((index + 1) % images.length); }}>
               <Icon name="chev" size={22} />
@@ -2859,7 +2859,7 @@ function AttachmentLightbox({ images, index, setIndex, onClose }) {
             <>
               <div className="jira-carousel-strip">
                 {images.map((img, i) => (
-                  <button 
+                  <button
                     key={img.id}
                     className={`jira-carousel-thumb${i === index ? ' active' : ''}`}
                     onClick={() => setIndex(i)}
@@ -2947,6 +2947,7 @@ const TaskDetailModal = ({
       await onLogTime(task._dbId, projDbId, minutes, logNote);
       setShowLogTime(false);
       setLogH(''); setLogM(''); setLogNote('');
+      reloadWorkLogs();
     } catch (e) {
       console.error('Failed to log time:', e);
     } finally {
@@ -2959,6 +2960,7 @@ const TaskDetailModal = ({
     if (!projDbId) return;
     try {
       await onLogTime(task._dbId, projDbId, minutes, 'Quick log');
+      reloadWorkLogs();
     } catch (e) {
       console.error('Failed to log quick time:', e);
     }
@@ -2970,8 +2972,18 @@ const TaskDetailModal = ({
   const [statusSaving, setStatusSaving] = useStateA(false);
   const [logsVisible, setLogsVisible] = useStateA(10);
   const LOG_PAGE = 10;
-  
+
   const [activityTab, setActivityTab] = useStateA('comments'); // 'all', 'comments', 'history', 'work log'
+
+  const [actTabInd, setActTabInd] = useStateA({ left: 0, width: 0 });
+  const actTabRefs = useRefA({});
+
+  useEffectA(() => {
+    const el = actTabRefs.current[activityTab];
+    if (el) {
+      setActTabInd({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [activityTab, task._dbId]);
 
 
   useEffectA(() => {
@@ -2987,6 +2999,24 @@ const TaskDetailModal = ({
     if (!task._dbId) return;
     getTaskStatusLogs(task._dbId).then(setStatusLogs).catch(() => { });
   };
+
+  // Work log — all members' logged time on this task
+  const [workLogs, setWorkLogs] = useStateA([]);
+  const [workLogsLoading, setWorkLogsLoading] = useStateA(false);
+
+  const reloadWorkLogs = () => {
+    if (!task._dbId) return;
+    getTaskTimeEntries(task._dbId).then(setWorkLogs).catch(() => { });
+  };
+
+  useEffectA(() => {
+    if (!task._dbId) return;
+    setWorkLogsLoading(true);
+    getTaskTimeEntries(task._dbId)
+      .then(setWorkLogs)
+      .catch(() => setWorkLogs([]))
+      .finally(() => setWorkLogsLoading(false));
+  }, [task._dbId]);
 
   const handleStatusChange = async (newStatusId) => {
     if (!onStatusChange || newStatusId === task.col) return;
@@ -3069,17 +3099,17 @@ const TaskDetailModal = ({
 
   // ── Attachments ───────────────────────────────────────────────────
   const [attachments, setAttachments] = useStateA([]);
-  const [uploading, setUploading]     = useStateA([]);   // [{name}]
-  const [attErr, setAttErr]           = useStateA('');
-  const [lightbox, setLightbox]       = useStateA(null); // index into image attachments
-  const [dragOver, setDragOver]       = useStateA(false);
+  const [uploading, setUploading] = useStateA([]);   // [{name}]
+  const [attErr, setAttErr] = useStateA('');
+  const [lightbox, setLightbox] = useStateA(null); // index into image attachments
+  const [dragOver, setDragOver] = useStateA(false);
   const [attViewMode, setAttViewMode] = useStateA(() => {
     try { return localStorage.getItem('orbit_att_view') || 'grid'; }
     catch { return 'grid'; }
   });
   const toggleAttViewMode = (mode) => {
     setAttViewMode(mode);
-    try { localStorage.setItem('orbit_att_view', mode); } catch (e) {}
+    try { localStorage.setItem('orbit_att_view', mode); } catch (e) { }
   };
   const attInputRef = useRefA(null);
   const [composerFiles, setComposerFiles] = useStateA([]); // files staged on the comment composer
@@ -3136,7 +3166,7 @@ const TaskDetailModal = ({
   const removeAttachment = async (att) => {
     setAttachments(prev => prev.filter(a => a.id !== att.id));   // optimistic
     try { await destroyAttachment(att.id); }
-    catch (e) { setAttErr(e.message || 'Failed to delete'); getTaskAttachments(task._dbId).then(setAttachments).catch(() => {}); }
+    catch (e) { setAttErr(e.message || 'Failed to delete'); getTaskAttachments(task._dbId).then(setAttachments).catch(() => { }); }
   };
 
   const canRemoveAtt = (att) => att.uploadedBy === currentUserId || canEdit || canDelete;
@@ -3229,7 +3259,7 @@ const TaskDetailModal = ({
   const handleMentionSelect = (member) => {
     const cursor = commentTextareaRef.current?.selectionStart ?? newCommentBody.length;
     const before = newCommentBody.slice(0, cursor);
-    const after  = newCommentBody.slice(cursor);
+    const after = newCommentBody.slice(cursor);
     const replaced = before.replace(/@(\w*)$/, `@${member.name} `);
     setNewCommentBody(replaced + after);
     setMentionOpen(false);
@@ -3342,7 +3372,7 @@ const TaskDetailModal = ({
       const limit = Math.max(loadedParentsRef.current, COMMENTS_PAGE);
       getTaskComments(task._dbId, { limit, offset: 0 })
         .then(({ comments: c, total }) => { setComments(c); setCommentTotal(total); })
-        .catch(() => {});
+        .catch(() => { });
     };
     const ch = supabase
       .channel(`task-comments-${task._dbId}`)
@@ -3382,7 +3412,7 @@ const TaskDetailModal = ({
       if (composerFiles.length) {
         await uploadFiles(composerFiles, comment.id);
         setComposerFiles([]);
-        getTaskAttachments(task._dbId).then(setAttachments).catch(() => {});
+        getTaskAttachments(task._dbId).then(setAttachments).catch(() => { });
       }
     } catch (e) {
       setCommentErr(e.message || 'Failed to post comment.');
@@ -3639,7 +3669,7 @@ const TaskDetailModal = ({
                 // Jira-style empty dropzone
                 <div>
                   <div className="tpanel-section">Attachments</div>
-                  <div 
+                  <div
                     className={`jira-dropzone-empty${dragOver ? ' drag-over' : ''}`}
                     onClick={() => attInputRef.current?.click()}
                     onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -3669,9 +3699,9 @@ const TaskDetailModal = ({
                     </div>
                     <div className="jira-att-actions">
                       <div className="jira-view-toggle">
-                        <button 
-                          type="button" 
-                          className={`jira-view-btn${attViewMode === 'grid' ? ' active' : ''}`} 
+                        <button
+                          type="button"
+                          className={`jira-view-btn${attViewMode === 'grid' ? ' active' : ''}`}
                           onClick={() => toggleAttViewMode('grid')}
                           title="Grid view"
                         >
@@ -3682,9 +3712,9 @@ const TaskDetailModal = ({
                             <rect x="3" y="14" width="7" height="7" />
                           </svg>
                         </button>
-                        <button 
-                          type="button" 
-                          className={`jira-view-btn${attViewMode === 'list' ? ' active' : ''}`} 
+                        <button
+                          type="button"
+                          className={`jira-view-btn${attViewMode === 'list' ? ' active' : ''}`}
                           onClick={() => toggleAttViewMode('list')}
                           title="List view"
                         >
@@ -3713,7 +3743,7 @@ const TaskDetailModal = ({
                   />
 
                   {/* Compact dropzone for adding more files */}
-                  <div 
+                  <div
                     className={`jira-dropzone-compact${dragOver ? ' drag-over' : ''}`}
                     onClick={() => attInputRef.current?.click()}
                     onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -3970,28 +4000,41 @@ const TaskDetailModal = ({
               <div className="tpanel-section" style={{ borderBottom: 'none', paddingBottom: 0, marginBottom: 8 }}>
                 <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Activity</span>
               </div>
-              
-              <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 16 }}>
+
+              <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 16, position: 'relative', background: 'var(--bg-2)', padding: 2, boxSizing: 'border-box' }}>
+                <div style={{
+                  position: 'absolute',
+                  top: 2,
+                  bottom: 2,
+                  left: actTabInd.left,
+                  width: actTabInd.width,
+                  background: 'var(--primary-fade, rgba(0, 153, 255, 0.12))',
+                  border: '1px solid var(--primary, #0099ff)',
+                  borderRadius: 4,
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  pointerEvents: 'none',
+                  boxSizing: 'border-box'
+                }} />
                 {['comments', 'history', 'work log'].map(tab => {
                   const isActive = activityTab === tab;
                   return (
                     <button
                       key={tab}
+                      ref={el => actTabRefs.current[tab] = el}
                       onClick={() => setActivityTab(tab)}
                       style={{
                         padding: '6px 14px',
                         fontSize: 13,
-                        fontWeight: 400,
-                        borderRadius: 6,
-                        background: isActive ? 'var(--primary-fade, rgba(0, 153, 255, 0.1))' : 'transparent',
+                        fontWeight: isActive ? 600 : 400,
+                        borderRadius: 4,
+                        background: 'transparent',
                         color: isActive ? 'var(--primary, #0099ff)' : 'var(--text-3)',
-                        border: isActive ? '1px solid var(--primary, #0099ff)' : '1px solid transparent',
-                        margin: -1,
+                        border: 'none',
                         cursor: 'pointer',
                         textTransform: 'capitalize',
-                        transition: 'all 0.15s ease',
-                        position: isActive ? 'relative' : 'static',
-                        zIndex: isActive ? 2 : 1
+                        transition: 'color 0.15s ease',
+                        position: 'relative',
+                        zIndex: 2
                       }}
                       onMouseEnter={e => {
                         if (!isActive) e.target.style.color = 'var(--text)';
@@ -4007,7 +4050,7 @@ const TaskDetailModal = ({
               </div>
 
               {/* ── Content ── */}
-              
+
               {(activityTab === 'all' || activityTab === 'history') && (
                 <div>
                   <div className="tpanel-section" style={{ marginTop: 4, display: activityTab === 'all' ? 'flex' : 'none' }}>
@@ -4017,84 +4060,84 @@ const TaskDetailModal = ({
                       {statusLogs.length > 0 && <span className="subtasks-count">{statusLogs.length}</span>}
                     </span>
                   </div>
-              {logsLoading ? (
-                <div className="subtasks-empty">Loading…</div>
-              ) : statusLogs.length === 0 ? (
-                <div className="subtasks-empty">No status changes yet.</div>
-              ) : (
-                <div style={{ padding: '8px 0 4px 0' }}>
-                  {statusLogs.slice(0, logsVisible).map((log, i) => {
-                    const isLatest = i === 0;
-                    const color = log.toStatusColor || '#888';
-                    const d = new Date(log.changedAt);
-                    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-                    const sliced = statusLogs.slice(0, logsVisible);
-                    return (
-                      <div key={log.id || i} style={{ display: 'flex', gap: 10 }}>
-                        {/* Rail */}
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 16, flexShrink: 0 }}>
-                          <div style={{
-                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 13,
-                            background: isLatest ? color : 'var(--bg-3, #333)',
-                            border: `1.5px solid ${isLatest ? color : 'var(--border)'}`,
-                          }} />
-                          {i < sliced.length - 1 && (
-                            <div style={{ width: 1, flex: 1, minHeight: 16, marginTop: 4, background: 'var(--border)' }} />
+                  {logsLoading ? (
+                    <div className="subtasks-empty">Loading…</div>
+                  ) : statusLogs.length === 0 ? (
+                    <div className="subtasks-empty">No status changes yet.</div>
+                  ) : (
+                    <div style={{ padding: '8px 0 4px 0' }}>
+                      {statusLogs.slice(0, logsVisible).map((log, i) => {
+                        const isLatest = i === 0;
+                        const color = log.toStatusColor || '#888';
+                        const d = new Date(log.changedAt);
+                        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                        const sliced = statusLogs.slice(0, logsVisible);
+                        return (
+                          <div key={log.id || i} style={{ display: 'flex', gap: 10 }}>
+                            {/* Rail */}
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 16, flexShrink: 0 }}>
+                              <div style={{
+                                width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 13,
+                                background: isLatest ? color : 'var(--bg-3, #333)',
+                                border: `1.5px solid ${isLatest ? color : 'var(--border)'}`,
+                              }} />
+                              {i < sliced.length - 1 && (
+                                <div style={{ width: 1, flex: 1, minHeight: 16, marginTop: 4, background: 'var(--border)' }} />
+                              )}
+                            </div>
+
+                            {/* Row */}
+                            <div style={{ flex: 1, paddingBottom: i < sliced.length - 1 ? 14 : 2, paddingTop: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                                  {log.fromStatusLabel || 'Created'}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
+                                  <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 500 }}>
+                                    {log.toStatusLabel || '—'}
+                                  </span>
+                                </span>
+                                {isLatest && (
+                                  <span style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.05em', marginLeft: 2 }}>· current</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 3 }}>
+                                {dateStr} · {timeStr}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Show more / Show less */}
+                      {statusLogs.length > LOG_PAGE && (
+                        <div style={{ paddingTop: 6, paddingLeft: 26, display: 'flex', gap: 10, alignItems: 'center' }}>
+                          {logsVisible < statusLogs.length && (
+                            <button
+                              className="btn sm ghost"
+                              style={{ fontSize: 11 }}
+                              onClick={() => setLogsVisible(v => v + LOG_PAGE)}
+                            >
+                              Show {Math.min(LOG_PAGE, statusLogs.length - logsVisible)} more
+                              <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>· {statusLogs.length - logsVisible} remaining</span>
+                            </button>
+                          )}
+                          {logsVisible > LOG_PAGE && (
+                            <button
+                              className="btn sm ghost"
+                              style={{ fontSize: 11 }}
+                              onClick={() => setLogsVisible(LOG_PAGE)}
+                            >
+                              Show less
+                            </button>
                           )}
                         </div>
-
-                        {/* Row */}
-                        <div style={{ flex: 1, paddingBottom: i < sliced.length - 1 ? 14 : 2, paddingTop: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                              {log.fromStatusLabel || 'Created'}
-                            </span>
-                            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>→</span>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
-                              <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 500 }}>
-                                {log.toStatusLabel || '—'}
-                              </span>
-                            </span>
-                            {isLatest && (
-                              <span style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.05em', marginLeft: 2 }}>· current</span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 3 }}>
-                            {dateStr} · {timeStr}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Show more / Show less */}
-                  {statusLogs.length > LOG_PAGE && (
-                    <div style={{ paddingTop: 6, paddingLeft: 26, display: 'flex', gap: 10, alignItems: 'center' }}>
-                      {logsVisible < statusLogs.length && (
-                        <button
-                          className="btn sm ghost"
-                          style={{ fontSize: 11 }}
-                          onClick={() => setLogsVisible(v => v + LOG_PAGE)}
-                        >
-                          Show {Math.min(LOG_PAGE, statusLogs.length - logsVisible)} more
-                          <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>· {statusLogs.length - logsVisible} remaining</span>
-                        </button>
-                      )}
-                      {logsVisible > LOG_PAGE && (
-                        <button
-                          className="btn sm ghost"
-                          style={{ fontSize: 11 }}
-                          onClick={() => setLogsVisible(LOG_PAGE)}
-                        >
-                          Show less
-                        </button>
                       )}
                     </div>
                   )}
-                </div>
-              )}
                 </div>
               )}
 
@@ -4108,256 +4151,304 @@ const TaskDetailModal = ({
                     </span>
                   </div>
 
-              {/* Composer */}
-              <div className="task-comment-composer" style={{ marginBottom: 24, borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-                <div style={{ position: 'relative' }}>
-                  <textarea
-                    ref={commentTextareaRef}
-                    className="task-comment-textarea"
-                    placeholder="Write a comment… @ to mention, paste/drop an image to embed (Ctrl+Enter to submit)"
-                    value={newCommentBody}
-                    onChange={handleCommentInput}
-                    rows={3}
-                    onPaste={onCommentPaste}
-                    onDrop={onCommentDrop}
-                    onDragOver={e => e.preventDefault()}
-                    onKeyDown={e => {
-                      if (mentionOpen) {
-                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionMembers.length - 1)); return; }
-                        if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
-                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (mentionMembers[mentionIndex]) handleMentionSelect(mentionMembers[mentionIndex]); return; }
-                        if (e.key === 'Escape')    { setMentionOpen(false); return; }
-                      }
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment();
-                    }}
-                  />
-                  {mentionOpen && mentionMembers.length > 0 && (
-                    <div className="mention-dropdown">
-                      {mentionMembers.map((m, i) => (
-                        <div
-                          key={m.userId}
-                          className={'mention-item' + (i === mentionIndex ? ' active' : '')}
-                          onMouseDown={e => { e.preventDefault(); handleMentionSelect(m); }}
-                        >
-                          {m.avatarUrl
-                            ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 24, height: 24 }} alt={m.name} />
-                            : <div className="assignee-ava assignee-ava-init" style={{ width: 24, height: 24, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                  {/* Composer */}
+                  <div className="task-comment-composer" style={{ marginBottom: 24, borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+                    <div style={{ position: 'relative' }}>
+                      <textarea
+                        ref={commentTextareaRef}
+                        className="task-comment-textarea"
+                        placeholder="Write a comment… @ to mention, paste/drop an image to embed (Ctrl+Enter to submit)"
+                        value={newCommentBody}
+                        onChange={handleCommentInput}
+                        rows={3}
+                        onPaste={onCommentPaste}
+                        onDrop={onCommentDrop}
+                        onDragOver={e => e.preventDefault()}
+                        onKeyDown={e => {
+                          if (mentionOpen) {
+                            if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionMembers.length - 1)); return; }
+                            if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+                            if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (mentionMembers[mentionIndex]) handleMentionSelect(mentionMembers[mentionIndex]); return; }
+                            if (e.key === 'Escape') { setMentionOpen(false); return; }
                           }
-                          <div className="mention-item-info">
-                            <span className="mention-item-name">{m.name}</span>
-                            <span className="mention-item-role">{m.role}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {composerFiles.length > 0 && (
-                  <div className="att-staged">
-                    {composerFiles.map((f, i) => (
-                      <span key={i} className="att-staged-chip">
-                        <Icon name="note" size={11} /> {f.name}
-                        <button type="button" onClick={() => setComposerFiles(prev => prev.filter((_, j) => j !== i))}><Icon name="x" size={10} /></button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="task-comment-composer-footer">
-                  <button type="button" className="btn ghost sm" title="Attach files" onClick={() => composerFileRef.current?.click()}>
-                    <Icon name="upload" size={13} />
-                  </button>
-                  <input ref={composerFileRef} type="file" multiple style={{ display: 'none' }}
-                    onChange={e => { setComposerFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
-                  <span className="task-comment-char-count" style={{ marginLeft: 'auto', color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
-                    {newCommentBody.length}/{MAX_COMMENT}
-                  </span>
-                  <button className="btn sm primary" onClick={handleAddComment}
-                    disabled={commentSubmitting || (!newCommentBody.trim() && composerFiles.length === 0) || newCommentBody.length > MAX_COMMENT}>
-                    {commentSubmitting ? 'Posting…' : 'Comment'}
-                  </button>
-                </div>
-              </div>
-
-              {commentsLoading ? (
-                <div className="subtasks-empty">Loading…</div>
-              ) : comments.length === 0 ? (
-                <div className="subtasks-empty">No comments yet — start the conversation.</div>
-              ) : (
-                <div className="task-comments-list">
-                  {commentThreads.map(thread => {
-                    const renderCommentRow = (c, isReply = false) => {
-                      const isOwn = c.userId === currentUserId;
-                      const canRemove = isOwn || myRole === 'owner';
-                      const isEditing = editingCommentId === c.id;
-                      const isConfirming = deleteConfirmCommentId === c.id;
-                      return (
-                        <div key={c.id} className={'task-comment-row' + (isReply ? ' task-comment-reply' : '')}>
-                          <div className="task-comment-avatar">
-                            {c.authorAvatarUrl
-                              ? <img src={c.authorAvatarUrl} className="assignee-ava" alt={c.authorName} style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28 }} />
-                              : <div className="assignee-ava assignee-ava-init" style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28, fontSize: isReply ? 9 : 10, background: avaColor(c.authorName) }}>
-                                  {c.authorAvatar || c.authorName?.[0]?.toUpperCase() || '?'}
-                                </div>
-                            }
-                          </div>
-                          <div className="task-comment-content">
-                            <div className="task-comment-header">
-                              <span className="task-comment-author">{c.authorName}</span>
-                              <span className="task-comment-time">{timeAgo(c.createdAt)}</span>
-                              {c.editedAt && <span className="task-comment-edited">Edited</span>}
+                          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment();
+                        }}
+                      />
+                      {mentionOpen && mentionMembers.length > 0 && (
+                        <div className="mention-dropdown">
+                          {mentionMembers.map((m, i) => (
+                            <div
+                              key={m.userId}
+                              className={'mention-item' + (i === mentionIndex ? ' active' : '')}
+                              onMouseDown={e => { e.preventDefault(); handleMentionSelect(m); }}
+                            >
+                              {m.avatarUrl
+                                ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 24, height: 24 }} alt={m.name} />
+                                : <div className="assignee-ava assignee-ava-init" style={{ width: 24, height: 24, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                              }
+                              <div className="mention-item-info">
+                                <span className="mention-item-name">{m.name}</span>
+                                <span className="mention-item-role">{m.role}</span>
+                              </div>
                             </div>
-                            {isEditing ? (
-                              <div className="task-comment-edit-form">
-                                <textarea className="task-comment-textarea" value={editingCommentBody}
-                                  onChange={e => setEditingCommentBody(e.target.value)} rows={2} autoFocus />
-                                <div className="task-comment-edit-actions">
-                                  <span className="task-comment-char-count" style={{ color: editingCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
-                                    {editingCommentBody.length}/{MAX_COMMENT}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {composerFiles.length > 0 && (
+                      <div className="att-staged">
+                        {composerFiles.map((f, i) => (
+                          <span key={i} className="att-staged-chip">
+                            <Icon name="note" size={11} /> {f.name}
+                            <button type="button" onClick={() => setComposerFiles(prev => prev.filter((_, j) => j !== i))}><Icon name="x" size={10} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="task-comment-composer-footer">
+                      <button type="button" className="btn ghost sm" title="Attach files" onClick={() => composerFileRef.current?.click()}>
+                        <Icon name="upload" size={13} />
+                      </button>
+                      <input ref={composerFileRef} type="file" multiple style={{ display: 'none' }}
+                        onChange={e => { setComposerFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+                      <span className="task-comment-char-count" style={{ color: newCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                        {newCommentBody.length}/{MAX_COMMENT}
+                      </span>
+                      <button className="btn sm primary" onClick={handleAddComment} style={{ marginLeft: 'auto' }}
+                        disabled={commentSubmitting || (!newCommentBody.trim() && composerFiles.length === 0) || newCommentBody.length > MAX_COMMENT}>
+                        {commentSubmitting ? 'Posting…' : 'Comment'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {commentsLoading ? (
+                    <div className="subtasks-empty">Loading…</div>
+                  ) : comments.length === 0 ? (
+                    <div className="subtasks-empty">No comments yet — start the conversation.</div>
+                  ) : (
+                    <div className="task-comments-list">
+                      {commentThreads.map(thread => {
+                        const renderCommentRow = (c, isReply = false) => {
+                          const isOwn = c.userId === currentUserId;
+                          const canRemove = isOwn || myRole === 'owner';
+                          const isEditing = editingCommentId === c.id;
+                          const isConfirming = deleteConfirmCommentId === c.id;
+                          return (
+                            <div key={c.id} className={'task-comment-row' + (isReply ? ' task-comment-reply' : '')}>
+                              <div className="task-comment-avatar">
+                                {c.authorAvatarUrl
+                                  ? <img src={c.authorAvatarUrl} className="assignee-ava" alt={c.authorName} style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28 }} />
+                                  : <div className="assignee-ava assignee-ava-init" style={{ width: isReply ? 22 : 28, height: isReply ? 22 : 28, fontSize: isReply ? 9 : 10, background: avaColor(c.authorName) }}>
+                                    {c.authorAvatar || c.authorName?.[0]?.toUpperCase() || '?'}
+                                  </div>
+                                }
+                              </div>
+                              <div className="task-comment-content">
+                                <div className="task-comment-header">
+                                  <span className="task-comment-author">{c.authorName}</span>
+                                  <span className="task-comment-time">{timeAgo(c.createdAt)}</span>
+                                  {c.editedAt && <span className="task-comment-edited">Edited</span>}
+                                </div>
+                                {isEditing ? (
+                                  <div className="task-comment-edit-form">
+                                    <textarea className="task-comment-textarea" value={editingCommentBody}
+                                      onChange={e => setEditingCommentBody(e.target.value)} rows={2} autoFocus />
+                                    <div className="task-comment-edit-actions">
+                                      <span className="task-comment-char-count" style={{ color: editingCommentBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                                        {editingCommentBody.length}/{MAX_COMMENT}
+                                      </span>
+                                      <button className="btn sm ghost" onClick={() => { setEditingCommentId(null); setEditingCommentBody(''); }}>Cancel</button>
+                                      <button className="btn sm primary" onClick={() => handleEditComment(c.id)}
+                                        disabled={editSaving || !editingCommentBody.trim() || editingCommentBody.length > MAX_COMMENT}>
+                                        {editSaving ? 'Saving…' : 'Save'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : isConfirming ? (
+                                  <div className="task-comment-delete-confirm">
+                                    <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Delete this comment?</span>
+                                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                      <button className="btn sm ghost" onClick={() => setDeleteConfirmCommentId(null)}>Cancel</button>
+                                      <button className="btn sm" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                                        onClick={() => handleDeleteComment(c.id)}>Delete</button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="task-comment-body">{renderCommentBody(c.body)}</div>
+                                    {attsByComment[c.id]?.length > 0 && (
+                                      <AttachmentGrid
+                                        attachments={attsByComment[c.id]}
+                                        onOpenImage={(i) => setLightbox({ images: attsByComment[c.id].filter(isImageAttachment), index: i })}
+                                        onRemove={removeAttachment}
+                                        canRemove={canRemoveAtt}
+                                        layout="comment-grid"
+                                      />
+                                    )}
+                                    <div className="task-comment-actions">
+                                      {!isReply && (
+                                        <button className="task-comment-action-btn"
+                                          onClick={() => { setReplyToId(c.id); setReplyBody(''); setTimeout(() => replyTextareaRef.current?.focus(), 50); }}>
+                                          Reply
+                                        </button>
+                                      )}
+                                      {isOwn && (
+                                        <button className="task-comment-action-btn"
+                                          onClick={() => { setEditingCommentId(c.id); setEditingCommentBody(c.body); }}>
+                                          Edit
+                                        </button>
+                                      )}
+                                      {canRemove && (
+                                        <button className="task-comment-action-btn danger"
+                                          onClick={() => setDeleteConfirmCommentId(c.id)}>
+                                          Delete
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        };
+
+                        return (
+                          <div key={thread.id} className="task-comment-thread">
+                            {renderCommentRow(thread, false)}
+
+                            {/* Replies */}
+                            {thread.replies.length > 0 && (
+                              <div className="task-comment-replies">
+                                {thread.replies.map(r => renderCommentRow(r, true))}
+                              </div>
+                            )}
+
+                            {/* Inline reply composer */}
+                            {replyToId === thread.id && (
+                              <div className="task-comment-reply-composer">
+                                <div style={{ position: 'relative' }}>
+                                  <textarea
+                                    ref={replyTextareaRef}
+                                    className="task-comment-textarea"
+                                    placeholder={`Reply to ${thread.authorName}… (@ to mention)`}
+                                    value={replyBody}
+                                    onChange={handleReplyInput}
+                                    rows={2}
+                                    onKeyDown={e => {
+                                      if (replyMentionOpen) {
+                                        if (e.key === 'ArrowDown') { e.preventDefault(); setReplyMentionIndex(i => Math.min(i + 1, replyMentionMembers.length - 1)); return; }
+                                        if (e.key === 'ArrowUp') { e.preventDefault(); setReplyMentionIndex(i => Math.max(i - 1, 0)); return; }
+                                        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (replyMentionMembers[replyMentionIndex]) handleReplyMentionSelect(replyMentionMembers[replyMentionIndex]); return; }
+                                        if (e.key === 'Escape') { setReplyMentionOpen(false); return; }
+                                      }
+                                      if (e.key === 'Escape') { setReplyToId(null); setReplyBody(''); }
+                                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmitReply();
+                                    }}
+                                  />
+                                  {replyMentionOpen && replyMentionMembers.length > 0 && (
+                                    <div className="mention-dropdown">
+                                      {replyMentionMembers.map((m, i) => (
+                                        <div key={m.userId} className={'mention-item' + (i === replyMentionIndex ? ' active' : '')}
+                                          onMouseDown={e => { e.preventDefault(); handleReplyMentionSelect(m); }}>
+                                          {m.avatarUrl
+                                            ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 20, height: 20 }} alt={m.name} />
+                                            : <div className="assignee-ava assignee-ava-init" style={{ width: 20, height: 20, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
+                                          }
+                                          <div className="mention-item-info">
+                                            <span className="mention-item-name">{m.name}</span>
+                                            <span className="mention-item-role">{m.role}</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="task-comment-composer-footer">
+                                  <span className="task-comment-char-count" style={{ color: replyBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
+                                    {replyBody.length}/{MAX_COMMENT}
                                   </span>
-                                  <button className="btn sm ghost" onClick={() => { setEditingCommentId(null); setEditingCommentBody(''); }}>Cancel</button>
-                                  <button className="btn sm primary" onClick={() => handleEditComment(c.id)}
-                                    disabled={editSaving || !editingCommentBody.trim() || editingCommentBody.length > MAX_COMMENT}>
-                                    {editSaving ? 'Saving…' : 'Save'}
+                                  <button className="btn sm ghost" onClick={() => { setReplyToId(null); setReplyBody(''); }}>Cancel</button>
+                                  <button className="btn sm primary" onClick={handleSubmitReply}
+                                    disabled={replySubmitting || !replyBody.trim() || replyBody.length > MAX_COMMENT}>
+                                    {replySubmitting ? 'Posting…' : 'Reply'}
                                   </button>
                                 </div>
                               </div>
-                            ) : isConfirming ? (
-                              <div className="task-comment-delete-confirm">
-                                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>Delete this comment?</span>
-                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                                  <button className="btn sm ghost" onClick={() => setDeleteConfirmCommentId(null)}>Cancel</button>
-                                  <button className="btn sm" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
-                                    onClick={() => handleDeleteComment(c.id)}>Delete</button>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <div className="task-comment-body">{renderCommentBody(c.body)}</div>
-                                {attsByComment[c.id]?.length > 0 && (
-                                  <AttachmentGrid
-                                    attachments={attsByComment[c.id]}
-                                    onOpenImage={(i) => setLightbox({ images: attsByComment[c.id].filter(isImageAttachment), index: i })}
-                                    onRemove={removeAttachment}
-                                    canRemove={canRemoveAtt}
-                                    layout="comment-grid"
-                                  />
-                                )}
-                                <div className="task-comment-actions">
-                                  {!isReply && (
-                                    <button className="task-comment-action-btn"
-                                      onClick={() => { setReplyToId(c.id); setReplyBody(''); setTimeout(() => replyTextareaRef.current?.focus(), 50); }}>
-                                      Reply
-                                    </button>
-                                  )}
-                                  {isOwn && (
-                                    <button className="task-comment-action-btn"
-                                      onClick={() => { setEditingCommentId(c.id); setEditingCommentBody(c.body); }}>
-                                      Edit
-                                    </button>
-                                  )}
-                                  {canRemove && (
-                                    <button className="task-comment-action-btn danger"
-                                      onClick={() => setDeleteConfirmCommentId(c.id)}>
-                                      Delete
-                                    </button>
-                                  )}
-                                </div>
-                              </>
                             )}
                           </div>
-                        </div>
-                      );
-                    };
+                        );
+                      })}
 
-                    return (
-                      <div key={thread.id} className="task-comment-thread">
-                        {renderCommentRow(thread, false)}
-
-                        {/* Replies */}
-                        {thread.replies.length > 0 && (
-                          <div className="task-comment-replies">
-                            {thread.replies.map(r => renderCommentRow(r, true))}
-                          </div>
-                        )}
-
-                        {/* Inline reply composer */}
-                        {replyToId === thread.id && (
-                          <div className="task-comment-reply-composer">
-                            <div style={{ position: 'relative' }}>
-                              <textarea
-                                ref={replyTextareaRef}
-                                className="task-comment-textarea"
-                                placeholder={`Reply to ${thread.authorName}… (@ to mention)`}
-                                value={replyBody}
-                                onChange={handleReplyInput}
-                                rows={2}
-                                onKeyDown={e => {
-                                  if (replyMentionOpen) {
-                                    if (e.key === 'ArrowDown') { e.preventDefault(); setReplyMentionIndex(i => Math.min(i + 1, replyMentionMembers.length - 1)); return; }
-                                    if (e.key === 'ArrowUp')   { e.preventDefault(); setReplyMentionIndex(i => Math.max(i - 1, 0)); return; }
-                                    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (replyMentionMembers[replyMentionIndex]) handleReplyMentionSelect(replyMentionMembers[replyMentionIndex]); return; }
-                                    if (e.key === 'Escape') { setReplyMentionOpen(false); return; }
-                                  }
-                                  if (e.key === 'Escape') { setReplyToId(null); setReplyBody(''); }
-                                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmitReply();
-                                }}
-                              />
-                              {replyMentionOpen && replyMentionMembers.length > 0 && (
-                                <div className="mention-dropdown">
-                                  {replyMentionMembers.map((m, i) => (
-                                    <div key={m.userId} className={'mention-item' + (i === replyMentionIndex ? ' active' : '')}
-                                      onMouseDown={e => { e.preventDefault(); handleReplyMentionSelect(m); }}>
-                                      {m.avatarUrl
-                                        ? <img src={m.avatarUrl} className="assignee-ava" style={{ width: 20, height: 20 }} alt={m.name} />
-                                        : <div className="assignee-ava assignee-ava-init" style={{ width: 20, height: 20, fontSize: 9, background: avaColor(m.name) }}>{m.avatar}</div>
-                                      }
-                                      <div className="mention-item-info">
-                                        <span className="mention-item-name">{m.name}</span>
-                                        <span className="mention-item-role">{m.role}</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <div className="task-comment-composer-footer">
-                              <span className="task-comment-char-count" style={{ color: replyBody.length > MAX_COMMENT ? '#ef4444' : undefined }}>
-                                {replyBody.length}/{MAX_COMMENT}
-                              </span>
-                              <button className="btn sm ghost" onClick={() => { setReplyToId(null); setReplyBody(''); }}>Cancel</button>
-                              <button className="btn sm primary" onClick={handleSubmitReply}
-                                disabled={replySubmitting || !replyBody.trim() || replyBody.length > MAX_COMMENT}>
-                                {replySubmitting ? 'Posting…' : 'Reply'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {commentThreads.length < commentTotal && (
-                    <button
-                      className="btn sm ghost task-comments-more"
-                      onClick={handleShowMoreComments}
-                      disabled={commentsLoadingMore}
-                    >
-                      {commentsLoadingMore
-                        ? 'Loading…'
-                        : `Show more comments (${commentTotal - commentThreads.length})`}
-                    </button>
+                      {commentThreads.length < commentTotal && (
+                        <button
+                          className="btn sm ghost task-comments-more"
+                          onClick={handleShowMoreComments}
+                          disabled={commentsLoadingMore}
+                        >
+                          {commentsLoadingMore
+                            ? 'Loading…'
+                            : `Show more comments (${commentTotal - commentThreads.length})`}
+                        </button>
+                      )}
+                    </div>
                   )}
+
+                  {commentErr && <div style={{ fontSize: 11, color: '#ef4444', margin: '4px 0' }}>{commentErr}</div>}
+
+
                 </div>
               )}
 
-              {commentErr && <div style={{ fontSize: 11, color: '#ef4444', margin: '4px 0' }}>{commentErr}</div>}
-
-
-            </div>
-              )}
-
               {activityTab === 'work log' && (
-                <div className="subtasks-empty">No work logs available.</div>
+                workLogsLoading ? (
+                  <div className="subtasks-empty">Loading…</div>
+                ) : workLogs.length === 0 ? (
+                  <div className="worklog-empty-state">
+                    <div className="worklog-empty-icon">
+                      <Icon name="timer" size={24} />
+                    </div>
+                    <div className="worklog-empty-title">No time was logged for this task yet.</div>
+                    <div className="worklog-empty-desc">
+                      Logging time lets you track and report on the time spent on the work.
+                    </div>
+                    <button className="worklog-empty-btn" onClick={() => setShowLogTime(true)}>
+                      Log time
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 0 4px 0' }}>
+                    {workLogs.map((log) => {
+                      const member = members.find(m => m.userId === log.userId);
+                      const who = member?.name || 'Someone';
+                      const mins = Math.round((log.totalSeconds || 0) / 60);
+                      const h = Math.floor(mins / 60);
+                      const m = mins % 60;
+                      const durStr = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+                      return (
+                        <div key={log.id} style={{ display: 'flex', gap: 10, paddingBottom: 14 }}>
+                          {member?.avatarUrl
+                            ? <img src={member.avatarUrl} className="assignee-ava" style={{ width: 28, height: 28, flexShrink: 0 }} alt={who} />
+                            : <div className="assignee-ava assignee-ava-init" style={{ width: 28, height: 28, fontSize: 10, flexShrink: 0, background: avaColor(who) }}>{member?.avatar || who[0]?.toUpperCase()}</div>}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600 }}>{who}</span>
+                              <span style={{ fontSize: 11, color: 'var(--accent, #0099ff)', fontWeight: 600, fontFamily: 'var(--f-mono)' }}>{durStr}</span>
+                              <span style={{ fontSize: 9, color: 'var(--text-3)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                                {log.isManual ? 'manual' : 'timer'}
+                              </span>
+                            </div>
+                            {log.notes && log.notes !== 'Quick log' && (
+                              <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{log.notes}</div>
+                            )}
+                            <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 3 }}>
+                              {timeAgo(log.createdAt)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -4396,12 +4487,6 @@ const TaskDetailModal = ({
               </select>
             </div>
 
-            {/* Project */}
-            <div className="tpanel-prop">
-              <div className="tpanel-prop-label">Project</div>
-              <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>{proj?.name || task.proj}</div>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--f-mono)', marginTop: 2 }}>{task.proj}</div>
-            </div>
 
             {/* Due date */}
             <div className="tpanel-prop">
@@ -4584,13 +4669,6 @@ const TaskDetailModal = ({
               </div>
             </div>
 
-            {/* Created */}
-            {createdStr && (
-              <div className="tpanel-prop">
-                <div className="tpanel-prop-label">Created</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>{createdStr}</div>
-              </div>
-            )}
 
             {/* GitHub Branch */}
             {taskRepoFull && !isGithubConnected && (
@@ -4835,6 +4913,14 @@ const TaskDetailModal = ({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Created */}
+            {createdStr && (
+              <div className="tpanel-prop">
+                <div className="tpanel-prop-label">Created</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--f-mono)' }}>{createdStr}</div>
               </div>
             )}
           </div>
@@ -5463,7 +5549,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   };
 
   return (
-    <div className="page page-wide">
+    <div className={`page page-wide tasks-page ${view}-view`}>
       <div className="page-head">
         <div>
           <div className="crumb">WORKSPACE / TASKS</div>
@@ -5540,7 +5626,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0, flex: 1 }}>
+        <div className="filter-row-right">
           <div ref={subDropRef} className="task-show-dropdown">
             <button
               onClick={() => setSubDropOpen(s => !s)}
@@ -5739,50 +5825,52 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
         </div>
       ) : view === 'board' ? (
         <div className="kanban">
-          {cols.map(col => {
-            const items = byCol(col.id);
-            const isBlocked = draggingFromKey !== null
-              && col.id !== draggingFromKey
-              && !isAdjacentCol(draggingFromKey, col.id);
-            return (
-              <div
-                key={col.id}
-                className={'kcol' + (dragOver === col.id ? ' drag-over' : '') + (isBlocked ? ' drag-blocked' : '')}
-                onDragOver={(e) => handleDragOver(e, col.id)}
-                onDragLeave={(e) => handleDragLeave(e, col.id)}
-                onDrop={(e) => handleDrop(e, col.id)}
-              >
-                <div className="kcol-h" style={{ borderTopColor: col.color }}>
-                  <span className="t">{col.label.toUpperCase()}</span>
-                  <span className="c">{items.length}</span>
+          <div className="kanban-inner">
+            {cols.map(col => {
+              const items = byCol(col.id);
+              const isBlocked = draggingFromKey !== null
+                && col.id !== draggingFromKey
+                && !isAdjacentCol(draggingFromKey, col.id);
+              return (
+                <div
+                  key={col.id}
+                  className={'kcol' + (dragOver === col.id ? ' drag-over' : '') + (isBlocked ? ' drag-blocked' : '')}
+                  onDragOver={(e) => handleDragOver(e, col.id)}
+                  onDragLeave={(e) => handleDragLeave(e, col.id)}
+                  onDrop={(e) => handleDrop(e, col.id)}
+                >
+                  <div className="kcol-h" style={{ borderTopColor: col.color }}>
+                    <span className="t">{col.label.toUpperCase()}</span>
+                    <span className="c">{items.length}</span>
+                  </div>
+                  <div className="kcol-body">
+                    {items.map(t => (
+                      <TaskCard
+                        key={t.id}
+                        t={t}
+                        tasks={tasks}
+                        projects={projects}
+                        allTags={tags}
+                        doneStatusId={doneStatusId}
+                        priorities={priorities}
+                        members={members}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        onClick={() => setViewingTask(t)}
+                      />
+                    ))}
+                    <button
+                      className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
+                      style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed' }}
+                      onClick={() => openAdd(col.id)}
+                      disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
+                      <Icon name="plus" size={10} /> Add task
+                    </button>
+                  </div>
                 </div>
-                <div className="kcol-body">
-                  {items.map(t => (
-                    <TaskCard
-                      key={t.id}
-                      t={t}
-                      tasks={tasks}
-                      projects={projects}
-                      allTags={tags}
-                      doneStatusId={doneStatusId}
-                      priorities={priorities}
-                      members={members}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                      onClick={() => setViewingTask(t)}
-                    />
-                  ))}
-                  <button
-                    className={'btn ghost' + (canCreateTask ? '' : ' perm-denied')}
-                    style={{ justifyContent: 'center', color: 'var(--text-3)', fontSize: 11, padding: '6px', borderStyle: 'dashed' }}
-                    onClick={() => openAdd(col.id)}
-                    disabled={!canCreateTask} title={canCreateTask ? '' : NO_PERM}>
-                    <Icon name="plus" size={10} /> Add task
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       ) : (
         <div className="card">

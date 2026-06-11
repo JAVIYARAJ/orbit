@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase.js';
 import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission, setGoogleSyncPrefs } from '../lib/db.js';
 import { canDo, canModifyMember, assignableRoles, DEFAULT_PERMISSIONS, PERMISSION_LABELS, PERMISSION_GROUPS, PERMISSION_WARNINGS } from '../lib/permissions.js';
 import { vcClearCache } from '../lib/vercel.js';
+import { fmtDate, fmtDateLong, fmtDateTime } from '../lib/dateUtils.js';
 
 const INTEGRATION_ICON = {
   GitHub: 'github',
@@ -18,10 +19,7 @@ const INTEGRATION_ICON = {
 
 const ROLE_LABEL = { owner: 'Owner', admin: 'Admin', member: 'Member', viewer: 'Viewer' };
 
-const formatJoined = (ts) => {
-  if (!ts) return '—';
-  return new Date(ts).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-};
+const formatJoined = (ts) => fmtDateLong(ts);
 
 // ── Tag settings row — color + inline name editing ───────────────
 const TagSettingsRow = ({ tag, onUpdate, onDelete, totalCount }) => {
@@ -560,7 +558,7 @@ const MembersSection = ({ activeWorkstation, members, setMembers, pendingInvites
                           <div className="collab-invite-meta">
                             <span style={{ textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-2)' }}>{ROLE_LABEL[invite.role]}</span>
                             <span style={{ opacity: 0.5 }}>•</span>
-                            <span>Expires {new Date(invite.expiresAt).toLocaleDateString()}</span>
+                            <span>Expires {fmtDate(invite.expiresAt)}</span>
                           </div>
                         </div>
                       </div>
@@ -1868,7 +1866,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                             Connected
                             {githubInteg.connected_at && (
                               <span className="intg-connected-time" style={{ marginLeft: 4 }}>
-                                · {new Date(githubInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                · {fmtDateTime(githubInteg.connected_at)}
                               </span>
                             )}
                           </div>
@@ -1907,7 +1905,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                             Connected
                             {vercelInteg.connected_at && (
                               <span className="intg-connected-time" style={{ marginLeft: 4 }}>
-                                · {new Date(vercelInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                · {fmtDateTime(vercelInteg.connected_at)}
                               </span>
                             )}
                           </div>
@@ -1953,7 +1951,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                             Connected
                             {gcalInteg.connected_at && (
                               <span className="intg-connected-time" style={{ marginLeft: 4 }}>
-                                · {new Date(gcalInteg.connected_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                · {fmtDateTime(gcalInteg.connected_at)}
                               </span>
                             )}
                           </div>

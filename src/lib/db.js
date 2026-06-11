@@ -2,21 +2,10 @@
 // No raw table queries from the client.
 
 import { supabase } from './supabase.js'
+import { fmtRelative } from './dateUtils.js'
 
 // ─── Relative time helper ─────────────────────────────────────────
-const relTime = (ts) => {
-  if (!ts) return ''
-  const diff = Date.now() - new Date(ts).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  const d = Math.floor(h / 24)
-  if (d === 1) return 'Yesterday'
-  if (d < 7) return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(ts).getDay()]
-  return new Date(ts).toLocaleDateString()
-}
+const relTime = (ts) => fmtRelative(ts)
 
 // Audit attribution carried on every content record (created_by/updated_by/deleted_by).
 // Resolve to a display name client-side via the workspace `members` list.
@@ -876,6 +865,28 @@ export const getTimeEntries = async (workstationId, limit = 100) => {
   })
   if (error) throw error
   return (data || []).map(fromTimeEntry)
+}
+
+// All workstation members' completed time entries for a single task (work log).
+// Unlike getTimeEntries, this is not scoped to the current user.
+const fromTaskTimeEntry = (r) => ({
+  id:           r.id,
+  userId:       r.userId,
+  totalSeconds: Number(r.totalSeconds) || 0,
+  notes:        r.notes        || '',
+  isManual:     r.isManual     || false,
+  status:       r.status,
+  startedAt:    r.startedAt,
+  endedAt:      r.endedAt      || null,
+  createdAt:    r.createdAt,
+})
+
+export const getTaskTimeEntries = async (taskId) => {
+  const { data, error } = await supabase.rpc('get_task_time_entries', {
+    p_task_id: taskId,
+  })
+  if (error) throw error
+  return (data || []).map(fromTaskTimeEntry)
 }
 
 export const logManualTime = async (workstationId, projectId, taskId, minutes, notes = '') => {

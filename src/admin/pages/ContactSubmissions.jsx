@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAdmin, DataTable, Drawer, Badge, RelTime, Pagination, FilterSelect, Field, DrawerSection, statusTone } from '../ui.jsx';
 import { adminQuery, adminUpdateContact, adminSendContactReply, adminListReplyTemplates, applyTemplateVars } from '../api.js';
+import { fmtDateTime } from '../../lib/dateUtils.js';
 
 const PER = 50;
 const NEXT = { new: 'seen', seen: 'resolved', resolved: 'new' };
@@ -120,7 +121,7 @@ export function ContactSubmissionsPage() {
               <Field label="Role">{selected.role}</Field>
               <Field label="Type"><Badge tone="indigo">{selected.type}</Badge></Field>
               <Field label="Email">{selected.email}</Field>
-              <Field label="Submitted">{new Date(selected.created_at).toLocaleString()}</Field>
+              <Field label="Submitted">{fmtDateTime(selected.created_at)}</Field>
             </div>
             <DrawerSection title="Message">
               <p className="text-sm leading-relaxed whitespace-pre-wrap bg-card border border-border rounded-lg p-4">{selected.description}</p>

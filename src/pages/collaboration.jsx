@@ -7,6 +7,7 @@ import {
   inviteMember, cancelInvite, updateMemberRole, removeMember, transferOwnership,
 } from '../lib/db.js';
 import { canDo, assignableRoles, canModifyMember } from '../lib/permissions.js';
+import { fmtDate } from '../lib/dateUtils.js';
 
 const ROLE_OPTION_LABEL = {
   admin: 'Admin — can invite & manage',
@@ -461,7 +462,7 @@ export const Collaboration = ({
                               <span style={{ opacity: 0.5 }}>•</span>
                               <span>
                                 {invite.expiresAt && !isNaN(new Date(invite.expiresAt))
-                                  ? `Expires ${new Date(invite.expiresAt).toLocaleDateString()}`
+                                  ? `Expires ${fmtDate(invite.expiresAt)}`
                                   : 'Pending'}
                               </span>
                             </div>

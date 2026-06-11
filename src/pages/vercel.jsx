@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
 import { vcGetUser, vcGetProjects, vcGetDeployments, vcGetDomains, vcPromoteDeployment, vcClearCache } from '../lib/vercel.js';
+import { fmtRelative } from '../lib/dateUtils.js';
 
 const FRAMEWORK_LABELS = {
   nextjs: 'Next.js', nuxtjs: 'Nuxt.js', gatsby: 'Gatsby', remix: 'Remix',
@@ -20,14 +21,8 @@ const STATE_META = {
   QUEUED:   { label: 'Queued',   color: '#a855f7' },
 };
 
-function timeAgo(ms) {
-  const s = Math.floor((Date.now() - ms) / 1000);
-  if (s < 60)     return 'just now';
-  if (s < 3600)   return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400)  return `${Math.floor(s / 3600)}h ago`;
-  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
-  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+// timeAgo accepts ms (Vercel API returns createdAt as Unix ms).
+const timeAgo = (ms) => fmtRelative(new Date(ms));
 
 // ── Not connected ──────────────────────────────────────────────────
 function NotConnected({ onGoSettings }) {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAdmin, DataTable, Drawer, Avatar, RelTime, SearchInput, Badge, Field, DrawerSection, ProgressBar } from '../ui.jsx';
 import { adminQuery } from '../api.js';
+import { fmtDate } from '../../lib/dateUtils.js';
 
 export function WorkstationsPage() {
   const [search, setSearch] = useState('');
@@ -65,7 +66,7 @@ function WorkstationDrawer({ ws, owner, pmap, onClose }) {
   }, [ws?.id]);
 
   return (
-    <Drawer open={!!ws} onClose={onClose} title={ws?.name} subtitle={ws ? `Created ${new Date(ws.created_at).toLocaleDateString()}` : ''}>
+    <Drawer open={!!ws} onClose={onClose} title={ws?.name} subtitle={ws ? `Created ${fmtDate(ws.created_at)}` : ''}>
       {ws && (
         <>
           <DrawerSection title="Owner">

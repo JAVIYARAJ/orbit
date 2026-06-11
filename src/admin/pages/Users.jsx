@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAdmin, DataTable, Drawer, Avatar, RelTime, Pagination, SearchInput, Field, DrawerSection, Badge } from '../ui.jsx';
 import { adminQuery, adminAuthUsers } from '../api.js';
+import { fmtDate } from '../../lib/dateUtils.js';
 
 const PER = 50;
 
@@ -74,7 +75,7 @@ function UserDrawer({ user, auth, onClose }) {
             <Stat label="Hours" value={loading ? '…' : `${data?.hours ?? 0}h`} />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Joined">{new Date(user.created_at).toLocaleDateString()}</Field>
+            <Field label="Joined">{fmtDate(user.created_at)}</Field>
             <Field label="Last sign-in"><RelTime date={auth?.last_sign_in_at} /></Field>
           </div>
           <DrawerSection title="Workstations" count={data?.members?.length}>
