@@ -5162,13 +5162,11 @@ button.collab-role-pill:hover:not(:disabled) {
 .tcard .foot {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   font-family: var(--f-mono);
   font-size: 10px;
   color: var(--text-3);
-}
-
-.tcard .foot>*:last-child {
-  margin-left: auto;
 }
 
 .tcard .hrs {
@@ -5184,7 +5182,6 @@ button.collab-role-pill:hover:not(:disabled) {
   font-family: var(--f-mono);
   font-size: 10px;
   color: var(--text-3);
-  margin-left: auto;
 }
 
 /* ── Grouped subtask board ───────────────────────────────────────── */
@@ -19407,7 +19404,6 @@ button.role-badge:hover {
 
 /* Task card assignee avatar */
 .tcard-assignee {
-  margin-left: auto;
 }
 
 .assignee-ava {
