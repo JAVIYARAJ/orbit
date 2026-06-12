@@ -11677,7 +11677,7 @@ body.scanlines::after {
     display: none;
   }
 
-  .filter-row-premium > div {
+  .filter-row-premium>div {
     display: flex !important;
     flex-direction: row !important;
     flex-wrap: nowrap !important;
@@ -11735,21 +11735,31 @@ body.scanlines::after {
   }
 
   .tasks-page.board-view .page-head .actions .btn.primary {
-    font-size: 0 !important;
     padding: 0 !important;
     width: 36px !important;
     height: 36px !important;
     min-width: 36px !important;
+    max-width: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    aspect-ratio: 1 / 1 !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box !important;
     border-radius: 50% !important;
-    display: flex !important;
+    display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
+  }
+
+  .tasks-page.board-view .page-head .actions .btn.primary span {
+    display: none !important;
   }
 
   .tasks-page.board-view .page-head .actions .btn.primary svg {
     margin: 0 !important;
     width: 14px !important;
     height: 14px !important;
+    flex-shrink: 0 !important;
   }
 
   .tasks-page.board-view .page-head .crumb {
@@ -19732,7 +19742,7 @@ button.role-badge:hover {
   z-index: 10;
 }
 
-.task-comment-row:hover > .task-comment-content > .task-comment-actions,
+.task-comment-row:hover>.task-comment-content>.task-comment-actions,
 .task-comment-row:hover .task-comment-actions {
   opacity: 1;
   transform: translateY(0);
@@ -24337,4 +24347,112 @@ button.role-badge:hover {
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
+}
+
+/* Sticky Board Column Headers (Kanban View) */
+.tasks-page.board-view .kanban {
+  padding-top: 0 !important;
+  overflow-y: auto !important;
+}
+
+.tasks-page.board-view .kanban-inner {
+  height: auto !important;
+}
+
+.tasks-page.board-view .kcol {
+  height: auto !important;
+  overflow: visible !important;
+  border-top-left-radius: 16px !important;
+  border-top-right-radius: 16px !important;
+}
+
+.tasks-page.board-view .kcol-body {
+  overflow-y: visible !important;
+  height: auto !important;
+  flex: none !important;
+}
+
+.tasks-page.board-view .kcol-h {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  background: var(--bg-0) !important;
+  border: 1px solid var(--border) !important;
+  border-top-left-radius: 15px !important;
+  border-top-right-radius: 15px !important;
+  margin-top: -1px !important;
+  margin-left: -1px !important;
+  margin-right: -1px !important;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+[data-theme="light"] .tasks-page.board-view .kcol-h {
+  background: var(--bg-2) !important;
+}
+
+/* Corner Masks to prevent card content peeking through top-left/right rounded corners */
+.tasks-page.board-view .kcol-h::before {
+  content: '' !important;
+  position: absolute !important;
+  top: -1px !important;
+  left: -1px !important;
+  width: 16px !important;
+  height: 16px !important;
+  background: radial-gradient(circle at 100% 100%, transparent 14px, var(--border) 14px, var(--border) 15px, var(--bg-0) 15px) !important;
+  z-index: 110 !important;
+  pointer-events: none !important;
+}
+
+.tasks-page.board-view .kcol-h::after {
+  content: '' !important;
+  position: absolute !important;
+  top: -1px !important;
+  right: -1px !important;
+  width: 16px !important;
+  height: 16px !important;
+  background: radial-gradient(circle at 0 100%, transparent 14px, var(--border) 14px, var(--border) 15px, var(--bg-0) 15px) !important;
+  z-index: 110 !important;
+  pointer-events: none !important;
+}
+
+/* Sticky Column Headers for Grouped Subtasks Board View */
+.tasks-page.board-view .sg-board {
+  padding-top: 0 !important;
+}
+
+.tasks-page.board-view .sg-board > .sg-col-strip {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  background: var(--bg-0) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+/* Sticky Table Header for Tasks List View */
+.content:has(.tasks-page.list-view) {
+  overflow: hidden !important;
+}
+
+.tasks-page.list-view {
+  height: 100% !important;
+  max-height: calc(100vh - var(--topbar-h)) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  padding-bottom: 24px !important;
+}
+
+.tasks-page.list-view .card {
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+}
+
+.tasks-page.list-view .tbl thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 20 !important;
+  background: var(--bg-1) !important;
+  box-shadow: inset 0 -1px 0 var(--border) !important;
 }

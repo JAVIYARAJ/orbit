@@ -5562,7 +5562,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
             <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>LIST</button>
           </div>
           <button className={'btn primary' + (canCreateTask ? '' : ' perm-denied')} onClick={() => openAdd()} disabled={!canCreateTask} title={canCreateTask ? 'New task' : NO_PERM}>
-            <Icon name="plus" size={12} /> New task
+            <Icon name="plus" size={12} /><span>New task</span>
           </button>
         </div>
       </div>
