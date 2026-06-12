@@ -439,7 +439,7 @@ export const Collaboration = ({
             <div className="card-pad" style={{ padding: 0 }}>
               {pendingInvites.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-3)' }}>
-                  <div style={{ width: 64, height: 64, margin: '0 auto 16px', background: 'rgba(255,255,255,0.03)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.1)' }}>
+                  <div style={{ width: 64, height: 64, margin: '0 auto 16px', background: 'var(--bg-3)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-4)' }}>
                     <Icon name="mail" size={24} />
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', marginBottom: 8 }}>No pending invites</div>

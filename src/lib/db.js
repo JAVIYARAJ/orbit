@@ -355,6 +355,78 @@ export const getProjectTasks = async (workstationId, projectShortId) => {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CRUD — Task automation rules (owner-only; "when X then Y" triggers)
+// ═══════════════════════════════════════════════════════════════════
+
+const fromDbAutomationRule = (r) => ({
+  id:                 r.id,
+  workstationId:      r.workstation_id,
+  name:               r.name,
+  enabled:            r.enabled,
+  triggerEvent:       r.trigger_event,
+  triggerStatusId:    r.trigger_status_id,
+  triggerStatusLabel: r.trigger_status_label,
+  actionType:         r.action_type,
+  target:             r.action_config?.target || 'assignee',
+  message:            r.action_config?.message || '',
+  conditionMatch:     r.conditions?.match || 'all',
+  conditions:         Array.isArray(r.conditions?.rules) ? r.conditions.rules : [],
+  createdAt:          r.created_at,
+  updatedAt:          r.updated_at,
+})
+
+// Build the snake_case payload the RPCs expect from the app-shape rule.
+const automationRulePayload = (rule) => {
+  const data = {}
+  if ('name' in rule)            data.name = rule.name
+  if ('enabled' in rule)         data.enabled = rule.enabled
+  if ('triggerEvent' in rule)    data.trigger_event = rule.triggerEvent
+  if ('triggerStatusId' in rule) data.trigger_status_id = rule.triggerStatusId
+  if ('actionType' in rule)      data.action_type = rule.actionType
+  if ('target' in rule || 'message' in rule) {
+    data.action_config = { target: rule.target || 'assignee', message: rule.message || '' }
+  }
+  if ('conditions' in rule || 'conditionMatch' in rule) {
+    data.conditions = {
+      match: rule.conditionMatch || 'all',
+      rules: Array.isArray(rule.conditions) ? rule.conditions : [],
+    }
+  }
+  return data
+}
+
+export const listAutomationRules = async (workstationId) => {
+  const { data, error } = await supabase.rpc('list_task_automation_rules', {
+    p_workstation_id: workstationId,
+  })
+  if (error) throw error
+  return (data || []).map(fromDbAutomationRule)
+}
+
+export const createAutomationRule = async (workstationId, rule) => {
+  const { data, error } = await supabase.rpc('create_task_automation_rule', {
+    p_workstation_id: workstationId,
+    p_data:           automationRulePayload(rule),
+  })
+  if (error) throw error
+  return fromDbAutomationRule(data)
+}
+
+export const updateAutomationRule = async (id, patch) => {
+  const { data, error } = await supabase.rpc('update_task_automation_rule', {
+    p_id:   id,
+    p_data: automationRulePayload(patch),
+  })
+  if (error) throw error
+  return fromDbAutomationRule(data)
+}
+
+export const deleteAutomationRule = async (id) => {
+  const { error } = await supabase.rpc('delete_task_automation_rule', { p_id: id })
+  if (error) throw error
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // CRUD — Calendar events (native Orbit events)
 // ═══════════════════════════════════════════════════════════════════
 

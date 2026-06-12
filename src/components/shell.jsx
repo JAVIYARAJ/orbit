@@ -77,6 +77,7 @@ export const Icon = ({ name, size = 16 }) => {
     shield: <path d="M8 1L2 3V7.5C2 11.5 4.5 14.5 8 16C11.5 14.5 14 11.5 14 7.5V3L8 1Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
     calendar: <g stroke="currentColor" strokeWidth="1.2" fill="none"><rect x="2" y="3" width="12" height="11" rx="1" /><path d="M2 6H14M5 2V4M11 2V4" strokeLinecap="round" /><circle cx="5.5" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="8" cy="9" r="0.6" fill="currentColor" stroke="none" /><circle cx="10.5" cy="9" r="0.6" fill="currentColor" stroke="none" /></g>,
     menu: <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 4H14M2 8H14M2 12H14" /></g>,
+    zap: <path d="M9 1.5L3 9H8L7 14.5L13 7H8L9 1.5Z" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" />,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
@@ -123,6 +124,7 @@ export const NAV = [
   },
   {
     section: 'ADMIN', items: [
+      { id: 'automation', label: 'Automation', icon: 'zap', kbd: 'G U' },
       { id: 'settings', label: 'Settings', icon: 'settings', kbd: 'G S' },
     ]
   },
@@ -148,6 +150,7 @@ const NOTIF_CONFIG = {
   member_removed:       { icon: 'user-minus',      render: n => <>{n.preview || 'You were removed from a workspace'}</> },
   ownership_transferred:{ icon: 'shield',          render: n => <>{n.preview || 'You are now the owner'}</> },
   calendar_reminder:    { icon: 'bell', system: true, render: n => <><strong>Reminder</strong> · {n.preview}</> },
+  task_automation:      { icon: 'zap', system: true, preview: true, render: n => <>{n.title}</> },
   integration_reconnect_needed: { icon: 'alert-circle', system: true, render: n => <>Reconnect <strong>{n.title}</strong> to resume sync</> },
 };
 const notifRoute = (n, onNav, onSelectTask) => {

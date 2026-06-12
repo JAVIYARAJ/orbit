@@ -26,6 +26,7 @@ import { Analytics } from '../pages/analytics.jsx';
 import { Collaboration } from '../pages/collaboration.jsx';
 import { CalendarPage } from '../pages/calendar.jsx';
 import { Settings } from '../pages/settings.jsx';
+import AutomationPage from '../pages/automation.jsx';
 import { AuthPage, ResetPasswordPage, InviteAcceptPage } from '../pages/auth.jsx';
 import { LandingPage } from '../pages/landing.jsx';
 import { PrivacyPolicy } from '../pages/privacy.jsx';
@@ -104,6 +105,7 @@ function PageRouter({ current, ...props }) {
     case 'vercel':    return <VercelPage {...props} />;
     case 'analytics': return <Analytics {...props} />;
     case 'collab':    return <Collaboration {...props} />;
+    case 'automation': return <AutomationPage {...props} />;
     case 'settings':  return <Settings {...props} />;
     case 'home':
     default:          return <HomePage {...props} />;
@@ -628,7 +630,7 @@ export default function App() {
       if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
       if (e.key.toLowerCase() === 'g') {
         const handler = (e2) => {
-          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',g:'github',k:'vercel',s:'settings' };
+          const map = { h:'home',p:'projects',t:'tasks',l:'learning',v:'vault',m:'pm',n:'notes',i:'timer',e:'email',g:'github',k:'vercel',u:'automation',s:'settings' };
           const id = map[e2.key.toLowerCase()];
           if (id && enabledModules[id] !== false && canAccessModule(myRole, id, wsPermissions)) setCurrent(id);
           window.removeEventListener('keydown', handler);

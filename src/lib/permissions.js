@@ -141,6 +141,9 @@ export const MODULE_PERMISSION = {
   vercel:         'view_vercel',
   learning:       'view_learning',
   vault:          'view_vault',
+  // Owner-only: deliberately absent from DEFAULT_PERMISSIONS and the permissions
+  // matrix, so canAccessModule returns true only for owners (which short-circuit).
+  automation:     'view_automation',
 };
 
 // Grouped layout for the Permissions matrix UI.

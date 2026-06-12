@@ -9,7 +9,7 @@ export const ALL_MODULE_IDS = [
   'timer', 'notes', 'email',
   'github', 'vercel',
   'learning', 'vault',
-  'settings',
+  'automation', 'settings',
 ];
 
 // All modules enabled by default — Remote Config overrides specific entries

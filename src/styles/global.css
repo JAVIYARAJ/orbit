@@ -747,6 +747,53 @@
   border-color: var(--border) !important;
 }
 
+[data-theme="light"] .collab-panel {
+  background: var(--bg-1) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .collab-panel::before {
+  background: linear-gradient(90deg, transparent, var(--border), transparent) !important;
+}
+
+[data-theme="light"] .collab-panel-header {
+  border-bottom-color: var(--border) !important;
+}
+
+[data-theme="light"] .collab-panel-title h2 {
+  color: var(--text) !important;
+}
+
+[data-theme="light"] .collab-member-card {
+  background: var(--bg-0) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="light"] .collab-member-card:hover {
+  background: var(--bg-1) !important;
+  border-color: var(--border-3) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .collab-member-name {
+  color: var(--text) !important;
+}
+
+[data-theme="light"] .collab-member-bottom {
+  border-top-color: var(--border) !important;
+}
+
+[data-theme="light"] .collab-invite-card {
+  background: var(--bg-0) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="light"] .collab-invite-card:hover {
+  background: var(--bg-1) !important;
+  border-color: var(--accent) !important;
+}
+
 /* ── Analytics ── */
 [data-theme="light"] .an-card {
   background: var(--bg-1) !important;
@@ -832,6 +879,33 @@
 [data-theme="light"] .learning-card {
   background: var(--bg-1) !important;
   border-color: var(--border) !important;
+}
+
+[data-theme="light"] .learn-col {
+  background: var(--bg-1) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03) !important;
+}
+
+[data-theme="light"] .learn-col:hover {
+  background: var(--bg-2) !important;
+  border-color: var(--border-3) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .learn-h {
+  border-bottom-color: var(--border) !important;
+  background: var(--bg-2) !important;
+}
+
+[data-theme="light"] .learn-empty {
+  border-color: var(--border) !important;
+  background: var(--bg-0) !important;
+}
+
+[data-theme="light"] .learn-empty:hover {
+  border-color: var(--border-3) !important;
+  background: var(--bg-1) !important;
 }
 
 /* ── Home cc-card (glassmorphism gradient border removed) ── */
@@ -4318,7 +4392,7 @@ button.collab-role-pill:hover:not(:disabled) {
   background: var(--accent);
 }
 
-.toggle-thumb {
+.toggle-switch .toggle-thumb {
   width: 20px;
   height: 20px;
   background: white;
@@ -14103,7 +14177,7 @@ body.scanlines::after {
   pointer-events: none;
 }
 
-.toggle-thumb {
+.toggle-switch-premium .toggle-thumb {
   width: 16px;
   height: 16px;
   background: white;
@@ -19407,8 +19481,7 @@ button.role-badge:hover {
 }
 
 /* Task card assignee avatar */
-.tcard-assignee {
-}
+.tcard-assignee {}
 
 .assignee-ava {
   width: 22px;
@@ -24657,4 +24730,110 @@ button.role-badge:hover {
   z-index: 20 !important;
   background: var(--bg-1) !important;
   box-shadow: inset 0 -1px 0 var(--border) !important;
+}
+
+/* ── Automation Rule Card ── */
+.rule-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: opacity 0.2s;
+}
+
+.rule-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rule-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rule-card-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.rule-card-paused-badge {
+  font-size: 9px;
+  font-family: var(--f-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.rule-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.rule-card-actions .toggle-switch {
+  margin-right: 4px;
+}
+
+.rule-card-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rule-card-arrow {
+  color: var(--text-4);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+/* Responsive adjustments for mobile devices */
+@media (max-width: 600px) {
+  .rule-card {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .rule-card-header {
+    align-items: flex-start;
+  }
+
+  .rule-card-title-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .rule-card-flow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .rule-card-flow>* {
+    width: 100%;
+  }
+
+  .rule-card-arrow {
+    transform: rotate(90deg);
+    margin: 4px 0;
+    width: auto;
+  }
 }
