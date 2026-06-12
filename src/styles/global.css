@@ -24837,3 +24837,16 @@ button.role-badge:hover {
     width: auto;
   }
 }
+
+/* ── Automation Rule Card Light Theme Overrides ── */
+[data-theme="light"] .rule-card {
+  background: var(--bg-0) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] .rule-card-paused-badge {
+  border-color: var(--border) !important;
+  background: var(--bg-2) !important;
+  color: var(--text-3) !important;
+}

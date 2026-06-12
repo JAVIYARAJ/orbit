@@ -367,8 +367,9 @@ const fromDbAutomationRule = (r) => ({
   triggerStatusId:    r.trigger_status_id,
   triggerStatusLabel: r.trigger_status_label,
   actionType:         r.action_type,
-  target:             r.action_config?.target || 'assignee',
+  target:             r.action_config?.target || (r.trigger_event === 'task_stale' ? 'owner' : 'assignee'),
   message:            r.action_config?.message || '',
+  staleDays:          Number(r.action_config?.stale_days) || 7,
   conditionMatch:     r.conditions?.match || 'all',
   conditions:         Array.isArray(r.conditions?.rules) ? r.conditions.rules : [],
   createdAt:          r.created_at,
@@ -381,10 +382,11 @@ const automationRulePayload = (rule) => {
   if ('name' in rule)            data.name = rule.name
   if ('enabled' in rule)         data.enabled = rule.enabled
   if ('triggerEvent' in rule)    data.trigger_event = rule.triggerEvent
-  if ('triggerStatusId' in rule) data.trigger_status_id = rule.triggerStatusId
+  if ('triggerStatusId' in rule) data.trigger_status_id = rule.triggerStatusId || null
   if ('actionType' in rule)      data.action_type = rule.actionType
-  if ('target' in rule || 'message' in rule) {
+  if ('target' in rule || 'message' in rule || 'staleDays' in rule) {
     data.action_config = { target: rule.target || 'assignee', message: rule.message || '' }
+    if (rule.staleDays != null) data.action_config.stale_days = rule.staleDays
   }
   if ('conditions' in rule || 'conditionMatch' in rule) {
     data.conditions = {
@@ -424,6 +426,13 @@ export const updateAutomationRule = async (id, patch) => {
 export const deleteAutomationRule = async (id) => {
   const { error } = await supabase.rpc('delete_task_automation_rule', { p_id: id })
   if (error) throw error
+}
+
+// Manually run the stale-task scan now (owner-only) — returns the number of nudges sent.
+export const runStaleNudges = async (workstationId) => {
+  const { data, error } = await supabase.rpc('trigger_stale_nudges', { p_workstation_id: workstationId })
+  if (error) throw error
+  return data || 0
 }
 
 // ═══════════════════════════════════════════════════════════════════

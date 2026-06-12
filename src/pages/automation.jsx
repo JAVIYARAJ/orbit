@@ -5,17 +5,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Icon } from '../components/shell.jsx';
 import {
-  listAutomationRules, createAutomationRule, updateAutomationRule, deleteAutomationRule,
+  listAutomationRules, createAutomationRule, updateAutomationRule, deleteAutomationRule, runStaleNudges,
 } from '../lib/db.js';
 
 const ACTION_META = {
   notify:              { icon: 'bell',  label: 'Notify' },
   notify_time_summary: { icon: 'timer', label: 'Notify with time summary' },
 };
-const TARGET_LABEL = { assignee: 'the assignee', reporter: 'the reporter' };
+const TARGET_LABEL = { assignee: 'the assignee', reporter: 'the reporter', owner: 'the workspace owner' };
 
 const blankRule = {
-  name: '', triggerStatusId: '', actionType: 'notify', target: 'assignee', message: '',
+  name: '', triggerEvent: 'task_status_changed', triggerStatusId: '', staleDays: 7,
+  actionType: 'notify', target: 'assignee', message: '',
   conditionMatch: 'all', conditions: [],
 };
 
@@ -79,6 +80,18 @@ function StatusChip({ status, label }) {
   );
 }
 
+function StaleChip({ days }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px',
+      borderRadius: 7, fontSize: 12, fontWeight: 600, color: '#ff9500',
+      background: 'rgba(255, 149, 0, 0.08)', border: '1px solid rgba(255, 149, 0, 0.25)', whiteSpace: 'nowrap',
+    }}>
+      <Icon name="timer" size={12} /> untouched {days}d
+    </span>
+  );
+}
+
 function FlowBlock({ kind, icon, color, children }) {
   return (
     <div style={{
@@ -117,6 +130,16 @@ const COND_COLOR    = { bg: 'rgba(255, 149, 0, 0.1)', fg: '#ff9500' };
 
 const fieldLabel = { fontSize: 11, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8,
   display: 'block', letterSpacing: '0.02em' };
+
+// Inline explanatory hint shown under form fields so owners understand each option.
+function Hint({ children }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, fontSize: 11, color: 'var(--text-3)', lineHeight: 1.55, marginTop: 10 }}>
+      <span style={{ flexShrink: 0, marginTop: 1, color: 'var(--text-4)' }}><Icon name="alert-circle" size={12} /></span>
+      <span>{children}</span>
+    </div>
+  );
+}
 
 // ─── Condition row inside the builder ────────────────────────────────
 function ConditionRow({ cond, lk, onChange, onRemove }) {
@@ -202,14 +225,22 @@ function RuleBuilder({ initial, statuses, lk, onCancel, onSave }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onCancel]);
 
+  const isStale = form.triggerEvent === 'task_stale';
   const setCond = (i, next) => set('conditions', form.conditions.map((c, idx) => idx === i ? next : c));
   const addCond = () => set('conditions', [...form.conditions, NEW_CONDITION.project()]);
   const removeCond = (i) => set('conditions', form.conditions.filter((_, idx) => idx !== i));
+  const setTriggerType = (ev) => setForm(f => ({
+    ...f,
+    triggerEvent: ev,
+    // stale rules nudge the owner by default and only support a plain notify
+    target: ev === 'task_stale' ? 'owner' : (f.target === 'owner' ? 'assignee' : f.target),
+    actionType: ev === 'task_stale' ? 'notify' : f.actionType,
+  }));
 
   const submit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) { setError('Give the rule a name.'); return; }
-    if (!form.triggerStatusId) { setError('Pick a trigger status.'); return; }
+    if (!isStale && !form.triggerStatusId) { setError('Pick a trigger status.'); return; }
     setSaving(true); setError('');
     try {
       await onSave({ ...form, name: form.name.trim(), message: form.message.trim() });
@@ -255,11 +286,38 @@ function RuleBuilder({ initial, statuses, lk, onCancel, onSave }) {
             {/* Trigger */}
             <div style={{ padding: 16, background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 12 }}>
               {sectionTag('flag', TRIGGER_COLOR, 'When this happens')}
-              <label style={fieldLabel}>A task moves to status</label>
-              <select className="input-premium" style={{ width: '100%' }} value={form.triggerStatusId}
-                onChange={e => set('triggerStatusId', e.target.value)}>
-                {statuses.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
+              <div style={{ display: 'flex', gap: 2, background: 'var(--bg-0)', borderRadius: 8, padding: 2, marginBottom: 14 }}>
+                <button type="button" style={{ ...segBtn(!isStale), flex: 1 }}
+                  onClick={() => setTriggerType('task_status_changed')}>Status change</button>
+                <button type="button" style={{ ...segBtn(isStale), flex: 1 }}
+                  onClick={() => setTriggerType('task_stale')}>Stale task</button>
+              </div>
+              {isStale ? (
+                <>
+                  <label style={fieldLabel}>A task stays untouched for</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <input type="number" min={1} className="input-premium" style={{ width: 90 }}
+                      value={form.staleDays}
+                      onChange={e => set('staleDays', Math.max(1, parseInt(e.target.value, 10) || 1))} />
+                    <span style={{ fontSize: 13, color: 'var(--text-2)' }}>days</span>
+                  </div>
+                  <Hint>
+                    <strong>“Untouched”</strong> means no edits, comments, or logged time for this many days.
+                    Only <strong>open</strong> tasks (not in a Done status) are checked. The scan runs once a
+                    day at <strong>09:00 UTC</strong> — use “Run stale scan” on the list to test it now. Each
+                    task is re-nudged at most once per period.
+                  </Hint>
+                </>
+              ) : (
+                <>
+                  <label style={fieldLabel}>A task moves to status</label>
+                  <select className="input-premium" style={{ width: '100%' }} value={form.triggerStatusId}
+                    onChange={e => set('triggerStatusId', e.target.value)}>
+                    {statuses.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                  <Hint>Fires the instant a task enters this status — from the board, a drag-and-drop, or the task modal.</Hint>
+                </>
+              )}
             </div>
 
             {/* Conditions */}
@@ -275,7 +333,7 @@ function RuleBuilder({ initial, statuses, lk, onCancel, onSave }) {
                 ))}
               {form.conditions.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--text-4)', marginBottom: 12 }}>
-                  No conditions — the rule fires for every task that hits this status.
+                  No conditions — the rule applies to every matching task.
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
@@ -288,6 +346,11 @@ function RuleBuilder({ initial, statuses, lk, onCancel, onSave }) {
               <button type="button" className="btn sm" onClick={addCond}>
                 <span className="ic"><Icon name="plus" size={13} /></span> Add condition
               </button>
+              <Hint>
+                Conditions narrow which tasks the rule applies to (e.g. only High-priority tasks in one project).
+                {form.conditions.length > 1 && ' “Match all” requires every condition; “Match any” needs just one.'}
+                {' '}Leave empty to apply to all matching tasks.
+              </Hint>
             </div>
 
             {/* Action */}
@@ -297,11 +360,15 @@ function RuleBuilder({ initial, statuses, lk, onCancel, onSave }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div>
                   <label style={fieldLabel}>Action</label>
-                  <select className="input-premium" style={{ width: '100%' }} value={form.actionType}
-                    onChange={e => set('actionType', e.target.value)}>
-                    <option value="notify">Notify</option>
-                    <option value="notify_time_summary">Notify with time summary</option>
-                  </select>
+                  {isStale ? (
+                    <div className="input-premium" style={{ width: '100%', color: 'var(--text-2)' }}>Notify</div>
+                  ) : (
+                    <select className="input-premium" style={{ width: '100%' }} value={form.actionType}
+                      onChange={e => set('actionType', e.target.value)}>
+                      <option value="notify">Notify</option>
+                      <option value="notify_time_summary">Notify with time summary</option>
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label style={fieldLabel}>Recipient</label>
@@ -309,24 +376,32 @@ function RuleBuilder({ initial, statuses, lk, onCancel, onSave }) {
                     onChange={e => set('target', e.target.value)}>
                     <option value="assignee">Task assignee</option>
                     <option value="reporter">Task reporter</option>
+                    <option value="owner">Workspace owner</option>
                   </select>
                 </div>
               </div>
               <div>
                 <label style={fieldLabel}>Custom message <span style={{ color: 'var(--text-4)', fontWeight: 400 }}>(optional)</span></label>
                 <input className="input-premium" style={{ width: '100%' }} value={form.message}
-                  placeholder={form.actionType === 'notify_time_summary'
-                    ? 'Defaults to the logged-time summary'
-                    : 'Defaults to the task title'}
+                  placeholder={isStale ? 'Defaults to “No activity for N days”'
+                    : form.actionType === 'notify_time_summary'
+                      ? 'Defaults to the logged-time summary'
+                      : 'Defaults to the task title'}
                   onChange={e => set('message', e.target.value)} />
               </div>
+              <Hint>
+                <strong>Assignee</strong> and <strong>Reporter</strong> resolve per task; <strong>Workspace owner</strong> is whoever owns this workspace.
+                {!isStale && ' Status-change rules never notify the person who made the change — pick someone else, or use a second account to test.'}
+                {isStale && ' Stale nudges have no “self” to skip, so you’ll see them even on your own tasks.'}
+                {' '}Recipients who turned off web notifications in Settings won’t receive it.
+              </Hint>
             </div>
 
             {/* Live preview */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
               padding: '12px 14px', background: 'var(--bg-0)', border: '1px dashed var(--border-2)', borderRadius: 10 }}>
               <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>Preview</span>
-              <StatusChip status={status} />
+              {isStale ? <StaleChip days={form.staleDays} /> : <StatusChip status={status} />}
               {form.conditions.length > 0 && (
                 <span style={{ fontSize: 11, color: '#ff9500', fontWeight: 600 }}>
                   only if {form.conditions.length} {form.conditions.length === 1 ? 'condition' : 'conditions'}
@@ -373,9 +448,15 @@ function RuleCard({ rule, status, lk, onToggle, onEdit, onDelete }) {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <FlowBlock kind="When" icon="flag" color={TRIGGER_COLOR}>
-            moves to <StatusChip status={status} label={rule.triggerStatusLabel} />
-          </FlowBlock>
+          {rule.triggerEvent === 'task_stale' ? (
+            <FlowBlock kind="When" icon="timer" color={TRIGGER_COLOR}>
+              untouched <StaleChip days={rule.staleDays} />
+            </FlowBlock>
+          ) : (
+            <FlowBlock kind="When" icon="flag" color={TRIGGER_COLOR}>
+              moves to <StatusChip status={status} label={rule.triggerStatusLabel} />
+            </FlowBlock>
+          )}
           <FlowArrow />
           <FlowBlock kind="Then" icon={action.icon} color={ACTION_COLOR}>
             Notify {TARGET_LABEL[rule.target] || 'the assignee'}
@@ -426,6 +507,8 @@ export default function AutomationPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null); // rule object, {} for new, or null when closed
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
   const lk = { projects, priorities, tags };
@@ -474,8 +557,20 @@ export default function AutomationPage({
     await deleteAutomationRule(rule.id);
     setRules(rs => rs.filter(r => r.id !== rule.id));
   };
+  const handleRunScan = async () => {
+    setScanning(true);
+    try {
+      const n = await runStaleNudges(workstationId);
+      setScanResult({ count: n });
+    } catch (err) {
+      setScanResult({ error: err?.message || 'Could not run the scan.' });
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const activeCount = rules.filter(r => r.enabled).length;
+  const hasStaleRule = rules.some(r => r.triggerEvent === 'task_stale' && r.enabled);
 
   return (
     <div className="page page-wide">
@@ -484,13 +579,18 @@ export default function AutomationPage({
           <div className="crumb">Workspace · Owner</div>
           <h1>Automation</h1>
           <div className="sub">
-            Run actions automatically when a task changes status — no manual nudges.
+            Run actions automatically when a task changes status or goes stale — no manual chasing.
             {rules.length > 0 && (
               <> · <strong style={{ color: 'var(--text-2)' }}>{activeCount} active</strong> of {rules.length} {rules.length === 1 ? 'rule' : 'rules'}</>
             )}
           </div>
         </div>
         <div className="actions">
+          {hasStaleRule && (
+            <button className="btn" onClick={handleRunScan} disabled={scanning} title="Run the stale-task scan now instead of waiting for the daily job">
+              <span className="ic"><Icon name="rev" size={14} /></span> {scanning ? 'Scanning…' : 'Run stale scan'}
+            </button>
+          )}
           <button className="btn primary" onClick={() => setEditing({})}>
             <span className="ic"><Icon name="plus" size={15} /></span> New rule
           </button>
@@ -511,8 +611,8 @@ export default function AutomationPage({
           <Icon name="zap" size={44} />
           <div className="empty-title">No automation rules yet</div>
           <div className="empty-sub">
-            Create a rule to notify the assignee when a task hits <em>In Review</em>, or send the
-            reporter a logged-time summary when it's marked <em>Done</em>.
+            Notify the assignee when a task hits <em>In Review</em>, send a logged-time summary when it's
+            marked <em>Done</em>, or nudge the owner about tasks left <em>untouched</em> for days.
           </div>
           <button className="btn primary" onClick={() => setEditing({})}>
             <span className="ic"><Icon name="plus" size={15} /></span> Create your first rule
@@ -535,6 +635,70 @@ export default function AutomationPage({
           onCancel={() => setEditing(null)}
           onSave={handleSave}
         />
+      )}
+
+      {scanResult && (
+        <div className="modal-overlay" onClick={() => setScanResult(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 400, borderRadius: 16 }}>
+            <div className="modal-head" style={{ borderBottom: 'none' }}>
+              <span className="modal-title" style={{ fontSize: 16 }}>Scan results</span>
+              <button className="iconbtn" onClick={() => setScanResult(null)}><Icon name="x" size={16} /></button>
+            </div>
+            <div className="modal-body" style={{ textAlign: 'center', padding: '24px 20px', gap: 16 }}>
+              {scanResult.error ? (
+                <>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '50%', background: 'rgba(255, 61, 61, 0.1)',
+                    color: '#ff3d3d', display: 'grid', placeItems: 'center', margin: '0 auto'
+                  }}>
+                    <Icon name="alert-circle" size={28} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                    Scan failed
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+                    {scanResult.error}
+                  </div>
+                </>
+              ) : scanResult.count > 0 ? (
+                <>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '50%', background: 'var(--accent-tint)',
+                    color: 'var(--accent)', display: 'grid', placeItems: 'center', margin: '0 auto'
+                  }}>
+                    <Icon name="rev" size={28} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                    Nudges Sent
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+                    Sent {scanResult.count} stale-task {scanResult.count === 1 ? 'nudge' : 'nudges'} successfully.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '50%', background: 'var(--bg-3)',
+                    color: 'var(--text-3)', display: 'grid', placeItems: 'center', margin: '0 auto'
+                  }}>
+                    <Icon name="rev" size={28} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+                    All tasks up to date
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+                    No stale tasks to nudge right now.
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="modal-foot" style={{ borderTop: 'none', padding: '14px 20px 20px' }}>
+              <button className="btn primary" style={{ width: '100%' }} onClick={() => setScanResult(null)}>
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
