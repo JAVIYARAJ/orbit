@@ -47,9 +47,14 @@ export function BroadcastPage() {
     return next;
   });
 
-  // A user who has turned off EITHER channel is treated as opted-out and can't be
-  // picked for a broadcast (the backend would skip them on that channel anyway).
-  const isOptedOut = (u) => u.email_notifications === false || u.web_notifications === false;
+  // Whether the user can be reached by the channel(s) you're actually sending.
+  // Email is gated by email_notifications, in-app by web_notifications — so a user
+  // with email on / in-app off stays selectable while you're sending email.
+  const userReach = (u) => {
+    const emailOk = chEmail && !!u.email && u.email_notifications !== false;
+    const notifyOk = chNotify && u.web_notifications !== false;
+    return { emailOk, notifyOk, reachable: emailOk || notifyOk };
+  };
 
   const onPickFile = async (e) => {
     const file = e.target.files?.[0];
@@ -225,17 +230,17 @@ export function BroadcastPage() {
                 {usersLoading && <p className="px-4 py-3 text-sm text-muted-foreground">Loading…</p>}
                 {!usersLoading && users.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No users found.</p>}
                 {users.map((u) => {
-                  const optedOut = isOptedOut(u);
+                  const reach = userReach(u);
                   return (
                     <label
                       key={u.id}
-                      title={optedOut ? 'This user turned off email or in-app notifications and won’t receive broadcasts.' : undefined}
-                      className={`flex items-center gap-2.5 px-4 py-2.5 transition-colors ${optedOut ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-muted'}`}
+                      title={reach.reachable ? undefined : 'This user turned off the channel(s) you’re sending, so they won’t receive this broadcast.'}
+                      className={`flex items-center gap-2.5 px-4 py-2.5 transition-colors ${reach.reachable ? 'cursor-pointer hover:bg-muted' : 'cursor-not-allowed opacity-50'}`}
                     >
                       <input
                         type="checkbox"
                         checked={!!selected[u.id]}
-                        disabled={optedOut}
+                        disabled={!reach.reachable}
                         onChange={() => toggleUser(u)}
                         className="accent-primary w-4 h-4 rounded border-border disabled:cursor-not-allowed"
                       />
@@ -255,7 +260,7 @@ export function BroadcastPage() {
                 {selectedIds.length} selected{search.trim() ? ' · showing search matches (max 50)' : ' · showing newest 50 — search to find more'}
               </p>
               <p className="text-[11px] text-muted-foreground pl-1">
-                Users who turned off email or in-app notifications are tagged, greyed out, and can’t be selected.
+                Tags show opted-out channels. A user is greyed out and can’t be selected only when the channel(s) you picked above can’t reach them.
               </p>
             </div>
           )}
