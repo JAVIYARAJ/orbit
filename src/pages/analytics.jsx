@@ -131,7 +131,7 @@ const BarTooltip = ({ active, payload, label }) => {
 // ─── Main component ───────────────────────────────────────────────
 export const Analytics = ({
   projects = [],
-  tasks    = [],
+  tasks = [],
   statuses = [],
   timeEntries = [],
   learningActivity = [],
@@ -140,12 +140,12 @@ export const Analytics = ({
 
   const now = new Date();
   const today = todayStr();
-  const in7   = new Date(now); in7.setDate(now.getDate() + 7);
-  const in7s  = in7.toISOString().split('T')[0];
+  const in7 = new Date(now); in7.setDate(now.getDate() + 7);
+  const in7s = in7.toISOString().split('T')[0];
 
   // ── Period window ────────────────────────────────────────────────
   const periodStart = useMemo(() => getPeriodStart(period), [period]);
-  const periodEnd   = now;
+  const periodEnd = now;
 
   // ── Filtered entries in the period ────────────────────────────────
   const periodEntries = useMemo(() =>
@@ -155,30 +155,30 @@ export const Analytics = ({
 
   // ── Statuses lookup ───────────────────────────────────────────────
   const doneStatusId = useMemo(() => statuses.find(s => s.isDone)?.id, [statuses]);
-  const parentTasks  = useMemo(() => tasks.filter(t => !t.parentId), [tasks]);
+  const parentTasks = useMemo(() => tasks.filter(t => !t.parentId), [tasks]);
 
   // ── KPI — Task Completion ─────────────────────────────────────────
-  const totalPT    = parentTasks.length || 1;
-  const doneTasks  = parentTasks.filter(t => doneStatusId && t.col === doneStatusId).length;
-  const donePct    = Math.round((doneTasks / totalPT) * 100);
+  const totalPT = parentTasks.length || 1;
+  const doneTasks = parentTasks.filter(t => doneStatusId && t.col === doneStatusId).length;
+  const donePct = Math.round((doneTasks / totalPT) * 100);
 
   // ── KPI — Hours in period ─────────────────────────────────────────
-  const periodSecs  = periodEntries.reduce((s, e) => s + (e.totalSeconds || 0), 0);
+  const periodSecs = periodEntries.reduce((s, e) => s + (e.totalSeconds || 0), 0);
   const periodHours = +(periodSecs / 3600).toFixed(2);
-  const allHours    = projects.reduce((s, p) => s + (p.hoursLogged || 0), 0);
+  const allHours = projects.reduce((s, p) => s + (p.hoursLogged || 0), 0);
 
   // ── KPI — Projects ────────────────────────────────────────────────
   const activeProjs = projects.filter(p => p.status === 'progress' || p.status === 'active').length;
 
   // ── KPI — Budget ─────────────────────────────────────────────────
-  const earnedBudget   = projects.filter(p => p.status === 'done').reduce((s, p) => s + parseBudget(p.budget), 0);
+  const earnedBudget = projects.filter(p => p.status === 'done').reduce((s, p) => s + parseBudget(p.budget), 0);
   const pipelineBudget = projects.filter(p => p.status !== 'done' && p.status !== 'hold').reduce((s, p) => s + parseBudget(p.budget), 0);
-  const totalBudget    = earnedBudget + pipelineBudget;
+  const totalBudget = earnedBudget + pipelineBudget;
 
   // ── KPI — Overdue / Due soon ─────────────────────────────────────
-  const notDone     = parentTasks.filter(t => !doneStatusId || t.col !== doneStatusId);
-  const overdueCt   = notDone.filter(t => t.due && t.due !== '—' && t.due < today).length;
-  const dueSoonCt   = notDone.filter(t => t.due && t.due !== '—' && t.due >= today && t.due <= in7s).length;
+  const notDone = parentTasks.filter(t => !doneStatusId || t.col !== doneStatusId);
+  const overdueCt = notDone.filter(t => t.due && t.due !== '—' && t.due < today).length;
+  const dueSoonCt = notDone.filter(t => t.due && t.due !== '—' && t.due >= today && t.due <= in7s).length;
 
   // ── Sparklines (last 12 weeks of hours) ──────────────────────────
   const weeklySpark = useMemo(() => Array.from({ length: 12 }, (_, i) => {
@@ -278,7 +278,7 @@ export const Analytics = ({
     });
   }, [learningActivity, period, periodStart, now]);
 
-  const learnTotal   = learningChartData.reduce((s, d) => s + d.hours, 0);
+  const learnTotal = learningChartData.reduce((s, d) => s + d.hours, 0);
   const hasLearnData = learningChartData.some(d => d.hours > 0);
 
   // ── Task status distribution ──────────────────────────────────────
@@ -318,10 +318,10 @@ export const Analytics = ({
   const projProgress = useMemo(() => projects
     .filter(p => p.status !== 'hold')
     .map(p => {
-      const pt    = parentTasks.filter(t => t.proj === p.id);
-      const done  = pt.filter(t => doneStatusId && t.col === doneStatusId).length;
+      const pt = parentTasks.filter(t => t.proj === p.id);
+      const done = pt.filter(t => doneStatusId && t.col === doneStatusId).length;
       const hrPct = p.hoursEst > 0 ? Math.min(120, Math.round((p.hoursLogged / p.hoursEst) * 100)) : null;
-      const tPct  = pt.length   > 0 ? Math.round((done / pt.length) * 100) : 0;
+      const tPct = pt.length > 0 ? Math.round((done / pt.length) * 100) : 0;
       return { ...p, hrPct, tPct, taskCount: pt.length, doneCount: done };
     })
     .sort((a, b) => (b.hoursLogged || 0) - (a.hoursLogged || 0)),
@@ -331,22 +331,22 @@ export const Analytics = ({
   // ── Revenue pipeline ──────────────────────────────────────────────
   const maxBudget = totalBudget || 1;
   const pipeRows = [
-    { label: 'Earned',      amount: earnedBudget,   fill: 'linear-gradient(90deg,#25d366,#4ade80)' },
+    { label: 'Earned', amount: earnedBudget, fill: 'linear-gradient(90deg,#25d366,#4ade80)' },
     { label: 'In Pipeline', amount: pipelineBudget, fill: 'linear-gradient(90deg,#ff9500,#fbbf24)' },
-    { label: 'Total',       amount: totalBudget,    fill: 'linear-gradient(90deg,var(--accent),var(--accent-hi))' },
+    { label: 'Total', amount: totalBudget, fill: 'linear-gradient(90deg,var(--accent),var(--accent-hi))' },
   ];
 
   // ── KPI cards ─────────────────────────────────────────────────────
   const PERIOD_LABEL = { week: 'This Week', month: 'This Month', quarter: 'This Quarter', year: 'This Year' };
   const kpis = [
     { label: 'Task Completion', value: `${donePct}%`, unit: `${doneTasks} / ${parentTasks.length} tasks`, color: donePct >= 50 ? '#25d366' : '#ff9500', spark: weeklySpark.map(h => Math.min(100, Math.round((h / 8) * 100))) },
-    { label: 'Hours Logged',    value: fmtHrs(periodHours), unit: `${fmtHrs(allHours)} all time`, color: 'var(--accent-hi)', spark: weeklySpark },
+    { label: 'Hours Logged', value: fmtHrs(periodHours), unit: `${fmtHrs(allHours)} all time`, color: 'var(--accent-hi)', spark: weeklySpark },
     { label: 'Active Projects', value: activeProjs, unit: `of ${projects.length} total`, color: '#0099ff', spark: Array(12).fill(activeProjs) },
-    { label: 'Budget Earned',   value: fmtK(earnedBudget), unit: `${fmtK(totalBudget)} total`, color: '#25d366', spark: Array(12).fill(0).map((_, i) => i < 11 ? earnedBudget * (i / 11) : earnedBudget) },
-    { label: 'Overdue Tasks',   value: overdueCt, unit: `${dueSoonCt} due in 7d`, color: overdueCt > 0 ? '#ff3d3d' : '#25d366', spark: Array(12).fill(0).map((_, i) => i === 11 ? overdueCt : 0) },
+    { label: 'Budget Earned', value: fmtK(earnedBudget), unit: `${fmtK(totalBudget)} total`, color: '#25d366', spark: Array(12).fill(0).map((_, i) => i < 11 ? earnedBudget * (i / 11) : earnedBudget) },
+    { label: 'Overdue Tasks', value: overdueCt, unit: `${dueSoonCt} due in 7d`, color: overdueCt > 0 ? '#ff3d3d' : '#25d366', spark: Array(12).fill(0).map((_, i) => i === 11 ? overdueCt : 0) },
   ];
 
-  const hasEntries   = timeEntries.length > 0;
+  const hasEntries = timeEntries.length > 0;
   const hasPeriodData = activityData.some(d => d.hours > 0);
 
   return (
@@ -648,9 +648,9 @@ export const Analytics = ({
               ) : (
                 <div className="an-proj-list">
                   {projProgress.map(p => {
-                    const col     = PROJ_STATUS_COLOR[p.status] || 'var(--text-3)';
-                    const barPct  = p.hrPct !== null ? p.hrPct : p.tPct;
-                    const isOver  = p.hrPct !== null && p.hrPct > 100;
+                    const col = PROJ_STATUS_COLOR[p.status] || 'var(--text-3)';
+                    const barPct = p.hrPct !== null ? p.hrPct : p.tPct;
+                    const isOver = p.hrPct !== null && p.hrPct > 100;
                     return (
                       <div key={p.id} className="an-proj-row">
                         <div style={{ minWidth: 0, flex: 1 }}>

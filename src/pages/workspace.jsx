@@ -4512,7 +4512,9 @@ const TaskDetailModal = ({
                 >
                   <option value="">Unassigned</option>
                   {members.map(m => (
-                    <option key={m.userId} value={m.userId}>{m.name}</option>
+                    <option key={m.userId} value={m.userId}>
+                      {m.userId === currentUserId ? `${m.name} (me)` : m.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -5274,6 +5276,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
   const [view, setView] = useStateA('board');
   const [projFilter, setProjFilter] = useStateA('all');
   const [prioFilter, setPrioFilter] = useStateA('all');
+  const [assigneeFilter, setAssigneeFilter] = useStateA('all');   // 'all' | userId | 'unassigned'
   const [searchQ, setSearchQ] = useStateA('');
   const [subFilter, setSubFilter] = useStateA('none');
   const [subDropOpen, setSubDropOpen] = useStateA(false);
@@ -5370,6 +5373,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
     (subFilter === 'subtask' ? !!t.parentId : !t.parentId) &&
     (projFilter === 'all' || t.proj === projFilter) &&
     (prioFilter === 'all' || t.p === prioFilter) &&
+    (assigneeFilter === 'all' || (assigneeFilter === 'unassigned' ? !t.assigneeId : t.assigneeId === assigneeFilter)) &&
     (!sq || t.title.toLowerCase().includes(sq) || t.id.toLowerCase().includes(sq))
   );
   const byCol = (col) => filtered.filter(t => t.col === col);
@@ -5554,7 +5558,7 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
         <div>
           <div className="crumb">WORKSPACE / TASKS</div>
           <h1>Tasks</h1>
-          <div className="sub">{filtered.length} of {subFilter === 'subtask' ? tasks.filter(t => !!t.parentId).length : tasks.filter(t => !t.parentId).length} · sorted by priority</div>
+          <div className="sub">{filtered.length} of {subFilter === 'subtask' ? tasks.filter(t => !!t.parentId).length : tasks.filter(t => !t.parentId).length} · sorted by priority{assigneeFilter !== 'all' ? ` · ${assigneeFilter === 'unassigned' ? 'unassigned' : members.find(m => m.userId === assigneeFilter)?.name || 'team member'}` : ''}</div>
         </div>
         <div className="actions">
           <div className="view-toggle">
@@ -5624,6 +5628,47 @@ export const TasksPage = ({ tasks, setTasks, projects, workstationId, statuses =
               </button>
             ))}
           </div>
+
+          {/* Filter by team member (assignee) */}
+          {members.length > 0 && (
+            <div className="assignee-filter">
+              <span className="assignee-filter-label">TEAM</span>
+              <div className="assignee-filter-stack">
+                {members.map(m => {
+                  const active = assigneeFilter === m.userId;
+                  const displayName = m.userId === user?.id ? `${m.name} (me)` : m.name;
+                  return (
+                    <button
+                      key={m.userId}
+                      type="button"
+                      className={`assignee-filter-ava${active ? ' active' : ''}${assigneeFilter !== 'all' && !active ? ' dim' : ''}`}
+                      title={active ? `${displayName} · click to clear` : `Filter by ${displayName}`}
+                      onClick={() => setAssigneeFilter(active ? 'all' : m.userId)}
+                    >
+                      {m.avatarUrl
+                        ? <img src={m.avatarUrl} className="assignee-ava" alt={displayName} />
+                        : <span className="assignee-ava assignee-ava-init" style={{ background: avaColor(m.name) }}>{m.avatar}</span>}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  className={`assignee-filter-ava unassigned${assigneeFilter === 'unassigned' ? ' active' : ''}${assigneeFilter !== 'all' && assigneeFilter !== 'unassigned' ? ' dim' : ''}`}
+                  title={assigneeFilter === 'unassigned' ? 'Unassigned · click to clear' : 'Filter by unassigned'}
+                  onClick={() => setAssigneeFilter(assigneeFilter === 'unassigned' ? 'all' : 'unassigned')}
+                >
+                  <span className="assignee-ava assignee-ava-init">
+                    <Icon name="users" size={12} />
+                  </span>
+                </button>
+              </div>
+              {assigneeFilter !== 'all' && (
+                <button type="button" className="assignee-filter-clear" title="Clear team filter" onClick={() => setAssigneeFilter('all')}>
+                  <Icon name="x" size={11} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="filter-row-right">

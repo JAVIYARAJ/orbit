@@ -295,15 +295,18 @@ export const ProjectMgmtPage = ({ projects, ganttTasks, setGanttTasks, tasks, st
                   <div key={t.id || idx} className="gantt-row">
                     <div className="name" style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent-hi)', ...clamp2 }}>◆ {t.name}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--accent-hi)', display: 'inline-flex', alignItems: 'center', gap: 6, ...clamp2 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--accent-hi)', flexShrink: 0 }}><Icon name="flag" size={13} /></span>
+                          <span>{t.name}</span>
+                        </div>
                         {t.sub && <div className="sub">{t.sub}</div>}
                       </div>
                       {actions}
                     </div>
                     {WEEKS.map(w => <div key={w} className="week"></div>)}
                     <div className="gantt-bar milestone"
-                      style={{ left: `calc(200px + ${startPct} * (100% - 200px) / 100 - 11px)` }} title={t.name}>
-                      <Icon name="flame" size={12} />
+                      style={{ left: `calc(200px + (${startPct} + ${widthPct} / 2) * (100% - 200px) / 100 - 11px)` }} title={t.name}>
+                      <Icon name="flag" size={14} />
                     </div>
                   </div>
                 );

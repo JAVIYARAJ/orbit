@@ -6571,6 +6571,132 @@ button.collab-role-pill:hover:not(:disabled) {
   letter-spacing: 0.05em;
 }
 
+/* Filter tasks by team member (assignee) */
+.assignee-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  padding: 0 10px 0 12px;
+  border-radius: 100px;
+  height: 36px;
+  box-sizing: border-box;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.assignee-filter-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.assignee-filter-stack {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 0 6px;
+  height: 100%;
+}
+
+.assignee-filter-stack::-webkit-scrollbar {
+  display: none;
+}
+
+.assignee-filter-ava {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: -6px;
+  border: none;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, filter 0.2s ease;
+  z-index: 1;
+  outline: none !important;
+}
+
+.assignee-filter-ava:focus {
+  outline: none !important;
+}
+
+.assignee-filter-ava:first-child {
+  margin-left: 0;
+}
+
+.assignee-filter-ava .assignee-ava {
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 50%;
+  object-fit: cover;
+  border: none !important;
+  box-shadow: 0 0 0 2px var(--bg-1) !important;
+  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.assignee-filter-ava.unassigned .assignee-ava-init {
+  background: var(--bg-3, var(--bg-2));
+  color: var(--text-3);
+}
+
+.assignee-filter-ava:hover {
+  transform: scale(1.15) translateY(-1px);
+  z-index: 20 !important;
+}
+
+.assignee-filter-ava.dim {
+  opacity: 0.4;
+  filter: grayscale(0.4);
+}
+
+.assignee-filter-ava.dim:hover {
+  opacity: 0.85;
+  filter: none;
+}
+
+.assignee-filter-ava.active {
+  z-index: 15 !important;
+  transform: scale(1.08);
+}
+
+.assignee-filter-ava.active .assignee-ava {
+  box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 3px var(--accent, #0099ff) !important;
+}
+
+.assignee-filter-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-2);
+  border-radius: 50%;
+  background: var(--bg-2);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 4px;
+}
+
+.assignee-filter-clear:hover {
+  color: #fff;
+  background: var(--red-muted, #f87171);
+  border-color: transparent;
+  transform: scale(1.1);
+}
+
 .task-search-wrap {
   display: flex;
   align-items: center;
@@ -8738,7 +8864,7 @@ button.collab-role-pill:hover:not(:disabled) {
   position: sticky;
   top: 0;
   background: var(--bg-1);
-  z-index: 1;
+  z-index: 10;
   min-width: 920px;
 }
 
@@ -8774,6 +8900,13 @@ button.collab-role-pill:hover:not(:disabled) {
   padding: 8px 12px;
   font-size: 12px;
   border-right: 1px solid var(--border);
+  background: var(--bg-1);
+  position: relative;
+  z-index: 2;
+}
+
+.gantt-row:hover .name {
+  background: var(--bg-2);
 }
 
 .gantt-row .name .sub {
@@ -8830,6 +8963,16 @@ button.collab-role-pill:hover:not(:disabled) {
   transform: rotate(45deg);
   padding: 0;
   left: calc(var(--start) - 11px) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+}
+
+.gantt-bar.milestone svg,
+.gantt-bar.milestone .icon {
+  transform: rotate(-45deg);
+  flex-shrink: 0;
 }
 
 .gantt-bar.milestone .lbl {
@@ -11704,6 +11847,26 @@ body.scanlines::after {
   .task-search-wrap {
     width: 180px !important;
     flex: none !important;
+  }
+
+  .assignee-filter {
+    flex: none !important;
+    height: 32px !important;
+    padding: 2px 8px 2px 10px !important;
+  }
+
+  .assignee-filter-stack {
+    max-width: 170px;
+  }
+
+  .assignee-filter-ava .assignee-ava {
+    width: 24px !important;
+    height: 24px !important;
+    box-shadow: 0 0 0 1.5px var(--bg-1) !important;
+  }
+
+  .assignee-filter-ava.active .assignee-ava {
+    box-shadow: 0 0 0 1.5px var(--bg-1), 0 0 0 3px var(--accent, #0099ff) !important;
   }
 
   .tasks-page.board-view {
@@ -24421,7 +24584,7 @@ button.role-badge:hover {
   padding-top: 0 !important;
 }
 
-.tasks-page.board-view .sg-board > .sg-col-strip {
+.tasks-page.board-view .sg-board>.sg-col-strip {
   position: sticky !important;
   top: 0 !important;
   z-index: 100 !important;
