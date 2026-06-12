@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Icon } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
-import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission, setGoogleSyncPrefs } from '../lib/db.js';
+import { updateMyAvatar, createTaskStatus, updateTaskStatus, deleteTaskStatus, reorderTaskStatuses, createProjectType, updateProjectType, deleteProjectType, reorderProjectTypes, createTag, updateTag, deleteTag, createTaskPriority, updateTaskPriority, deleteTaskPriority, reorderTaskPriorities, updateMemberRole, removeMember, cancelInvite, upsertPermission, setGoogleSyncPrefs, updateWorkstation, updateNotificationPrefs } from '../lib/db.js';
 import { canDo, canModifyMember, assignableRoles, DEFAULT_PERMISSIONS, PERMISSION_LABELS, PERMISSION_GROUPS, PERMISSION_WARNINGS } from '../lib/permissions.js';
 import { vcClearCache } from '../lib/vercel.js';
 import { fmtDate, fmtDateLong, fmtDateTime } from '../lib/dateUtils.js';
@@ -770,10 +770,50 @@ const PermissionsSection = ({ activeWorkstation, wsPermissions, setWsPermissions
   );
 };
 
-export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags, priorities = [], setPriorities, members = [], setMembers, pendingInvites = [], setPendingInvites, wsPermissions = {}, setWsPermissions, myRole = 'viewer', setTasks }) => {
+export const Settings = ({ user, activeWorkstation, onUserUpdate, onWorkstationUpdate, statuses = [], setStatuses, projectTypes = [], setProjectTypes, tags = [], setTags, priorities = [], setPriorities, members = [], setMembers, pendingInvites = [], setPendingInvites, wsPermissions = {}, setWsPermissions, myRole = 'viewer', setTasks }) => {
   const fileRef = useRef(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
+
+  // ── General Configuration (workspace name) ───────────────────────
+  const isOwner = activeWorkstation?.role === 'owner';
+  const [wsName, setWsName] = useState(activeWorkstation?.name || '');
+  const [wsSaving, setWsSaving] = useState(false);
+  const [wsErr, setWsErr] = useState('');
+  const [wsSaved, setWsSaved] = useState(false);
+
+  // Keep the field in sync when the active workstation changes (e.g. switch).
+  useEffect(() => {
+    setWsName(activeWorkstation?.name || '');
+    setWsErr('');
+    setWsSaved(false);
+  }, [activeWorkstation?.id, activeWorkstation?.name]);
+
+  const wsDirty = wsName.trim() !== (activeWorkstation?.name || '');
+
+  const handleWsSave = async () => {
+    const name = wsName.trim();
+    if (!name || !activeWorkstation?.id || !wsDirty) return;
+    setWsSaving(true);
+    setWsErr('');
+    setWsSaved(false);
+    try {
+      const updated = await updateWorkstation(activeWorkstation.id, { name });
+      onWorkstationUpdate?.({ name: updated.name });
+      setWsSaved(true);
+      setTimeout(() => setWsSaved(false), 2500);
+    } catch (e) {
+      setWsErr(e?.message || 'Failed to update workspace.');
+    } finally {
+      setWsSaving(false);
+    }
+  };
+
+  const handleWsReset = () => {
+    setWsName(activeWorkstation?.name || '');
+    setWsErr('');
+    setWsSaved(false);
+  };
 
   const handleAvatarClick = () => {
     setAvatarError('');
@@ -814,6 +854,20 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
       setAvatarError('Upload failed. Please try again.');
     } finally {
       setAvatarLoading(false);
+    }
+  };
+
+  const [disconnectConfirm, setDisconnectConfirm] = useState({ isOpen: false, provider: null, label: '' });
+
+  const handleConfirmDisconnect = () => {
+    const { provider } = disconnectConfirm;
+    setDisconnectConfirm({ isOpen: false, provider: null, label: '' });
+    if (provider === 'github') {
+      disconnectGitHub();
+    } else if (provider === 'vercel') {
+      disconnectVercel();
+    } else if (provider === 'google_calendar') {
+      disconnectGoogleCalendar();
     }
   };
 
@@ -981,15 +1035,37 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
     }
   };
 
-  const [prefs, setPrefs] = useState([
-    { label: 'Email Notifications', value: true },
-    { label: 'Daily Summary', value: true },
-    { label: 'Weekly Reports', value: true },
-    { label: 'Productivity Insights', value: true },
-  ]);
+  // ── Notification preferences (platform-wide; default on) ─────────
+  const [notifPrefs, setNotifPrefs] = useState({
+    email: user?.emailNotifications !== false,
+    web:   user?.webNotifications !== false,
+  });
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifErr, setNotifErr] = useState('');
 
-  const togglePref = (idx) =>
-    setPrefs(prev => prev.map((p, i) => i === idx ? { ...p, value: !p.value } : p));
+  useEffect(() => {
+    setNotifPrefs({
+      email: user?.emailNotifications !== false,
+      web:   user?.webNotifications !== false,
+    });
+  }, [user?.emailNotifications, user?.webNotifications]);
+
+  const toggleNotifPref = async (key) => {
+    if (notifSaving) return;
+    const next = { ...notifPrefs, [key]: !notifPrefs[key] };
+    setNotifPrefs(next);            // optimistic
+    setNotifErr('');
+    setNotifSaving(true);
+    try {
+      await updateNotificationPrefs(next.email, next.web);
+      onUserUpdate?.({ emailNotifications: next.email, webNotifications: next.web });
+    } catch (e) {
+      setNotifPrefs(notifPrefs);    // revert on failure
+      setNotifErr(e?.message || 'Failed to update preference.');
+    } finally {
+      setNotifSaving(false);
+    }
+  };
 
   // ── Task Status management ────────────────────────────────────────
   const sorted = [...statuses].sort((a, b) => a.order - b.order);
@@ -1480,25 +1556,33 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                   <div className="card">
                     <div className="card-pad">
                       <div className="preferences-list-premium">
-                        {prefs.map((pref, idx) => (
-                          <div key={idx} className="preference-item-premium">
+                        {[
+                          { key: 'email', label: 'Email notification', sub: 'Receive activity and announcement emails. When off, we never email you.' },
+                          { key: 'web', label: 'In-web notification', sub: 'Show in-app notifications across the platform. When off, none are delivered.' },
+                        ].map(({ key, label, sub }) => (
+                          <div key={key} className="preference-item-premium">
                             <div className="pref-info">
-                              <div className="pref-label">{pref.label}</div>
-                              <div className="pref-sub">Receive updates about your workspace activity.</div>
+                              <div className="pref-label">{label}</div>
+                              <div className="pref-sub">{sub}</div>
                             </div>
                             <div
-                              className="toggle-switch-premium"
-                              data-active={String(pref.value)}
-                              onClick={() => togglePref(idx)}
+                              className={'toggle-switch-premium' + (notifSaving ? ' is-saving' : '')}
+                              data-active={String(notifPrefs[key])}
+                              onClick={() => toggleNotifPref(key)}
                               role="switch"
-                              aria-checked={pref.value}
+                              aria-checked={notifPrefs[key]}
+                              aria-label={label}
                               tabIndex={0}
+                              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleNotifPref(key); } }}
                             >
                               <div className="toggle-thumb" />
                             </div>
                           </div>
                         ))}
                       </div>
+                      {notifErr && (
+                        <div className="settings-form-msg error" style={{ marginTop: 12 }}>{notifErr}</div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1517,19 +1601,49 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                       <div className="settings-form-premium">
                         <div className="settings-field-premium">
                           <label>Workspace Name</label>
-                          <input type="text" defaultValue={activeWorkstation?.name || ''} className="input-premium" />
+                          <input
+                            type="text"
+                            value={wsName}
+                            onChange={e => { setWsName(e.target.value); setWsErr(''); setWsSaved(false); }}
+                            onKeyDown={e => { if (e.key === 'Enter' && isOwner) handleWsSave(); }}
+                            className="input-premium"
+                            placeholder="Enter a workspace name…"
+                            disabled={!isOwner || wsSaving}
+                            maxLength={60}
+                          />
+                          {!isOwner && (
+                            <div className="settings-field-hint">Only the workspace owner can change these settings.</div>
+                          )}
                         </div>
                         <div className="settings-field-premium">
-                          <label>Organization / Team</label>
-                          <input type="text" defaultValue="Solo Freelancer" className="input-premium" />
+                          <label>Team Size</label>
+                          <div className="role-badge-premium">{members.length} {members.length === 1 ? 'member' : 'members'}</div>
                         </div>
                         <div className="settings-field-premium">
                           <label>Access Role</label>
                           <div className="role-badge-premium">{ROLE_LABEL[activeWorkstation?.role] || 'Member'}</div>
                         </div>
+                        {wsErr && (
+                          <div className="settings-form-msg error">{wsErr}</div>
+                        )}
+                        {wsSaved && (
+                          <div className="settings-form-msg ok">Workspace updated.</div>
+                        )}
                         <div className="settings-form-actions">
-                          <button className="btn primary">Update Workspace</button>
-                          <button className="btn ghost">Reset</button>
+                          <button
+                            className="btn primary"
+                            onClick={handleWsSave}
+                            disabled={!isOwner || wsSaving || !wsDirty || !wsName.trim()}
+                          >
+                            {wsSaving ? 'Saving…' : 'Update Workspace'}
+                          </button>
+                          <button
+                            className="btn ghost"
+                            onClick={handleWsReset}
+                            disabled={wsSaving || !wsDirty}
+                          >
+                            Reset
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1877,7 +1991,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     </div>
                     <div className="intg-real-right">
                       {githubInteg ? (
-                        <button className="intg-btn-disconnect" onClick={disconnectGitHub} disabled={ghDisconnecting}>
+                        <button className="intg-btn-disconnect" onClick={() => setDisconnectConfirm({ isOpen: true, provider: 'github', label: 'GitHub' })} disabled={ghDisconnecting}>
                           <Icon name="x" size={13} /> {ghDisconnecting ? 'Disconnecting…' : 'Disconnect'}
                         </button>
                       ) : (
@@ -1916,7 +2030,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     </div>
                     <div className="intg-real-right">
                       {vercelInteg ? (
-                        <button className="intg-btn-disconnect" onClick={disconnectVercel} disabled={vcDisconnecting}>
+                        <button className="intg-btn-disconnect" onClick={() => setDisconnectConfirm({ isOpen: true, provider: 'vercel', label: 'Vercel' })} disabled={vcDisconnecting}>
                           <Icon name="x" size={13} /> {vcDisconnecting ? 'Disconnecting…' : 'Disconnect'}
                         </button>
                       ) : (
@@ -1962,7 +2076,7 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
                     </div>
                     <div className="intg-real-right">
                       {gcalInteg ? (
-                        <button className="intg-btn-disconnect" onClick={disconnectGoogleCalendar} disabled={gcalDisconnecting}>
+                        <button className="intg-btn-disconnect" onClick={() => setDisconnectConfirm({ isOpen: true, provider: 'google_calendar', label: 'Google Calendar' })} disabled={gcalDisconnecting}>
                           <Icon name="x" size={13} /> {gcalDisconnecting ? 'Disconnecting…' : 'Disconnect'}
                         </button>
                       ) : (
@@ -2025,6 +2139,27 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, statuses = [],
           </div>
         </main>
       </div>
+      {/* Disconnect Integration Confirmation Modal */}
+      {disconnectConfirm.isOpen && (
+        <div className="modal-overlay" onClick={() => setDisconnectConfirm({ isOpen: false, provider: null, label: '' })}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-hd">
+              <h3>Disconnect {disconnectConfirm.label}?</h3>
+              <button className="modal-close" onClick={() => setDisconnectConfirm({ isOpen: false, provider: null, label: '' })}>
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>Are you sure you want to disconnect your <span className="highlight">{disconnectConfirm.label}</span> integration? Your sync history and credentials will be removed.</p>
+            </div>
+            <div className="modal-ft">
+              <button className="btn ghost" onClick={() => setDisconnectConfirm({ isOpen: false, provider: null, label: '' })}>Cancel</button>
+              <button className="btn primary danger" onClick={handleConfirmDisconnect}>Disconnect</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Status Confirmation Modal */}
       {deleteConfirm.isOpen && (
         <div className="modal-overlay" onClick={() => setDeleteConfirm({ isOpen: false, id: null, label: '' })}>

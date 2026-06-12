@@ -403,7 +403,11 @@ async function sendBroadcast(admin: any, body: any) {
     if (!BREVO_API_KEY || !BREVO_SENDER_EMAIL) {
       throw new Error("Email is not configured: set BREVO_API_KEY and BREVO_SENDER_EMAIL secrets.");
     }
-    let q = admin.from("profiles").select("id,name,email").not("email", "is", null);
+    // Respect the per-user "Email notification" preference — users who opted
+    // out never receive broadcast/activity emails.
+    let q = admin.from("profiles").select("id,name,email")
+      .not("email", "is", null)
+      .eq("email_notifications", true);
     if (targeted) q = q.in("id", userIds);
     const { data: users, error } = await q;
     if (error) throw error;

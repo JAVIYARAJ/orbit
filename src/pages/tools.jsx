@@ -1298,15 +1298,15 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
         {/* ── Folder sidebar ── */}
         <div className="notes-folders">
           {/* Fixed top — never scrolls */}
+          {/* Fixed top — never scrolls */}
           <div
             className={'nf-item' + (activeFolderId === null ? ' nf-active' : '')}
+            onClick={() => { setActiveFolderId(null); setMobileView('list'); }}
           >
-            <Icon name="list" size={12}/>
-            <span>All Notes</span>
+            <Icon name="list" size={13} style={{ flexShrink: 0, color: activeFolderId === null ? 'var(--accent-hi)' : 'var(--text-3)' }}/>
+            <span className="nf-label">All Notes</span>
             <span className="nf-count">{notes.length}</span>
           </div>
-
-
 
           <div className="nf-divider" />
 
@@ -1369,7 +1369,7 @@ export const NotesPage = ({ notes, setNotes, noteFolders, setNoteFolders, workst
                   />
                 ) : (
                   <>
-                    <Icon name="folder" size={12} style={{ flexShrink: 0, color: 'var(--text-3)' }}/>
+                    <Icon name="folder" size={13} style={{ flexShrink: 0, color: activeFolderId === f.id ? 'var(--accent-hi)' : 'var(--text-3)' }}/>
                     <span className="nf-label">{f.name}</span>
                     <span className="nf-count">{notes.filter(n => n.folderId === f.id).length}</span>
                   </>

@@ -324,6 +324,8 @@ export default function App() {
           avatar:    ctx.user.avatar    || (ctx.user.name?.[0] || 'U').toUpperCase(),
           avatarUrl: ctx.user.avatar_url || null,
           joinedAt:  ctx.user.joined_at,
+          emailNotifications: ctx.user.email_notifications !== false,
+          webNotifications:   ctx.user.web_notifications   !== false,
         });
 
         const list = ctx.workstations;
@@ -496,6 +498,15 @@ export default function App() {
   };
 
   const handleNewWs = () => setShowWsSetup(true);
+
+  // Apply a persisted workstation update (e.g. rename) to local state so the
+  // sidebar, settings form, and other surfaces reflect it immediately.
+  const handleWorkstationUpdate = (updates) => {
+    setActiveWorkstation(prev => prev ? { ...prev, ...updates } : prev);
+    setWorkstations(prev => prev.map(w =>
+      w.id === activeWorkstation?.id ? { ...w, ...updates } : w
+    ));
+  };
 
   // Re-pull roles + permissions + members for the active workstation. Called after
   // actions that change the current user's standing (e.g. ownership transfer) so the
@@ -940,6 +951,7 @@ export default function App() {
             wsPermissions={wsPermissions}  setWsPermissions={setWsPermissions}
             myRole={myRole}
             refreshWorkspaceContext={refreshWorkspaceContext}
+            onWorkstationUpdate={handleWorkstationUpdate}
           />
         </div>
       </div>

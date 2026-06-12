@@ -228,6 +228,14 @@ export const updateMyAvatar = async (url) => {
   if (error) throw error
 }
 
+// Persist the platform-wide notification preferences (email + in-web).
+export const updateNotificationPrefs = async (emailOn, webOn) => {
+  const { error } = await supabase.rpc('update_my_notification_prefs', {
+    p_email: emailOn, p_web: webOn,
+  })
+  if (error) throw error
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // WORKSTATIONS
 // ═══════════════════════════════════════════════════════════════════
@@ -245,6 +253,18 @@ export const setActiveWorkstation = async (workstationId) => {
     p_workstation_id: workstationId,
   })
   if (error) throw error
+}
+
+// Update editable workstation fields (name, color). RLS restricts this to the owner.
+export const updateWorkstation = async (workstationId, fields) => {
+  const { data, error } = await supabase
+    .from('workstations')
+    .update(fields)
+    .eq('id', workstationId)
+    .select('id, name, color')
+    .single()
+  if (error) throw error
+  return data
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { Icon } from '../components/shell.jsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, AreaChart, Area,
 } from 'recharts';
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -409,17 +409,27 @@ export const Analytics = ({
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={activityData} margin={{ top: 4, right: 4, left: -20, bottom: (period === 'month' || period === 'quarter') ? 10 : 0 }} barCategoryGap="30%">
+                  <AreaChart data={activityData} margin={{ top: 4, right: 8, left: -20, bottom: (period === 'month' || period === 'quarter') ? 10 : 0 }}>
+                    <defs>
+                      <linearGradient id="hoursLineFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.28} />
+                        <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                     <XAxis dataKey="label" tick={<CustomXTick showWeek={period === 'month' || period === 'quarter'} />} tickLine={false} axisLine={false} interval={period === 'quarter' ? 2 : 0} />
                     <YAxis tick={{ fontSize: 9, fontFamily: 'var(--f-mono)', fill: 'var(--text-3)' }} tickLine={false} axisLine={false} tickFormatter={(v) => v === 0 ? '0' : `${v}h`} />
-                    <Tooltip content={<BarTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                    <Bar dataKey="hours" radius={[3, 3, 0, 0]} maxBarSize={28}>
-                      {activityData.map((d, i) => (
-                        <Cell key={i} fill={d.hours > 0 ? 'var(--accent)' : 'var(--bg-3)'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
+                    <Tooltip content={<BarTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="hours"
+                      stroke="var(--accent)"
+                      strokeWidth={2}
+                      fill="url(#hoursLineFill)"
+                      dot={{ r: 2.5, fill: 'var(--accent)', strokeWidth: 0 }}
+                      activeDot={{ r: 4, fill: 'var(--accent-hi)', stroke: 'var(--bg-1)', strokeWidth: 2 }}
+                    />
+                  </AreaChart>
                 </ResponsiveContainer>
               )}
             </div>
