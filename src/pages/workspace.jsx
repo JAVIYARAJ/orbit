@@ -2922,6 +2922,7 @@ const TaskDetailModal = ({
       estH: totalMin > 0 ? String(Math.floor(totalMin / 60)) : '',
       estM: totalMin > 0 ? String(totalMin % 60) : '',
       assigneeId: t.assigneeId || '',
+      reporterId: t.reporterId || t.createdBy || '',
     };
   };
 
@@ -3538,6 +3539,7 @@ const TaskDetailModal = ({
         tags: form.tagIds,
         estMinutes: (parseInt(form.estH) || 0) * 60 + (parseInt(form.estM) || 0),
         assigneeId: form.assigneeId || null,
+        reporterId: form.reporterId || null,
       });
     } catch (e) {
       setErr(e.message || 'Failed to save.');
@@ -4511,6 +4513,31 @@ const TaskDetailModal = ({
                   title={canAssign ? '' : NO_PERM}
                 >
                   <option value="">Unassigned</option>
+                  {members.map(m => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.userId === currentUserId ? `${m.name} (me)` : m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Reporter — defaults to the task creator */}
+            {members.length > 0 && (
+              <div className="tpanel-prop">
+                <div className="tpanel-prop-label">Reporter</div>
+                <select
+                  className={'tpanel-sel' + (canEdit ? '' : ' perm-denied')}
+                  value={form.reporterId || ''}
+                  onChange={e => set('reporterId', e.target.value || '')}
+                  disabled={!canEdit}
+                  title={canEdit ? '' : NO_PERM}
+                >
+                  {!members.some(m => m.userId === form.reporterId) && (
+                    <option value={form.reporterId || ''}>
+                      {form.reporterId ? 'Former member' : 'No reporter'}
+                    </option>
+                  )}
                   {members.map(m => (
                     <option key={m.userId} value={m.userId}>
                       {m.userId === currentUserId ? `${m.name} (me)` : m.name}

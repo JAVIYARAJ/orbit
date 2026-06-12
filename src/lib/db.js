@@ -56,6 +56,7 @@ const fromDbTask = (r) => ({
   ghBranch:      r.gh_branch      || '',
   deletedAt:     r.deleted_at     || null,
   assigneeId:    r.assignee_id    || null,
+  reporterId:    r.reporter_id    || null,
   ...auditFields(r),
 })
 
@@ -139,6 +140,7 @@ const taskPayload = (t) => ({
   est_minutes:      t.estMinutes  || 0,
   gh_branch:        t.ghBranch    || null,
   assignee_id:      t.assigneeId  || null,
+  reporter_id:      t.reporterId  || null,
 })
 
 const learningPayload = (i) => ({
