@@ -47,15 +47,6 @@ export function BroadcastPage() {
     return next;
   });
 
-  // Whether the user can be reached by the channel(s) you're actually sending.
-  // Email is gated by email_notifications, in-app by web_notifications — so a user
-  // with email on / in-app off stays selectable while you're sending email.
-  const userReach = (u) => {
-    const emailOk = chEmail && !!u.email && u.email_notifications !== false;
-    const notifyOk = chNotify && u.web_notifications !== false;
-    return { emailOk, notifyOk, reachable: emailOk || notifyOk };
-  };
-
   const onPickFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-picking the same file
@@ -229,38 +220,25 @@ export function BroadcastPage() {
               <div className="max-h-56 overflow-y-auto rounded-xl border border-border bg-muted/50 divide-y divide-white/5 backdrop-blur-sm shadow-inner">
                 {usersLoading && <p className="px-4 py-3 text-sm text-muted-foreground">Loading…</p>}
                 {!usersLoading && users.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No users found.</p>}
-                {users.map((u) => {
-                  const reach = userReach(u);
-                  return (
-                    <label
-                      key={u.id}
-                      title={reach.reachable ? undefined : 'This user turned off the channel(s) you’re sending, so they won’t receive this broadcast.'}
-                      className={`flex items-center gap-2.5 px-4 py-2.5 transition-colors ${reach.reachable ? 'cursor-pointer hover:bg-muted' : 'cursor-not-allowed opacity-50'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={!!selected[u.id]}
-                        disabled={!reach.reachable}
-                        onChange={() => toggleUser(u)}
-                        className="accent-primary w-4 h-4 rounded border-border disabled:cursor-not-allowed"
-                      />
-                      <span className="font-semibold text-sm shrink-0">{u.name || '—'}</span>
-                      <span className="text-muted-foreground text-xs truncate flex-1">{u.email || 'no email'}</span>
-                      {u.email_notifications === false && (
-                        <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500">No email</span>
-                      )}
-                      {u.web_notifications === false && (
-                        <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">No in-app</span>
-                      )}
-                    </label>
-                  );
-                })}
+                {users.map((u) => (
+                  <label key={u.id} className="flex items-center gap-2.5 px-4 py-2.5 cursor-pointer hover:bg-muted transition-colors">
+                    <input type="checkbox" checked={!!selected[u.id]} onChange={() => toggleUser(u)} className="accent-primary w-4 h-4 rounded border-border" />
+                    <span className="font-semibold text-sm shrink-0">{u.name || '—'}</span>
+                    <span className="text-muted-foreground text-xs truncate flex-1">{u.email || 'no email'}</span>
+                    {u.email_notifications === false && (
+                      <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500">No email</span>
+                    )}
+                    {u.web_notifications === false && (
+                      <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">No in-app</span>
+                    )}
+                  </label>
+                ))}
               </div>
               <p className="text-[11px] font-medium text-muted-foreground pl-1">
                 {selectedIds.length} selected{search.trim() ? ' · showing search matches (max 50)' : ' · showing newest 50 — search to find more'}
               </p>
               <p className="text-[11px] text-muted-foreground pl-1">
-                Tags show opted-out channels. A user is greyed out and can’t be selected only when the channel(s) you picked above can’t reach them.
+                Tags show which channels a user opted out of. They can still be selected — opted-out channels are simply skipped on send.
               </p>
             </div>
           )}
