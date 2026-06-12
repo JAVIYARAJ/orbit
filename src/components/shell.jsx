@@ -142,6 +142,7 @@ const NOTIF_CONFIG = {
   task_commented:       { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> commented on <strong>{n.title}</strong></> },
   mention:              { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> mentioned you in <strong>{n.title || 'a task'}</strong></> },
   comment_reply:        { icon: 'message-square',  preview: true, render: n => <><strong>{n.actorName}</strong> replied in <strong>{n.title}</strong></> },
+  workspace_invite:     { icon: 'user-plus',       preview: true, render: n => <><strong>{n.actorName}</strong> invited you to join <strong>{n.title}</strong></> },
   invite_accepted:      { icon: 'user-plus',       render: n => <><strong>{n.actorName}</strong> joined <strong>{n.title}</strong></> },
   role_changed:         { icon: 'shield',          render: n => <>{n.preview || 'Your role changed'}</> },
   member_removed:       { icon: 'user-minus',      render: n => <>{n.preview || 'You were removed from a workspace'}</> },
