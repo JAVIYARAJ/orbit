@@ -1373,7 +1373,8 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, onWorkstationU
 
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return (params.get('gh_callback') === '1' || params.get('vc_callback') === '1')
+    // Only owners have the Integrations tab; never land a non-owner there.
+    return (myRole === 'owner' && (params.get('gh_callback') === '1' || params.get('vc_callback') === '1'))
       ? 'integrations'
       : 'profile';
   });
@@ -1399,7 +1400,8 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, onWorkstationU
   const navItems = [
     { id: 'profile', label: 'Profile & General', icon: 'users' },
     { id: 'workspace', label: 'Workspace', icon: 'layers' },
-    {
+    // Kanban configuration and Integrations are workspace-wide settings — owner only.
+    ...(myRole === 'owner' ? [{
       id: 'kanban',
       label: 'Task Kanban',
       icon: 'list',
@@ -1409,10 +1411,10 @@ export const Settings = ({ user, activeWorkstation, onUserUpdate, onWorkstationU
         { id: 'kanban-tags', label: 'Task Tags' },
         { id: 'kanban-priorities', label: 'Priority Types' },
       ]
-    },
+    }] : []),
     { id: 'members', label: 'Members', icon: 'users' },
     ...(myRole === 'owner' ? [{ id: 'permissions', label: 'Permissions', icon: 'shield' }] : []),
-    { id: 'integrations', label: 'Integrations', icon: 'link' },
+    ...(myRole === 'owner' ? [{ id: 'integrations', label: 'Integrations', icon: 'link' }] : []),
   ];
 
   const [dragIdx, setDragIdx] = useState(null);

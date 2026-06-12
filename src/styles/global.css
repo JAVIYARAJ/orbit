@@ -5119,7 +5119,8 @@ button.collab-role-pill:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  height: 120px;
+  min-height: 120px;
+  height: auto;
   overflow: hidden;
 }
 
@@ -5131,6 +5132,7 @@ button.collab-role-pill:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .tcard .id {
@@ -5157,6 +5159,7 @@ button.collab-role-pill:hover:not(:disabled) {
   font-size: 10px;
   color: var(--accent-hi);
   letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
 .tcard .foot {
@@ -5167,6 +5170,7 @@ button.collab-role-pill:hover:not(:disabled) {
   font-family: var(--f-mono);
   font-size: 10px;
   color: var(--text-3);
+  flex-shrink: 0;
 }
 
 .tcard .hrs {
