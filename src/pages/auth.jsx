@@ -1,7 +1,7 @@
 // auth.jsx — Login, Sign-up, Forgot password, Email confirmation, Reset password
 
 import { useState, useEffect } from 'react';
-import { Icon } from '../components/shell.jsx';
+import { Icon, OrbitMark } from '../components/shell.jsx';
 import { supabase } from '../lib/supabase.js';
 import { acceptInvite, getInviteByToken } from '../lib/db.js';
 import { useAuthConfig } from '../lib/useRemoteConfig.js';
@@ -10,9 +10,11 @@ import { useAuthConfig } from '../lib/useRemoteConfig.js';
 // SVG viewBox=400×400, center=(200,200).
 // Ring radii: r1=70, r2=120, r3=165.
 // left = 50 + (r/400)*100 * cos(deg)  |  top = 50 + (r/400)*100 * sin(deg)
-// Single accent color throughout — rings, dots, and pills all use #0ea5e9.
+// Brand violet throughout (the panel is always dark, so it's a fixed brand
+// color rather than the user's accent); one comet-cyan moon for contrast.
 // Rings are differentiated only by opacity and dash pattern, not color.
-const ACCENT = '#0ea5e9';
+const ACCENT = '#8b74ff';
+const COMET = '#22d3ee';
 
 const MODULE_ORBITALS = [
   // inner ring
@@ -171,11 +173,7 @@ export const AuthPage = ({ onAuth }) => {
 
         {/* Logo */}
         <div className="auth-logo">
-          <svg width="20" height="20" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
-            <circle cx="9" cy="9" r="3" fill="currentColor" />
-            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
-            <circle cx="9" cy="3" r="1.5" fill="currentColor" />
-          </svg>
+          <OrbitMark size={24} />
           <span>Orbit</span>
           <span className="auth-logo-ver">v1.0</span>
         </div>
@@ -198,39 +196,39 @@ export const AuthPage = ({ onAuth }) => {
             {/* SVG rings + animated dots */}
             <svg className="auth-orbital-svg" viewBox="0 0 400 400" fill="none">
               {/* Glow halos — single accent, fading outward */}
-              <circle cx="200" cy="200" r="72"  stroke="rgba(14,165,233,0.14)" strokeWidth="18" fill="none" />
-              <circle cx="200" cy="200" r="122" stroke="rgba(14,165,233,0.09)" strokeWidth="16" fill="none" />
-              <circle cx="200" cy="200" r="167" stroke="rgba(14,165,233,0.05)" strokeWidth="14" fill="none" />
+              <circle cx="200" cy="200" r="72"  stroke="rgba(124,92,255,0.14)" strokeWidth="18" fill="none" />
+              <circle cx="200" cy="200" r="122" stroke="rgba(124,92,255,0.09)" strokeWidth="16" fill="none" />
+              <circle cx="200" cy="200" r="167" stroke="rgba(124,92,255,0.05)" strokeWidth="14" fill="none" />
               {/* Rings — same color, differentiated by opacity + dash */}
-              <circle cx="200" cy="200" r="70"  stroke="rgba(14,165,233,0.55)" strokeWidth="1" />
-              <circle cx="200" cy="200" r="120" stroke="rgba(14,165,233,0.35)" strokeWidth="1" strokeDasharray="7 9" />
-              <circle cx="200" cy="200" r="165" stroke="rgba(14,165,233,0.20)" strokeWidth="1" strokeDasharray="3 11" />
+              <circle cx="200" cy="200" r="70"  stroke="rgba(124,92,255,0.55)" strokeWidth="1" />
+              <circle cx="200" cy="200" r="120" stroke="rgba(124,92,255,0.35)" strokeWidth="1" strokeDasharray="7 9" />
+              <circle cx="200" cy="200" r="165" stroke="rgba(124,92,255,0.20)" strokeWidth="1" strokeDasharray="3 11" />
               {/* Core */}
-              <circle cx="200" cy="200" r="32" fill="rgba(14,165,233,0.07)" stroke="rgba(14,165,233,0.40)" strokeWidth="1" />
-              <circle cx="200" cy="200" r="18" fill="rgba(14,165,233,0.18)" />
-              <circle cx="200" cy="200" r="8"  fill="#0ea5e9" />
-              <circle cx="200" cy="200" r="8" fill="#0ea5e9" opacity="0.35">
+              <circle cx="200" cy="200" r="32" fill="rgba(124,92,255,0.07)" stroke="rgba(124,92,255,0.40)" strokeWidth="1" />
+              <circle cx="200" cy="200" r="18" fill="rgba(124,92,255,0.18)" />
+              <circle cx="200" cy="200" r="8"  fill={ACCENT} />
+              <circle cx="200" cy="200" r="8" fill={ACCENT} opacity="0.35">
                 <animate attributeName="r" values="8;20;8" dur="2.8s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.35;0;0.35" dur="2.8s" repeatCount="indefinite" />
               </circle>
               {/* Orbiting dots — same accent */}
               <g className="auth-orb-g1">
-                <circle cx="270" cy="200" r="5" fill="#0ea5e9" />
-                <circle cx="270" cy="200" r="5" fill="#0ea5e9" opacity="0.3">
+                <circle cx="270" cy="200" r="5" fill={ACCENT} />
+                <circle cx="270" cy="200" r="5" fill={ACCENT} opacity="0.3">
                   <animate attributeName="r" values="5;11;5" dur="2s" repeatCount="indefinite" />
                   <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" />
                 </circle>
               </g>
               <g className="auth-orb-g2">
-                <circle cx="320" cy="200" r="4.5" fill="#0ea5e9" />
-                <circle cx="320" cy="200" r="4.5" fill="#0ea5e9" opacity="0.25">
+                <circle cx="320" cy="200" r="4.5" fill={COMET} />
+                <circle cx="320" cy="200" r="4.5" fill={COMET} opacity="0.25">
                   <animate attributeName="r" values="4.5;10;4.5" dur="2.5s" repeatCount="indefinite" />
                   <animate attributeName="opacity" values="0.25;0;0.25" dur="2.5s" repeatCount="indefinite" />
                 </circle>
               </g>
               <g className="auth-orb-g3">
-                <circle cx="365" cy="200" r="4" fill="#0ea5e9" />
-                <circle cx="365" cy="200" r="4" fill="#0ea5e9" opacity="0.2">
+                <circle cx="365" cy="200" r="4" fill={ACCENT} />
+                <circle cx="365" cy="200" r="4" fill={ACCENT} opacity="0.2">
                   <animate attributeName="r" values="4;9;4" dur="3s" repeatCount="indefinite" />
                   <animate attributeName="opacity" values="0.2;0;0.2" dur="3s" repeatCount="indefinite" />
                 </circle>
@@ -273,11 +271,7 @@ export const AuthPage = ({ onAuth }) => {
             {/* Unified mobile header */}
             <div className="auth-m-header">
               <div className="auth-m-logo">
-                <svg width="28" height="28" viewBox="0 0 18 18" fill="none">
-                  <circle cx="9" cy="9" r="3" fill="currentColor" />
-                  <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
-                  <circle cx="9" cy="3" r="1.5" fill="currentColor" />
-                </svg>
+                <OrbitMark size={30} />
                 <span>Orbit</span>
               </div>
               <div className="auth-m-subtitle">Developer Workspace</div>
@@ -289,7 +283,7 @@ export const AuthPage = ({ onAuth }) => {
                 <div className="auth-form-head">
                   <h2>
                     {googleAuthOnly ? 'Welcome to Orbit' :
-                      mode === 'login' ? 'Welcomee to Orbit' :
+                      mode === 'login' ? 'Welcome to Orbit' :
                         mode === 'signup' ? 'Create account' :
                           'Reset password'}
                   </h2>
@@ -549,11 +543,7 @@ export const ResetPasswordPage = ({ onDone }) => {
         <div className="auth-glow auth-glow-2" />
         <div className="auth-glow auth-glow-3" />
         <div className="auth-logo">
-          <svg width="20" height="20" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
-            <circle cx="9" cy="9" r="3" fill="currentColor" />
-            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
-            <circle cx="9" cy="3" r="1.5" fill="currentColor" />
-          </svg>
+          <OrbitMark size={24} />
           <span>Orbit</span>
           <span className="auth-logo-ver">v1.0</span>
         </div>
@@ -570,14 +560,14 @@ export const ResetPasswordPage = ({ onDone }) => {
         <div className="auth-orbital-wrap" style={{ flex: 1, minHeight: 0 }}>
           <div className="auth-orbital">
             <svg className="auth-orbital-svg" viewBox="0 0 260 260" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="130" cy="130" r="50" stroke="rgba(0,153,255,0.15)" strokeWidth="1" />
-              <circle cx="130" cy="130" r="80" stroke="rgba(0,153,255,0.10)" strokeWidth="1" strokeDasharray="4 6" />
+              <circle cx="130" cy="130" r="50" stroke="rgba(124,92,255,0.15)" strokeWidth="1" />
+              <circle cx="130" cy="130" r="80" stroke="rgba(124,92,255,0.10)" strokeWidth="1" strokeDasharray="4 6" />
               <circle cx="130" cy="130" r="112" stroke="rgba(168,85,247,0.10)" strokeWidth="1" strokeDasharray="2 10" />
-              <circle cx="130" cy="130" r="26" fill="rgba(0,153,255,0.08)" stroke="rgba(0,153,255,0.35)" strokeWidth="1.5" />
-              <circle cx="130" cy="130" r="14" fill="rgba(0,153,255,0.15)" />
-              <circle cx="130" cy="130" r="7" fill="#0099ff" />
-              <circle className="auth-orb-dot-1" cx="180" cy="130" r="5" fill="#0099ff" />
-              <circle className="auth-orb-dot-2" cx="130" cy="50" r="4" fill="#a855f7" />
+              <circle cx="130" cy="130" r="26" fill="rgba(124,92,255,0.08)" stroke="rgba(124,92,255,0.35)" strokeWidth="1.5" />
+              <circle cx="130" cy="130" r="14" fill="rgba(124,92,255,0.15)" />
+              <circle cx="130" cy="130" r="7" fill={ACCENT} />
+              <circle className="auth-orb-dot-1" cx="180" cy="130" r="5" fill={ACCENT} />
+              <circle className="auth-orb-dot-2" cx="130" cy="50" r="4" fill={COMET} />
             </svg>
           </div>
         </div>
@@ -596,11 +586,7 @@ export const ResetPasswordPage = ({ onDone }) => {
           {/* Mobile-only brand header */}
           <div className="auth-m-header">
             <div className="auth-m-logo">
-              <svg width="28" height="28" viewBox="0 0 18 18" fill="none">
-                <circle cx="9" cy="9" r="3" fill="currentColor" />
-                <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
-                <circle cx="9" cy="3" r="1.5" fill="currentColor" />
-              </svg>
+              <OrbitMark size={30} />
               <span>Orbit</span>
             </div>
             <div className="auth-m-subtitle">Developer Workspace</div>

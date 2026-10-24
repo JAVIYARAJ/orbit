@@ -1,6 +1,6 @@
 // shell.jsx — Sidebar, Topbar, Command Palette, SlidePanel
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { canAccessModule } from '../lib/permissions.js';
 import { fmtRelativeNotif } from '../lib/dateUtils.js';
@@ -82,6 +82,28 @@ export const Icon = ({ name, size = 16 }) => {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
       {paths[name] || null}
+    </svg>
+  );
+};
+
+// ─── Brand mark ────────────────────────────────────────────────────
+// Planet + tilted orbit + moon, painted with the live accent → comet-cyan
+// gradient so it follows the user's accent choice.
+// Each instance gets its own gradient id: a shared id breaks when the first
+// copy sits in a display:none subtree (e.g. the desktop-only auth panel).
+export const OrbitMark = ({ size = 24 }) => {
+  const gid = 'orbit-mark-' + useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  return (
+    <svg className="orbit-mark" width={size} height={size} viewBox="0 0 26 26" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id={gid} x1="3" y1="3" x2="23" y2="23" gradientUnits="userSpaceOnUse">
+          <stop offset="0" style={{ stopColor: 'var(--accent)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--accent-2)' }} />
+        </linearGradient>
+      </defs>
+      <ellipse cx="13" cy="13" rx="11" ry="4.6" transform="rotate(-28 13 13)" stroke={`url(#${gid})`} strokeWidth="1.6" opacity="0.9" />
+      <circle cx="13" cy="13" r="4.8" fill={`url(#${gid})`} />
+      <g className="orbit-moon"><circle cx="13" cy="2.6" r="1.7" style={{ fill: 'var(--accent-2)' }} /></g>
     </svg>
   );
 };
@@ -247,11 +269,7 @@ export const Sidebar = ({
     />
     <aside className={'sb' + (mobileOpen ? ' mobile-open' : '')}>
       <div className="sb-brand">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ flexShrink: 0 }}>
-          <circle cx="9" cy="9" r="3" fill="currentColor" />
-          <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="2" fill="none" />
-          <circle cx="9" cy="3" r="1.5" fill="currentColor" />
-        </svg>
+        <OrbitMark size={24} />
         <span className="label">Orbit</span>
         <span className="v">v1.0</span>
       </div>

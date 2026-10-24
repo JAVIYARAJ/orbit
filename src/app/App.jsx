@@ -36,15 +36,14 @@ import { RoleChooser } from '../pages/role-chooser.jsx';
 
 function AdminForbidden({ email, onHome }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      height: '100vh', background: '#0f0f0f', color: '#e7e7ea', fontFamily: 'system-ui', gap: 14, textAlign: 'center', padding: 24 }}>
-      <div style={{ fontSize: 22, fontWeight: 800 }}>Admin access required</div>
-      <div style={{ color: '#8b8b93', maxWidth: 420 }}>
-        You’re signed in as <b>{email}</b>, which isn’t an admin account. This area is restricted.
+    <div className="orbit-gate">
+      <div className="orbit-gate-card">
+        <div className="orbit-gate-title">Admin access required</div>
+        <div className="orbit-gate-sub">
+          You’re signed in as <b>{email}</b>, which isn’t an admin account. This area is restricted.
+        </div>
+        <button className="btn primary" onClick={onHome}>Back to app</button>
       </div>
-      <button onClick={onHome} style={{ marginTop: 8, padding: '10px 18px', borderRadius: 10, background: '#6366f1', color: '#fff', fontWeight: 700, border: 0, cursor: 'pointer' }}>
-        Back to app
-      </button>
     </div>
   );
 }
@@ -52,16 +51,45 @@ import { useRemoteConfig } from '../lib/useRemoteConfig.js';
 import { canAccessModule } from '../lib/permissions.js';
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "accent": "#0099ff",
+  "accent": "#7c5cff",
   "density": "regular",
   "sidebarStart": "expanded",
-  "monoFont": "IBM Plex Mono",
-  "headingFont": "Syne",
-  "surface": "true-black",
+  "monoFont": "Geist Mono",
+  "headingFont": "Sora",
+  "surface": "space",
   "texture": false,
   "scanlines": false,
   "theme": "dark"
 }/*EDITMODE-END*/;
+
+// Light/dark is the one appearance choice people expect to stick across
+// reloads, so it is persisted outside the tweak defaults.
+const THEME_KEY = 'orbit:theme';
+const readSavedTheme = () => {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    return v === 'light' || v === 'dark' ? v : null;
+  } catch { return null; }
+};
+
+// Per-theme surface/border/text tokens. bg-0 = page canvas, bg-1 = elevated
+// surface (cards, sidebar), bg-2 = inset (inputs), bg-3 = hover, bg-4 = active.
+const SURFACES = {
+  space:        { '--bg-0': '#07070d', '--bg-1': '#0d0d17', '--bg-2': '#13131f', '--bg-3': '#1a1a29', '--bg-4': '#222234' },
+  'true-black': { '--bg-0': '#000000', '--bg-1': '#09090d', '--bg-2': '#101016', '--bg-3': '#17171f', '--bg-4': '#1f1f29' },
+  charcoal:     { '--bg-0': '#131318', '--bg-1': '#191920', '--bg-2': '#1f1f28', '--bg-3': '#262631', '--bg-4': '#2e2e3b' },
+};
+const DARK_TOKENS = {
+  '--border': '#1f1f33', '--border-2': '#2a2a42', '--border-3': '#36365a',
+  '--text': '#eeeef8', '--text-2': '#a5a5c0', '--text-3': '#70708f', '--text-4': '#4a4a66',
+  '--glass-bg': 'rgba(13,13,23,0.72)', '--glass-border': 'rgba(255,255,255,0.06)',
+};
+const LIGHT_TOKENS = {
+  '--bg-0': '#f4f4fa', '--bg-1': '#ffffff', '--bg-2': '#f7f7fc', '--bg-3': '#eeeef7', '--bg-4': '#e4e4f1',
+  '--border': '#e6e6f0', '--border-2': '#d8d8e8', '--border-3': '#c4c4da',
+  '--text': '#14141f', '--text-2': '#45455e', '--text-3': '#727290', '--text-4': '#a6a6bf',
+  '--glass-bg': 'rgba(255,255,255,0.78)', '--glass-border': 'rgba(20,20,60,0.08)',
+};
 
 const FORMAT_TIME = (sec) => {
   const h = Math.floor(sec / 3600);
@@ -113,15 +141,14 @@ function PageRouter({ current, ...props }) {
 }
 
 const Loading = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
-                height: '100vh', background: 'var(--bg-0)', color: 'var(--text-3)',
-                fontFamily: 'var(--f-mono)', fontSize: 12, letterSpacing: '0.08em' }}>
-    LOADING…
+  <div className="orbit-loading" role="status" aria-label="Loading">
+    <div className="orbit-loader" aria-hidden="true"><i /><i /><b /></div>
+    <span>Loading workspace</span>
   </div>
 );
 
 export default function App() {
-  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [t, setTweak] = useTweaks({ ...TWEAK_DEFAULTS, theme: readSavedTheme() || TWEAK_DEFAULTS.theme });
   const enabledModules = useRemoteConfig();
 
   // ── Auth ────────────────────────────────────────────────────────
@@ -649,71 +676,34 @@ export default function App() {
     const isLight = (t.theme || 'dark') === 'light';
 
     root.setAttribute('data-theme', isLight ? 'light' : 'dark');
+    root.style.colorScheme = isLight ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark'); } catch { /* storage blocked */ }
 
-    const hexToRgba = (hex, alpha) => {
-      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-      if (!m) return '';
-      return `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${alpha})`;
+    const rgb = (hex) => {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+      return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
     };
+    const accent = rgb(t.accent) ? t.accent : TWEAK_DEFAULTS.accent;
+    const [r, g, b] = rgb(accent);
+    // accent-hi: the accent pushed toward white — used for text/icons on dark
+    // tints, so it stays legible whichever accent is picked.
+    const lift = (c) => Math.round(c + (255 - c) * 0.38);
+    const hi = `rgb(${lift(r)},${lift(g)},${lift(b)})`;
 
-    // Accent (same in both themes)
-    root.style.setProperty('--accent',       t.accent);
-    root.style.setProperty('--accent-tint',  hexToRgba(t.accent, 0.12));
-    root.style.setProperty('--accent-tint-2',hexToRgba(t.accent, 0.22));
+    // Accent (same hue in both themes; light mode uses the base accent for text)
+    root.style.setProperty('--accent',       accent);
+    root.style.setProperty('--accent-hi',    isLight ? accent : hi);
+    root.style.setProperty('--accent-tint',  `rgba(${r},${g},${b},${isLight ? 0.09 : 0.12})`);
+    root.style.setProperty('--accent-tint-2',`rgba(${r},${g},${b},${isLight ? 0.18 : 0.22})`);
 
     // Fonts (same in both themes)
     root.style.setProperty('--f-mono',    `'${t.monoFont}', ui-monospace, monospace`);
     root.style.setProperty('--f-display', `'${t.headingFont}', ui-sans-serif, sans-serif`);
 
-    if (isLight) {
-      // ── Light surfaces ──────────────────────────────────────────
-      // bg-0 = page canvas (slightly gray so cards lift off it)
-      // bg-1 = elevated surface: cards, panels, sidebar (white)
-      // bg-2 = secondary surface inside cards: inputs, nested content
-      // bg-3 = hover/active tint, tag backgrounds
-      // bg-4 = strong divider or active chip background
-      root.style.setProperty('--bg-0',  '#f0f0f5');   // page background
-      root.style.setProperty('--bg-1',  '#ffffff');   // cards, panels, sidebar
-      root.style.setProperty('--bg-2',  '#f5f5f8');   // inner content, inputs
-      root.style.setProperty('--bg-3',  '#eaeaef');   // hover, nested bg
-      root.style.setProperty('--bg-4',  '#dfdfe8');   // active chip, strong divider
-      // Borders — visible but not harsh
-      root.style.setProperty('--border',   '#e2e2ec');
-      root.style.setProperty('--border-2', '#d0d0dc');
-      root.style.setProperty('--border-3', '#bcbccc');
-      // Text — proper contrast hierarchy on white
-      root.style.setProperty('--text',   '#111118');  // primary — near-black
-      root.style.setProperty('--text-2', '#44445a');  // secondary
-      root.style.setProperty('--text-3', '#7a7a8e');  // muted labels
-      root.style.setProperty('--text-4', '#aaaabb');  // placeholders, disabled
-      // Glass — just solid in light mode, no blur effect
-      root.style.setProperty('--glass-bg',     '#ffffff');
-      root.style.setProperty('--glass-border', '#e2e2ec');
-    } else {
-      // ── Dark surfaces ───────────────────────────────────────────
-      if (t.surface === 'charcoal') {
-        root.style.setProperty('--bg-0', '#15151a');
-        root.style.setProperty('--bg-1', '#1a1a20');
-        root.style.setProperty('--bg-2', '#1f1f26');
-        root.style.setProperty('--bg-3', '#252530');
-        root.style.setProperty('--bg-4', '#2b2b38');
-      } else {
-        root.style.setProperty('--bg-0', '#09090b');
-        root.style.setProperty('--bg-1', '#0f0f14');
-        root.style.setProperty('--bg-2', '#14141b');
-        root.style.setProperty('--bg-3', '#1a1a23');
-        root.style.setProperty('--bg-4', '#212129');
-      }
-      root.style.setProperty('--border',   '#242430');
-      root.style.setProperty('--border-2', '#2d2d3a');
-      root.style.setProperty('--border-3', '#35353f');
-      root.style.setProperty('--text',   '#f0f0f2');
-      root.style.setProperty('--text-2', '#a0a0a8');
-      root.style.setProperty('--text-3', '#6a6a78');
-      root.style.setProperty('--text-4', '#45454f');
-      root.style.setProperty('--glass-bg',     'rgba(15,15,20,0.75)');
-      root.style.setProperty('--glass-border', 'rgba(36,36,48,0.5)');
-    }
+    const tokens = isLight
+      ? LIGHT_TOKENS
+      : { ...(SURFACES[t.surface] || SURFACES.space), ...DARK_TOKENS };
+    Object.entries(tokens).forEach(([k, v]) => root.style.setProperty(k, v));
 
     document.body.classList.toggle('texture-grid', !!t.texture && !isLight);
     document.body.classList.toggle('scanlines',    !!t.scanlines && !isLight);
@@ -974,20 +964,20 @@ export default function App() {
           options={[{value:'dark',label:'Dark'},{value:'light',label:'Light'}]}
           onChange={v => setTweak('theme', v)} />
         <TweakColor label="Accent" value={t.accent}
-          options={['#0099ff','#0175C2','#7C3AED','#16A34A','#D97706','#EF4444']}
+          options={['#7c5cff','#4f7cff','#06b6d4','#10b981','#f59e0b','#f43f5e']}
           onChange={v => setTweak('accent', v)} />
         <TweakRadio label="Surface" value={t.surface}
-          options={[{value:'true-black',label:'True black'},{value:'charcoal',label:'Charcoal'}]}
+          options={[{value:'space',label:'Space'},{value:'true-black',label:'Black'},{value:'charcoal',label:'Charcoal'}]}
           onChange={v => setTweak('surface', v)} />
         <TweakToggle label="Grid texture" value={t.texture} onChange={v => setTweak('texture', v)} />
         <TweakToggle label="Scanlines (CRT)" value={t.scanlines} onChange={v => setTweak('scanlines', v)} />
 
         <TweakSection label="Typography" />
         <TweakSelect label="Heading" value={t.headingFont}
-          options={['Syne','Space Grotesk','JetBrains Mono','IBM Plex Sans']}
+          options={['Sora','Space Grotesk','Geist','Syne']}
           onChange={v => setTweak('headingFont', v)} />
         <TweakSelect label="Mono" value={t.monoFont}
-          options={['IBM Plex Mono','JetBrains Mono','Geist Mono','Space Mono']}
+          options={['Geist Mono','JetBrains Mono','IBM Plex Mono','Space Mono']}
           onChange={v => setTweak('monoFont', v)} />
 
         <TweakSection label="Layout" />

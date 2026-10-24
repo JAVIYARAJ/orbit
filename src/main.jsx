@@ -4,5 +4,6 @@ import App from './app/App.jsx';
 import './styles/global.css';
 import './styles/landing.css';
 import './styles/admin.css';
+import './styles/orbit-theme.css';
 
 createRoot(document.getElementById('root')).render(<App />);
